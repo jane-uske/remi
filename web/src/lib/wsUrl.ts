@@ -20,10 +20,25 @@ function browserWsProtocol(): "ws" | "wss" {
   return window.location.protocol === "https:" ? "wss" : "ws";
 }
 
+function appendTokenFromPage(wsUrl: string): string {
+  if (typeof window === "undefined") return wsUrl;
+  const token = new URLSearchParams(window.location.search).get("token");
+  if (!token) return wsUrl;
+  try {
+    const url = new URL(wsUrl);
+    if (!url.searchParams.get("token")) {
+      url.searchParams.set("token", token);
+    }
+    return url.toString();
+  } catch {
+    return wsUrl;
+  }
+}
+
 export function getRemWsUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
-    return normalizeEnvWsUrl(fromEnv);
+    return appendTokenFromPage(normalizeEnvWsUrl(fromEnv));
   }
   if (typeof window === "undefined") return "";
 
@@ -33,8 +48,8 @@ export function getRemWsUrl(): string {
 
   // Next 单独 dev 常见 3001/3002；后端默认 PORT=3000
   if (port === "3001" || port === "3002") {
-    return `${protocol}://${hostname}:3000/ws`;
+    return appendTokenFromPage(`${protocol}://${hostname}:3000/ws`);
   }
 
-  return `${protocol}://${window.location.host}/ws`;
+  return appendTokenFromPage(`${protocol}://${window.location.host}/ws`);
 }

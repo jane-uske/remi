@@ -1,4 +1,4 @@
-const { loadModule } = require("../utils/module_loader.ts") as typeof import("../utils/module_loader");
+const { loadModule } = require("../utils/module_loader") as typeof import("../utils/module_loader");
 import type {
   AvatarIntent,
   AvatarIntentBeat,

@@ -16,7 +16,8 @@ COPY utils/ ./utils/
 COPY avatar/ ./avatar/
 COPY storage/ ./storage/
 COPY infra/ ./infra/
-RUN npm run build
+COPY persona/ ./persona/
+RUN npx tsc
 
 # Stage 2: Build frontend
 FROM node:20-alpine AS frontend-build
@@ -24,6 +25,7 @@ WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
 COPY web/ ./
+COPY avatar/ ../avatar/
 RUN npm run build
 
 # Stage 3: Production
@@ -38,7 +40,6 @@ COPY --from=frontend-build /app/web/package.json ./web/package.json
 COPY --from=frontend-build /app/web/next.config.ts ./web/next.config.ts
 COPY --from=frontend-build /app/web/public ./web/public
 COPY avatar/assets ./avatar/assets
-COPY public ./public
 EXPOSE 3000
 ENV NODE_ENV=production
 CMD ["node", "dist/server/server.js"]

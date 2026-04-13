@@ -115,10 +115,35 @@ function mergeTranscriptTexts(prev: string, next: string): string | null {
   return null;
 }
 
-function loadPersistedMessages(): ChatMessage[] {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = atob(padded);
+    const payload = JSON.parse(json) as unknown;
+    if (!payload || typeof payload !== "object") return null;
+    return payload as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function resolveMessageStorageKey(): string {
+  if (typeof window === "undefined") return MESSAGE_STORAGE_KEY;
+  const token = new URLSearchParams(window.location.search).get("token");
+  if (!token) return MESSAGE_STORAGE_KEY;
+  const payload = decodeJwtPayload(token);
+  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
+  if (!userId) return MESSAGE_STORAGE_KEY;
+  return `${MESSAGE_STORAGE_KEY}:${userId}`;
+}
+
+function loadPersistedMessages(storageKey: string): ChatMessage[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(MESSAGE_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -167,6 +192,7 @@ export function useRemChat() {
   const [recording, setRecording] = useState(false);
   const [duplex, setDuplex] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
+  const messageStorageKey = useMemo(() => resolveMessageStorageKey(), []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const waitingRef = useRef(false);
@@ -1212,7 +1238,7 @@ export function useRemChat() {
           commitTurnState("confirmed_end", "confirmed_end", { kind: "system" });
           setMessages([]);
           try {
-            localStorage.removeItem(MESSAGE_STORAGE_KEY);
+            localStorage.removeItem(messageStorageKey);
           } catch {
             /* noop */
           }
@@ -1290,10 +1316,10 @@ export function useRemChat() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const persisted = loadPersistedMessages();
+    const persisted = loadPersistedMessages(messageStorageKey);
     setMessages((current) => (current.length === 0 ? persisted : [...persisted, ...current]));
     setMessagesHydrated(true);
-  }, []);
+  }, [messageStorageKey]);
 
   useEffect(() => {
     if (!messagesHydrated || typeof window === "undefined") return;
@@ -1301,11 +1327,11 @@ export function useRemChat() {
       .filter((m) => m.role === "user" || m.role === "rem")
       .slice(-MESSAGE_STORAGE_MAX);
     try {
-      localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(persist));
+      localStorage.setItem(messageStorageKey, JSON.stringify(persist));
     } catch {
       /* quota or private mode */
     }
-  }, [messages, messagesHydrated]);
+  }, [messages, messagesHydrated, messageStorageKey]);
 
   /* ── Text chat ── */
 

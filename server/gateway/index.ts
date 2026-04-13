@@ -217,8 +217,10 @@ async function handleAccessLogin(req: IncomingMessage, res: http.ServerResponse)
 
 function denyWithoutAccessCookie(req: IncomingMessage, res: http.ServerResponse): boolean {
   if (!hasSharedPasswordGate()) return false;
+  if (isLocalLoopbackRequest(req)) return false;
   const pathname = requestPathname(req);
   if (pathname === "/health" || pathname === ACCESS_LOGIN_PATH) return false;
+  if (hasValidAuthToken(req)) return false;
   if (hasValidAccessCookie(req)) return false;
 
   if (req.method === "GET" || req.method === "HEAD") {
@@ -260,7 +262,35 @@ function extractWsToken(req: IncomingMessage): string | null {
   return extractAuthToken(req);
 }
 
-const AUTH_SKIP_PREFIXES = ["/_next/", "/favicon.ico", "/__nextjs"];
+function hasValidAuthToken(req: IncomingMessage): boolean {
+  const token = extractWsToken(req);
+  if (!token) return false;
+  return !!verifyToken(token);
+}
+
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.trim().toLowerCase();
+  return (
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::ffff:127.0.0.1"
+  );
+}
+
+function requestHost(req: IncomingMessage): string {
+  const host = req.headers.host;
+  if (typeof host !== "string" || host.trim() === "") return "";
+  return host.split(":")[0].trim().toLowerCase();
+}
+
+function isLocalLoopbackRequest(req: IncomingMessage): boolean {
+  const host = requestHost(req);
+  if (host !== "localhost" && host !== "127.0.0.1") return false;
+  return isLoopbackAddress(req.socket.remoteAddress);
+}
+
+const AUTH_SKIP_PREFIXES = ["/_next/", "/favicon.ico", "/__nextjs", "/vrm/"];
 
 function shouldSkipAuth(pathname: string): boolean {
   return AUTH_SKIP_PREFIXES.some((p) => pathname.startsWith(p));
@@ -339,15 +369,15 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       }
 
       if (useAuth && !shouldSkipAuth(pathname ?? "/")) {
-        const token = extractAuthToken(req);
-        if (!token) {
+        const token = extractWsToken(req);
+        if (!token && !isLocalLoopbackRequest(req)) {
           res.statusCode = 401;
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ error: "Missing token" }));
           return;
         }
-        const payload = verifyToken(token);
-        if (!payload) {
+        const payload = token ? verifyToken(token) : null;
+        if (!payload && token) {
           res.statusCode = 401;
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ error: "Invalid or expired token" }));
@@ -378,19 +408,23 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
     }
 
     if (hasSharedPasswordGate() && !hasValidAccessCookie(req)) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-
-    if (useAuth) {
-      const token = extractWsToken(req);
-      if (!token) {
+      if (isLocalLoopbackRequest(req)) {
+        // local browser debug path: do not force access-cookie gate on loopback
+      } else if (!hasValidAuthToken(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
       }
-      const payload = wsAuthenticateOnce(token);
+    }
+
+    if (useAuth) {
+      const token = extractWsToken(req);
+      if (!token && !isLocalLoopbackRequest(req)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      const payload = token ? wsAuthenticateOnce(token) : { id: "dev" };
       if (!payload) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
