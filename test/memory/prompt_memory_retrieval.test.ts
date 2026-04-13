@@ -106,8 +106,8 @@ describe("prompt memory retrieval", () => {
     assert.deepEqual(memories.map((entry) => entry.key), ["名字", "城市", "收藏歌手"]);
   });
 
-  it("can explicitly recall one core episode and one active episode from the structured layer", () => {
-    const recalled = recallEpisodes(
+  it("can explicitly recall one core episode and one active episode from the structured layer", async () => {
+    const recalled = await recallEpisodes(
       {
         userProfile: {
           facts: new Map(),

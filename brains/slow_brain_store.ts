@@ -51,6 +51,13 @@ export interface ContinuityCueState {
   lastSharedMomentTurn: number;
 }
 
+export interface TopicBoundaryState {
+  blockedTopic: string;
+  blockedKeywords: string[];
+  setAtTurn: number;
+  expiresAtTurn: number;
+}
+
 export interface TopicThread {
   topic: string;
   summary: string;
@@ -121,6 +128,7 @@ export interface SlowBrainSnapshot {
   episodes?: Episode[];
   topicThreads?: TopicThread[];
   continuityCueState: ContinuityCueState;
+  topicBoundaryState?: TopicBoundaryState;
   proactiveLedger?: ProactiveLedgerEntry[];
   proactiveStrategyState?: ProactiveStrategyState;
   relationshipStageLabel?: string;
@@ -169,6 +177,7 @@ export class SlowBrainStore {
     lastSharedMomentSummary: "",
     lastSharedMomentTurn: -100,
   };
+  private topicBoundaryState: TopicBoundaryState | null = null;
   private readonly proactiveLedger = new Map<string, ProactiveLedgerEntry>();
   private readonly proactiveStrategyState: ProactiveStrategyState = {
     lastUserTurnAt: 0,
@@ -481,6 +490,7 @@ export class SlowBrainStore {
       state.proactiveStrategyState.cooldownUntilAt;
     this.proactiveStrategyState.lastProactiveMode =
       state.proactiveStrategyState.lastProactiveMode ?? "";
+    this.topicBoundaryState = null;
     this.invalidateDerivedCache();
   }
 
@@ -501,6 +511,7 @@ export class SlowBrainStore {
       episodes: this.cloneEpisodesForSnapshot(derived.episodes),
       topicThreads: this.cloneTopicThreadsForSnapshot(derived.topicThreads),
       continuityCueState: { ...this.continuityCueState },
+      topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
       proactiveStrategyState: { ...this.proactiveStrategyState },
       relationshipStageLabel: derived.relationshipStageLabel,
@@ -511,6 +522,7 @@ export class SlowBrainStore {
   }
 
   recordUserTurnActivity(userMessage?: string): void {
+    this.observeUserTopicBoundary(userMessage ?? "");
     if (
       this.proactiveStrategyState.lastProactiveAt > 0 &&
       this.proactiveStrategyState.lastProactiveAt >= this.proactiveStrategyState.lastUserTurnAt
@@ -522,6 +534,35 @@ export class SlowBrainStore {
     this.proactiveStrategyState.consecutiveProactiveCount = 0;
     this.proactiveStrategyState.nudgesSinceLastUserTurn = 0;
     this.invalidateDerivedCache();
+  }
+
+  observeUserTopicBoundary(userMessage: string): void {
+    const signal = detectTopicBoundarySignal(userMessage);
+    const activeBoundary = this.getActiveTopicBoundaryState();
+    if (!signal) {
+      if (!activeBoundary && this.topicBoundaryState) {
+        this.topicBoundaryState = null;
+        this.invalidateDerivedCache();
+      }
+      return;
+    }
+
+    const nextState: TopicBoundaryState = {
+      blockedTopic: signal.topic,
+      blockedKeywords: signal.keywords,
+      setAtTurn: this.relationship.turnCount,
+      expiresAtTurn: this.relationship.turnCount + topicBoundaryTtlTurns(),
+    };
+    const changed =
+      !activeBoundary ||
+      activeBoundary.blockedTopic !== nextState.blockedTopic ||
+      activeBoundary.expiresAtTurn !== nextState.expiresAtTurn ||
+      keywordOverlapCount(activeBoundary.blockedKeywords, nextState.blockedKeywords) !==
+        nextState.blockedKeywords.length;
+    this.topicBoundaryState = nextState;
+    if (changed) {
+      this.invalidateDerivedCache();
+    }
   }
 
   recordProactiveOutreach(mode?: ProactiveMode, key?: string): void {
@@ -700,6 +741,11 @@ export class SlowBrainStore {
       );
     }
 
+    if (snapshot.topicBoundaryState) {
+      const topic = snapshot.topicBoundaryState.blockedTopic || "当前话题";
+      sections.push(`【话题边界】用户刚说先不聊「${topic}」，本轮不要主动拉回这条线。`);
+    }
+
     if ((snapshot.topicThreads ?? []).length > 0) {
       const threads = (snapshot.topicThreads ?? []).slice(0, 3);
       const coreLines = threads
@@ -740,10 +786,15 @@ export class SlowBrainStore {
   }
 
   buildConversationGuidance(userMessage: string): ConversationGuidance {
+    this.observeUserTopicBoundary(userMessage);
     const snap = this.getSnapshot();
     const lines: string[] = [];
 
     const { familiarity, emotionalBond, turnCount } = snap.relationship;
+    const sceneImmersionGuidance = buildSceneImmersionGuidance(userMessage);
+    if (sceneImmersionGuidance) {
+      lines.push(sceneImmersionGuidance);
+    }
     const realtimeContinuityHint = buildRealtimeContinuityHint(snap, userMessage);
     if (realtimeContinuityHint) {
       lines.push(realtimeContinuityHint);
@@ -780,13 +831,21 @@ export class SlowBrainStore {
     }
 
     const trimmed = userMessage.trim();
-    if (trimmed.length > 0 && trimmed.length < 12) {
+    if (trimmed.length > 0 && trimmed.length < 12 && !isSceneImmersionLike(trimmed)) {
       lines.push("本轮用户说得简短：可轻问一句「想多聊聊吗」或接话展开，别长篇。");
     }
 
-    if (snap.proactiveTopics.length > 0 && familiarity > 0.35) {
+    if (snap.topicBoundaryState) {
+      const topic = snap.topicBoundaryState.blockedTopic || "当前话题";
+      lines.push(`【话题边界】用户刚明确说先不聊「${topic}」，请尊重边界，不要再把话题拉回去。`);
+    }
+
+    const filteredProactiveTopics = snap.proactiveTopics.filter(
+      (topic) => !topicViolatesBoundary(topic, snap),
+    );
+    if (filteredProactiveTopics.length > 0 && familiarity > 0.35) {
       lines.push(
-        `若用户话少或冷场，可从这些方向自然接话：${snap.proactiveTopics.slice(0, 2).join("、")}。`,
+        `若用户话少或冷场，可从这些方向自然接话：${filteredProactiveTopics.slice(0, 2).join("、")}。`,
       );
     }
 
@@ -842,6 +901,20 @@ export class SlowBrainStore {
     this.derivedCache = null;
   }
 
+  private getActiveTopicBoundaryState(): TopicBoundaryState | null {
+    if (!this.topicBoundaryState) return null;
+    if (this.relationship.turnCount > this.topicBoundaryState.expiresAtTurn) {
+      this.topicBoundaryState = null;
+      return null;
+    }
+    return {
+      blockedTopic: this.topicBoundaryState.blockedTopic,
+      blockedKeywords: [...this.topicBoundaryState.blockedKeywords],
+      setAtTurn: this.topicBoundaryState.setAtTurn,
+      expiresAtTurn: this.topicBoundaryState.expiresAtTurn,
+    };
+  }
+
   private buildDerivedInputs(
     episodes: Episode[],
     topicThreads: TopicThread[],
@@ -861,6 +934,7 @@ export class SlowBrainStore {
       episodes,
       topicThreads,
       continuityCueState: { ...this.continuityCueState },
+      topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
       proactiveStrategyState: { ...this.proactiveStrategyState },
       relationshipStageLabel: undefined,
@@ -1001,6 +1075,11 @@ function sharedMomentCooldownTurns(): number {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 4;
 }
 
+function topicBoundaryTtlTurns(): number {
+  const raw = Number(process.env.REM_TOPIC_BOUNDARY_TTL_TURNS ?? 4);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
+}
+
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
@@ -1139,7 +1218,16 @@ function buildRelationshipResponseShapeGuidance(
 ): string | null {
   const trimmed = userMessage.trim();
   if (!trimmed) return null;
+  if (isSceneImmersionLike(trimmed)) {
+    return "【回复结构】如果用户已经把你们放进同一个场景里，第一句直接承接正在发生的动作、距离或氛围；第二句再补一点感受或细节。不要把回复退回成“要不要我陪你想象”“想不想让我陪你”这类重新开场的邀请。";
+  }
   return `【回复结构】${buildRelationshipResponseShapeContract(snap)}`;
+}
+
+function buildSceneImmersionGuidance(userMessage: string): string | null {
+  const trimmed = userMessage.trim();
+  if (!isSceneImmersionLike(trimmed)) return null;
+  return "【场景承接】用户这句已经在共同场景里，不是在征求你要不要开始想象。请把场景当成正在发生来接：直接进入同一画面，不要先退回到邀请、确认或主持式提问。";
 }
 
 function buildRelationshipResponseShapeContract(snap: SlowBrainSnapshot): string {
@@ -1187,7 +1275,8 @@ function pickProactiveCue(
     const directMoment = snap.sharedMoments.find((entry) =>
       entry.unresolved &&
       (entry.kind === "support" || entry.kind === "stress") &&
-      Boolean((entry.hook || buildEpisodeFollowUpHook(entry)).trim()),
+      Boolean((entry.hook || buildEpisodeFollowUpHook(entry)).trim()) &&
+      !topicViolatesBoundary(entry.hook || buildEpisodeFollowUpHook(entry), snap),
     );
     if (directMoment) {
       const episode = (snap.episodes ?? []).find((entry) =>
@@ -1199,7 +1288,9 @@ function pickProactiveCue(
       };
     }
   }
-  const candidates = buildProactiveCandidates(snap);
+  const candidates = buildProactiveCandidates(snap).filter(
+    (candidate) => !topicViolatesBoundary(candidate.text, snap),
+  );
   if (candidates.length === 0) return null;
 
   const cooldownTurns = proactiveCooldownTurns();
@@ -1273,6 +1364,7 @@ function pickSharedMomentCue(
   const messageKeywords = new Set(extractKeywords(userMessage));
   const cooldownTurns = sharedMomentCooldownTurns();
   const moments = snap.sharedMoments
+    .filter((entry) => !topicViolatesBoundary(`${entry.summary} ${entry.topic} ${entry.hook}`, snap))
     .map((entry) => {
       const text = `${entry.summary} ${entry.topic} ${entry.hook}`.trim();
       const score =
@@ -1332,33 +1424,44 @@ function buildRealtimeContinuityHint(
     return `【实时连续性】如果对方是在接上文，优先顺着这段共同经历接回：${sharedMoment}`;
   }
 
-  const activeEpisode = (snap.episodes ?? []).find((entry) => entry.status === "active");
+  const activeEpisode = (snap.episodes ?? []).find((entry) =>
+    entry.status === "active" && !topicViolatesBoundary(entry.title, snap),
+  );
   if (activeEpisode) {
     return `【实时连续性】如果对方是在接上文，先顺着这条当前未完线接回：${activeEpisode.title}。`;
   }
 
-  const activeThread = (snap.topicThreads ?? []).find((entry) => entry.unresolvedCount > 0);
+  const activeThread = (snap.topicThreads ?? []).find((entry) =>
+    entry.unresolvedCount > 0 &&
+    !topicViolatesBoundary(`${entry.topic} ${entry.summary} ${entry.bridgeSummary ?? ""}`, snap),
+  );
   if (activeThread) {
     return `【实时连续性】如果对方是在接上文，先顺着这条当前未完线接回：${activeThread.topic}。`;
   }
 
-  const coreEpisode = (snap.episodes ?? []).find((entry) => entry.layer === "core");
+  const coreEpisode = (snap.episodes ?? []).find((entry) =>
+    entry.layer === "core" && !topicViolatesBoundary(entry.title, snap),
+  );
   if (coreEpisode) {
     return `【实时连续性】如果对方还是在接上文，优先顺着你们那条更长期的关系主线继续：${coreEpisode.title}。`;
   }
 
-  const coreThread = (snap.topicThreads ?? []).find((entry) => (entry.memoryLayer ?? "active") === "core");
+  const coreThread = (snap.topicThreads ?? []).find((entry) =>
+    (entry.memoryLayer ?? "active") === "core" &&
+    !topicViolatesBoundary(`${entry.topic} ${entry.summary} ${entry.bridgeSummary ?? ""}`, snap),
+  );
   if (coreThread) {
     return `【实时连续性】如果对方还是在接上文，优先顺着你们那条更长期的关系主线继续：${coreThread.topic}。`;
   }
 
-  if (snap.conversationSummary.trim()) {
+  if (snap.conversationSummary.trim() && !topicViolatesBoundary(snap.conversationSummary, snap)) {
     return `【实时连续性】如果对方还是在接上文，优先顺着最近主线继续：${snap.conversationSummary.trim().slice(0, 120)}`;
   }
 
   const topicSummary = snap.topicHistory
     .slice()
     .sort((a, b) => b.lastTurn - a.lastTurn || b.depth - a.depth)
+    .filter((entry) => !topicViolatesBoundary(entry.topic, snap))
     .slice(0, 2)
     .map((entry) => entry.topic)
     .join("、");
@@ -1952,12 +2055,70 @@ function shouldSuppressFreshContinuityReuse(
   return proactiveCooling || sharedCooling;
 }
 
+function topicViolatesBoundary(text: string, snap: SlowBrainSnapshot): boolean {
+  const boundary = snap.topicBoundaryState;
+  if (!boundary) return false;
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  const blockedTopic = normalizeText(boundary.blockedTopic);
+  if (blockedTopic && normalized.includes(blockedTopic)) return true;
+  if (boundary.blockedKeywords.length === 0) return true;
+  const overlap = keywordOverlapCount(boundary.blockedKeywords, extractKeywords(text));
+  return overlap > 0;
+}
+
+function stripTopicSuffix(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[，。！？,.!?；;]+$/u, "")
+    .replace(/(这个话题|这件事|这个事|这个|这件)$/u, "")
+    .replace(/(了|啦|吧|呀|啊|嘛|呢)$/u, "")
+    .trim();
+}
+
+function detectTopicBoundarySignal(
+  text: string,
+): { topic: string; keywords: string[] } | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const genericBoundary = /(先不说这个|先不聊这个|先别聊这个|不说这个|不聊这个|别聊这个|不要聊这个|换个话题|别说这个|不聊这个话题|不要聊这个话题)/u;
+  if (genericBoundary.test(trimmed)) {
+    return { topic: "当前话题", keywords: [] };
+  }
+
+  const match =
+    trimmed.match(/(?:不说|不聊|先不说|先不聊|别聊|先别聊|不要聊|别提|不要提|先别提)\s*([^\s，。！？,.!?；;]{1,18})/u) ??
+    trimmed.match(/([^\s，。！？,.!?；;]{1,18})\s*(?:先不说|先不聊|不说|不聊|别聊|不要聊|别提|不要提)/u);
+  if (!match) return null;
+  const rawTopic = stripTopicSuffix(match[1] ?? "");
+  if (!rawTopic) {
+    return { topic: "当前话题", keywords: [] };
+  }
+  if (/^(这个|这件事|这个事|这个话题|这件)$/u.test(rawTopic)) {
+    return { topic: "当前话题", keywords: [] };
+  }
+  return {
+    topic: rawTopic,
+    keywords: extractKeywords(rawTopic),
+  };
+}
+
 function isContinuationLike(text: string): boolean {
   return /继续|接着|刚才|还是那个|回到刚才|那个事|上次那个|然后呢|还有就是/u.test(text);
 }
 
 function isQuestionLike(text: string): boolean {
   return /[?？]|\bwhy\b|\bhow\b|怎么|为什么|是什么|什么意思|可不可以|能不能|要不要/u.test(text);
+}
+
+function isSceneImmersionLike(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || isQuestionLike(trimmed)) return false;
+  const actionLike =
+    /(牵手|十指相扣|抱着|抱住|搂着|搂住|靠在|依偎|贴着|亲吻|亲亲|接吻|并肩|散步|慢慢走|看海|看雨|看夜景|窝在|坐在你旁边|坐在我旁边|靠着你|靠着我|跟rem|和rem|跟你|和你)/u;
+  const sceneLike =
+    /(公园|海边|湖边|江边|长椅|路灯|天台|沙发|房间|床上|咖啡店|地铁|雨里|雪里|夜里|晚风|月色)/u;
+  return actionLike.test(trimmed) && (sceneLike.test(trimmed) || /[，,]/u.test(trimmed));
 }
 
 function isLowSignalTurn(text: string): boolean {

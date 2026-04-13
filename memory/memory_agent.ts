@@ -1,5 +1,6 @@
 import type { MemoryRepository } from "./memory_repository";
 import type { Memory } from "./memory_store";
+import { findRelevant as findRelevantEpisodes } from "./episode_store";
 import { createLogger } from "../infra/logger";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
@@ -9,6 +10,7 @@ const logger = createLogger("memory_agent");
 export type { Memory };
 
 export interface RetrievePromptMemoryOptions {
+  userId?: string;
   userMessage: string;
   slowBrainSnapshot?: SlowBrainSnapshot | null;
   maxEntries?: number;
@@ -110,6 +112,10 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
 
 function episodeLongHorizonRankingEnabled(): boolean {
   return parseBooleanFlag(process.env.REM_EPISODE_LONG_HORIZON_RANKING_ENABLED, true);
+}
+
+function episodeStorePromptEnabled(): boolean {
+  return parseBooleanFlag(process.env.REM_EPISODE_STORE_PROMPT_ENABLED, true);
 }
 
 function normalizeText(text: string): string {
@@ -302,12 +308,20 @@ function buildTopicThreadPromptMemory(
   return selected.slice(0, maxEntries);
 }
 
-export function recallEpisodes(
+type RecalledEpisode = {
+  id: string;
+  title: string;
+  summary: string;
+  layer: "active" | "core";
+  status: "active" | "cooling" | "resolved";
+};
+
+function recallEpisodesFromSnapshot(
   slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
   userMessage: string,
 ): {
-  core?: NonNullable<SlowBrainSnapshot["episodes"]>[number];
-  active?: NonNullable<SlowBrainSnapshot["episodes"]>[number];
+  core?: RecalledEpisode;
+  active?: RecalledEpisode;
 } {
   const episodes = slowBrainSnapshot?.episodes ?? [];
   if (episodes.length === 0) return {};
@@ -351,6 +365,80 @@ export function recallEpisodes(
   }
 
   return { core, active };
+}
+
+function mapPersistentEpisodeToRecalledEpisode(
+  entry: {
+    id: string;
+    title: string;
+    summary: string;
+    unresolved: boolean;
+    status: string;
+    relationship_weight: number;
+    recurrence_count: number;
+    topics: string[];
+  },
+): RecalledEpisode {
+  const status: RecalledEpisode["status"] =
+    entry.status === "active" || entry.status === "cooling" || entry.status === "resolved"
+      ? entry.status
+      : entry.unresolved
+        ? "active"
+        : "cooling";
+  const layer: RecalledEpisode["layer"] =
+    entry.relationship_weight >= 0.72 ||
+    entry.recurrence_count >= 3 ||
+    (entry.topics?.length ?? 0) >= 2
+      ? "core"
+      : "active";
+  return {
+    id: entry.id,
+    title: entry.title,
+    summary: entry.summary,
+    layer,
+    status,
+  };
+}
+
+export async function recallEpisodes(
+  slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
+  userMessage: string,
+  options?: { userId?: string },
+): Promise<{
+  core?: RecalledEpisode;
+  active?: RecalledEpisode;
+}> {
+  if (episodeStorePromptEnabled() && options?.userId) {
+    try {
+      const ranked = await findRelevantEpisodes(options.userId, userMessage, 4);
+      if (ranked.length > 0) {
+        const persistentEpisodes = ranked.map(({ episode }) =>
+          mapPersistentEpisodeToRecalledEpisode(episode),
+        );
+        const core = persistentEpisodes.find((entry) => entry.layer === "core");
+        const active = persistentEpisodes.find((entry) =>
+          entry.status === "active" &&
+          entry.id !== core?.id,
+        );
+        if (core || active) {
+          return { core, active };
+        }
+        const first = persistentEpisodes[0];
+        if (first) {
+          return {
+            core: first.layer === "core" ? first : undefined,
+            active: first.status === "active" ? first : undefined,
+          };
+        }
+      }
+    } catch (err) {
+      logger.warn("episode store prompt recall failed, falling back to snapshot episodes", {
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  return recallEpisodesFromSnapshot(slowBrainSnapshot, userMessage);
 }
 
 function shouldPreferThreadMemory(
@@ -612,9 +700,10 @@ export async function retrievePromptMemory(
   }
 
   if (selected.length < maxEntries) {
-    const recalledEpisodes = recallEpisodes(
+    const recalledEpisodes = await recallEpisodes(
       options.slowBrainSnapshot,
       options.userMessage,
+      { userId: options.userId },
     );
     let structuredNarrativeAdded = false;
     if (recalledEpisodes.core) {

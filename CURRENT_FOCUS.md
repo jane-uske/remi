@@ -2,11 +2,22 @@
 
 ## 一句话
 
-Memory V2 基础设施已全部就绪 —— 写路径双写（V1 sharedMoments + V2 episode store），proactive planner 已建好，等真实数据验证后切读路径。
+Memory V2 基础设施、prompt 读路径和 proactive planner 主路径已接通；当前还差真实会话验收，以及 V1 旧路径清理。
+
+这条主线程服务的不是“再做一个记忆功能”，而是终极目标里最重要的一层之一：
+让 Rem 更像一个持续存在的人，而不是每轮都重置的聊天框。
+
+放进当前总纲里看，它属于三层路线图中的“人格记忆层”：
+- 实时交互层
+- 人格记忆层
+- 跨终端存在层
+
+当前先把第二层做扎实，后面的多端接续和持续在线存在感才有真正可靠的基础。
+未来的 plugin / capability 扩展，也必须建立在这个基础之上，而不是反过来污染核心链路。
 
 ## 当前最高优先级
 
-Memory V2 验证 + 读路径迁移（V2.1）
+Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 
 ## 当前进度
 
@@ -21,16 +32,46 @@ Memory V2 验证 + 读路径迁移（V2.1）
 - ✅ `brains/slow_brain_store.ts`：getSnapshot() 派生缓存 memoize
 - ✅ 22+ 单测全部通过
 
-### 待做：V2.1 读路径迁移（需要先有真实 episode 数据验证）
-- ⏳ `memory/memory_agent.ts::recallEpisodes()` 改为调 `episodeStore.findRelevant()`
-- ⏳ `brain/prompt_builder.ts` episode 注入段改为 episode store 结果
-- ⏳ `server/session/index.ts::fireSilenceNudge()` 改调 `proactive_planner.planProactiveNudge()`
-- ⏳ 清理 V1 episode 路径（删除 `buildEpisodes` / `buildTopicThreads` / `PersistentEpisode`）
+### 当前状态
+- ✅ `memory/memory_agent.ts::retrievePromptMemory()` 已优先走 `episodeStore.findRelevant()`；召回失败时安全回退到 snapshot episode
+- ✅ `server/session/index.ts::fireSilenceNudge()` 已优先走 `proactive_planner.planProactiveNudge()`；planner 失败时安全回退到 legacy nudge plan
+- ✅ `llm/embedding_client.ts` 已绕开 LM Studio / OpenAI SDK 兼容问题；直接请求本地 endpoint，并强校验 768 维
+- ⏳ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
+- ⏳ 真实会话链路验收还没完成：本地裸 WebSocket 调试命中 `401`，需要在真实前端会话里再验一次
+- ⏳ V1 旧 episode 路径仍在：`buildEpisodes` / `buildTopicThreads` / `PersistentEpisode` 尚未收口
 
 ### 下一步
-1. **验证写路径**：配置 embedding 服务，跑真实对话，检查 episodes 表有数据写入
-2. **V2.1 读路径迁移**：确认 episode 数据质量后切读路径
+1. **真实会话验收**：在前端真实对话里确认 episode 数据稳定写入，且 prompt 能消费 V2 结果
+2. **V1 旧路径收口**：删除 `buildEpisodes` / `buildTopicThreads` / `PersistentEpisode` 主逻辑
 3. **T-040**：情绪推断 + 多维表情协议（可并行）
+
+## 自动推进规则
+
+默认推进顺序：
+1. `R-V2.1-01` 验证写路径
+2. `R-V2.1-02` 切读路径
+3. `R-V2.1-03` 接 proactive planner
+4. `R-V2.1-04` 清理 V1 旧路径
+
+推进规则：
+- 当前步骤未达到 Exit Criteria 前，不自动跳下一步
+- 当前步骤 `blocked` 时，先在 `TASKS.md` 标注阻塞原因，再转向并行任务
+- 每完成一步，必须同步更新 `TASKS.md` 的 `Current Execution Board`
+- 只有 `R-V2.1-04` 为 `done`，才允许切换主线程
+
+## 这条主线程和终极目标的关系
+
+当前不是在单独优化“数据库里的记忆结构”。
+当前是在补 Rem 的“持续存在感”：
+
+- 用户下次回来时，她还能像同一个人一样接上
+- 她记得的不只是事实，还包括关系主线、未完结话题、情绪轨迹
+- 这些连续性必须进入 prompt 和主动策略，但不能拖慢实时对话
+
+所以判断当前任务价值时，优先问：
+
+- 这是不是让 Rem 更像同一个人持续活着？
+- 这会不会破坏她像真人一样即时接话？
 
 ## 当前非目标
 - 不先做前端口型同步（T-032）

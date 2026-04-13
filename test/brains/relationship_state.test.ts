@@ -309,6 +309,20 @@ describe("relationship state persistence", () => {
     assert.ok(context?.includes("【关系风格合同】"));
   });
 
+  it("treats scene immersion prompts as already in-scene instead of asking to imagine", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.48, emotionalBondDelta: 0.42 });
+
+    const guidance = store.buildConversationGuidance("北海公园，跟rem手牵手");
+
+    assert.ok(guidance.hints?.includes("【场景承接】"));
+    assert.ok(guidance.hints?.includes("不要把回复退回成“要不要我陪你想象”"));
+    assert.equal(guidance.hints?.includes("本轮用户说得简短"), false);
+  });
+
   it("uses a stronger care-mode silence nudge only for close unresolved threads", () => {
     const earlyStore = new SlowBrainStore();
     earlyStore.recordTurn();
@@ -372,6 +386,57 @@ describe("relationship state persistence", () => {
 
     assert.ok(guidance.hints?.includes("低打扰的在场感"));
     assert.equal(store.buildSilenceNudgePlan(), null);
+  });
+
+  it("respects explicit topic boundary and avoids pulling the same topic back", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.62, emotionalBondDelta: 0.55 });
+    store.setProactiveTopics(["项目进度", "今晚吃什么"]);
+    store.recordSharedMoment({
+      summary: "你最近一直在赶项目，节奏很满。",
+      topic: "项目",
+      mood: "疲惫",
+      hook: "项目最近推进到哪一步了？",
+      kind: "stress",
+      salience: 0.86,
+      unresolved: true,
+      createdAt: 200,
+    });
+
+    const guidance = store.buildConversationGuidance("不说项目了，别聊工作");
+    assert.ok(guidance.hints?.includes("【话题边界】"));
+    assert.equal((guidance.proactiveCandidate ?? "").includes("项目"), false);
+    assert.equal((guidance.sharedMomentCandidate ?? "").includes("项目"), false);
+  });
+
+  it("expires topic boundary after ttl turns", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.62, emotionalBondDelta: 0.55 });
+    store.setProactiveTopics(["项目进度"]);
+    store.recordSharedMoment({
+      summary: "你最近一直在赶项目，节奏很满。",
+      topic: "项目",
+      mood: "疲惫",
+      hook: "项目最近推进到哪一步了？",
+      kind: "stress",
+      salience: 0.86,
+      unresolved: true,
+      createdAt: 220,
+    });
+
+    const first = store.buildConversationGuidance("不说项目了");
+    assert.ok(first.hints?.includes("【话题边界】"));
+    for (let index = 0; index < 5; index += 1) {
+      store.recordTurn();
+    }
+    const later = store.buildConversationGuidance("嗯");
+    assert.equal(later.hints?.includes("【话题边界】"), false);
   });
 
   it("can cluster semantically related episodes into one longer-running relationship thread", () => {

@@ -1,6 +1,7 @@
 import { fastBrainStream } from "./fast_brain";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from "./slow_brain";
+import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import { extractMemory, retrievePromptMemory } from "../memory/memory_agent";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
@@ -82,6 +83,7 @@ export async function* routeMessage(
     extractMemory(userMessage, ctx.memory);
   }
   const memory = await retrievePromptMemory(ctx.memory, {
+    userId: ctx.userId,
     userMessage,
     slowBrainSnapshot: ctx.slowBrain.getSnapshot(),
   });
@@ -135,9 +137,12 @@ export async function* routeMessage(
   const historyUserContent = opts?.systemTriggered
     ? "［你主动开口陪对方聊天］"
     : userMessage;
+  const shouldPersistAssistantReply = !isFallbackAssistantReply(fullReply);
   // Update history
   ctx.history.push({ role: "user", content: historyUserContent });
-  ctx.history.push({ role: "assistant", content: fullReply });
+  if (shouldPersistAssistantReply) {
+    ctx.history.push({ role: "assistant", content: fullReply });
+  }
   while (ctx.history.length > MAX_HISTORY) {
     ctx.history.shift();
   }
@@ -156,7 +161,7 @@ export async function* routeMessage(
     sharedMomentCandidate: guidance.sharedMomentCandidate,
   });
 
-  if (!opts?.systemTriggered && slowBrainEnabled()) {
+  if (!opts?.systemTriggered && shouldPersistAssistantReply && slowBrainEnabled()) {
     const slowBrainSignal = ctx.beginSlowBrain();
     runSlowBrain({
       userId: ctx.userId,
@@ -174,6 +179,11 @@ export async function* routeMessage(
       logger.warn("后台分析失败", { error: (err as Error).message }),
     ).finally(() => {
       ctx.endSlowBrain(slowBrainSignal);
+    });
+  } else if (!opts?.systemTriggered && !shouldPersistAssistantReply) {
+    logger.info("skip history persistence for fallback assistant reply", {
+      connId: ctx.connId,
+      preview: fullReply.slice(0, 40),
     });
   } else if (!opts?.systemTriggered) {
     logger.debug("slow brain skipped by budget gate", {

@@ -302,4 +302,22 @@ describe("proactive_planner", () => {
       restore();
     }
   });
+
+  it("can turn a planner result into a silence-nudge user message", () => {
+    const { planner, restore } = loadPlanner();
+
+    try {
+      const userMessage = planner.buildSilenceNudgeUserMessage({
+        mode: "follow_up",
+        text: "上次聊到「健身」还没说完，可以自然地接回这个话题。",
+        ledgerKey: "episode:episode-follow",
+      });
+
+      assert.ok(userMessage.includes("系统情境"));
+      assert.ok(userMessage.includes("健身"));
+      assert.ok(userMessage.includes("不要显得像在催对方回复"));
+    } finally {
+      restore();
+    }
+  });
 });

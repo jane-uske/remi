@@ -38,6 +38,10 @@ import {
   isRelationshipPresetId,
 } from "../../brains/dev_presets";
 import {
+  buildSilenceNudgeUserMessage,
+  planProactiveNudge,
+} from "../../brains/proactive_planner";
+import {
   decideTurnTaking,
   endsWithSentencePunctuation,
   evaluateBackchannelDecision,
@@ -99,6 +103,10 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
 
 function devPresetCommandsEnabled(): boolean {
   return parseBooleanFlag(process.env.REM_DEV_PRESETS_ENABLED, process.env.NODE_ENV !== "production");
+}
+
+function proactivePlannerMainPathEnabled(): boolean {
+  return parseBooleanFlag(process.env.REM_PROACTIVE_PLANNER_MAIN_PATH_ENABLED, true);
 }
 
 function isSemanticallyCompletePreview(text: string): boolean {
@@ -1012,6 +1020,7 @@ export class ConnectionSession {
       logger.debug("[预判] 开始预判", { text: text.slice(0, 30) });
       // 和正常回复一样组装输入，但是不更新状态
       const memory = await retrievePromptMemory(this.brain.memory, {
+        userId: this.brain.userId,
         userMessage: text,
         slowBrainSnapshot: this.brain.slowBrain.getSnapshot(),
         maxEntries: options?.mode === "short" ? 4 : undefined,
@@ -1464,8 +1473,8 @@ export class ConnectionSession {
       return;
     }
 
-    const nudgePlan = this.brain.slowBrain.buildSilenceNudgePlan();
-    if (!nudgePlan) {
+    const legacyGatePlan = this.brain.slowBrain.buildSilenceNudgePlan();
+    if (!legacyGatePlan) {
       this.silenceNudgeTimer = setTimeout(() => this.fireSilenceNudge(), ms);
       return;
     }
@@ -1473,6 +1482,36 @@ export class ConnectionSession {
     logger.info("[陪伴] 沉默搭话", { connId: this.connId });
     this.pipelineChain = this.pipelineChain
       .then(async () => {
+        const legacyPlan = this.brain.slowBrain.buildSilenceNudgePlan();
+        if (!legacyPlan) {
+          return;
+        }
+
+        let nudgePlan = legacyPlan;
+        if (proactivePlannerMainPathEnabled()) {
+          try {
+            const proactivePlan = await planProactiveNudge(
+              this.brain.userId,
+              this.brain.slowBrain.getSnapshot(),
+            );
+            if (proactivePlan) {
+              nudgePlan = {
+                userMessage: buildSilenceNudgeUserMessage(proactivePlan),
+                proactiveCandidate:
+                  proactivePlan.mode === "presence" ? undefined : proactivePlan.text,
+                proactiveCandidateKey: proactivePlan.ledgerKey,
+                sharedMomentCandidate: undefined,
+                strategyMode: proactivePlan.mode,
+              };
+            }
+          } catch (err) {
+            logger.warn("[陪伴] proactive planner failed, fallback to legacy nudge plan", {
+              error: (err as Error).message,
+              connId: this.connId,
+            });
+          }
+        }
+
         const generationId = this.nextGenerationId();
         const traceId = this.createTraceId("silence_nudge", generationId);
         this.bindActiveGeneration(generationId, traceId, "silence_nudge");

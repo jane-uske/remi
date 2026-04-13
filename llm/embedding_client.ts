@@ -1,8 +1,4 @@
-import OpenAI from "openai";
-
 export const EMBEDDING_DIMENSIONS = 768;
-
-let client: OpenAI | null = null;
 
 function getEmbeddingConfig(): {
   apiKey: string;
@@ -23,24 +19,47 @@ function getEmbeddingConfig(): {
   return { apiKey, baseURL, model };
 }
 
-function getClient(): {
-  client: OpenAI;
-  model: string;
-} {
-  const { apiKey, baseURL, model } = getEmbeddingConfig();
-  if (!client) {
-    client = new OpenAI({ apiKey, baseURL });
+function buildEmbeddingsUrl(baseURL: string): string {
+  return `${baseURL.replace(/\/$/, "")}/embeddings`;
+}
+
+function extractEmbedding(responseBody: unknown): number[] {
+  const data = (responseBody as { data?: Array<{ embedding?: unknown }> })?.data;
+  const embedding = data?.[0]?.embedding;
+  if (!Array.isArray(embedding) || embedding.some((value) => typeof value !== "number")) {
+    throw new Error("Embedding client returned an invalid embedding payload");
   }
-  return { client, model };
+  if (embedding.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(
+      `Embedding client returned ${embedding.length} dimensions, expected ${EMBEDDING_DIMENSIONS}`,
+    );
+  }
+  return embedding;
 }
 
 export async function embed(text: string): Promise<number[]> {
-  const { client: openai, model } = getClient();
-  const response = await openai.embeddings.create({
-    model,
-    input: text,
+  const { apiKey, baseURL, model } = getEmbeddingConfig();
+  const response = await fetch(buildEmbeddingsUrl(baseURL), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      input: text,
+    }),
   });
-  return response.data[0].embedding;
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Embedding client request failed with ${response.status}: ${body.slice(0, 200)}`,
+    );
+  }
+
+  const payload = await response.json();
+  return extractEmbedding(payload);
 }
 
 export async function embedBatch(texts: string[]): Promise<number[][]> {
