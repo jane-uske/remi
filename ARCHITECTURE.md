@@ -1,5 +1,75 @@
 # Rem AI — 系统架构
 
+## 产品总纲与架构映射
+
+Rem 的终极目标，不是做一个更会聊天的 App。
+而是成为一个跨终端持续在线、具备人格连续性与长期记忆、能像真人一样自然交流并长期陪伴用户的 AI 存在。
+
+所以理解这份架构文档时，不要只看模块分层，还要看它们分别服务哪一层产品目标：
+
+### 1. 实时交互层
+回答的问题是：“她现在像不像一个真的在和我说话的人？”
+
+对应模块：
+- `server/session/*`
+- `server/pipeline/*`
+- `voice/*`
+- `brains/fast_brain.ts`
+- 前端播放、turn state、打断与 avatar 状态同步
+
+### 2. 人格记忆层
+回答的问题是：“过一段时间回来，她还是不是同一个人？”
+
+对应模块：
+- `memory/*`
+- `brains/slow_brain.ts`
+- `brains/slow_brain_store.ts`
+- `brain/prompt_builder.ts`
+- `storage/repositories/*`
+
+### 3. 跨终端存在层
+回答的问题是：“我换了设备、场景和入口后，她还能不能持续存在并接上？”
+
+当前这层还不是主线程，但架构已经要为它留边界。
+对应关注点：
+- gateway / session 的身份与连接语义
+- reconnect restore
+- 持久化状态与会话恢复
+- proactive / nudge 的服务端触发能力
+- generation / playback / interrupt 语义未来能否迁移到多终端
+
+当前主线程是“人格记忆层”的 Memory V2 验证与读路径迁移，但它必须在不伤害“实时交互层”的前提下推进，并给“跨终端存在层”留下演进空间。
+
+## 长期扩展方向：插件 / Capability / Integration Boundary
+
+Rem 后期不只会存在于网页聊天界面。
+它需要能接入：
+- 直播平台
+- 游戏
+- 机器人
+- IoT / 穿戴设备
+- 特殊硬件
+
+这会给架构带来一个明确要求：
+核心系统必须和外部能力系统解耦。
+
+推荐边界是：
+- `core conversation loop`
+  - session
+  - pipeline
+  - fast / slow brain
+  - memory / relationship state
+- `capability layer`
+  - 对外提供标准化动作、感知、事件和状态接口
+- `integration / plugin layer`
+  - 具体平台 SDK、机器人驱动、游戏桥接、直播平台桥接
+
+原则：
+- 核心 loop 不直接依赖具体平台 SDK
+- 设备控制与平台 API 不直接散落在 session / pipeline 里
+- 外部能力应尽量通过 adapter / plugin 方式注册
+- capability 的输入输出语义要稳定，便于未来跨终端复用
+
 ## 架构总览
 
 ```

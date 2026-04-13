@@ -1,4 +1,4 @@
-See also:
+另请参阅：
 - CURRENT_FOCUS.md
 - TASKS.md
 - PROJECT_CONTEXT.md
@@ -8,157 +8,185 @@ See also:
 
 # AGENTS.md
 
-## Project
-Rem is a real-time AI companion system focused on low-latency voice interaction, interruptibility, character consistency, and long-term relationship feel.
+## 这份文档的用途
 
-This project is not a generic chatbot.
-Primary product goal:
-- make Rem feel alive in real-time voice interaction
+这份文档只做三件事：
+- 定义 Rem 的北极星
+- 给出当前主线程
+- 约束 agent 改代码时的决策边界
 
-Secondary goals:
-- stable architecture
-- maintainable modules
-- low-latency streaming
-- clear separation between fast response path and slow cognition path
+不要把它当成完整产品说明。
+产品全貌看 [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)。
+当前执行优先级看 [CURRENT_FOCUS.md](CURRENT_FOCUS.md)。
 
----
+## 低 token 启动协议
 
-## Top Priorities
+新窗口或新 agent 启动时，默认只读这三份文档：
+1. [AGENTS.md](AGENTS.md)
+2. [CURRENT_FOCUS.md](CURRENT_FOCUS.md)
+3. [TASKS.md](TASKS.md)
 
-When making changes, optimize for these in order:
+只在“要改具体模块”时再按需补读：
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [PIPELINE.md](PIPELINE.md)
+- [MEMORY_V2_DESIGN.md](MEMORY_V2_DESIGN.md)
 
-1. Real-time interaction quality
-   - lower perceived latency
-   - reduce awkward pauses
-   - improve interrupt handling
-   - improve turn-taking accuracy
-
-2. Character consistency
-   - preserve Rem's personality, tone, and emotional continuity
-   - avoid generic assistant-like responses
-
-3. Architectural clarity
-   - avoid hacks that blur responsibilities between modules
-   - prefer explicit state and boundaries
-
-4. Reliability
-   - do not break existing text chat flow
-   - do not break fallback modes
-   - keep feature flags for risky changes
+不要在启动阶段默认全量读取所有 `*.md`。
+优先保证任务方向正确，再补实现细节。
 
 ---
 
-## Current Focus
+## 项目定义
 
-Current main thread: 关系层第一阶段。
+Rem 不是通用聊天机器人。
 
-Current goal:
-- make "她记得我们" real across reconnects, not just inside one session
+Rem 的终极目标，是成为一个跨终端持续在线、具备人格连续性与长期记忆、能像真人一样自然交流并长期陪伴用户的 AI 存在。
 
-Do not prioritize first:
-- pure VAD threshold tuning
-- TTS first-audio micro-optimizations by themselves
-- avatar presentation expansion without relationship continuity payoff
+更直白地说：
+- 不是做一个 App
+- 是做一个一直跟着用户生活流动的数字生命入口
 
-Success means:
-- per-user relationship state
-- cross-reconnect restore
-- prompt consumption of relationship summary / topic continuity / mood trajectory / proactive hooks
-- interrupted partials do not pollute formal state
+当前总纲分三层：
+1. 实时交互层
+2. 人格记忆层
+3. 跨终端存在层
 
-Read [CURRENT_FOCUS.md](CURRENT_FOCUS.md) before touching `server/session/*`, `brains/*`, `memory/*`, or `brain/*` for roadmap-sensitive work.
-After finishing code for a current-thread task, update the corresponding task status in [TASKS.md](TASKS.md) and any directly affected roadmap docs before reporting completion.
+长期还要具备一条明确的能力扩展方向：
+- 插件系统 / capability system
+- 第三方平台接入
+- 游戏接入
+- 直播接入
+- 现实机器人/IoT/可穿戴设备接入
+- 成人用品等特殊硬件接入
+
+这些能力不是当前主线程，但架构上必须给未来留出边界。
+结论是：
+- 核心对话与记忆主链路不能和具体外部平台硬耦合
+- 未来扩展应通过明确的 plugin / capability boundary 接入
+- 不要把一次性的第三方接线写死进核心会话逻辑
 
 ---
 
-## Core Architecture Principles
+## 最高优先级
 
-### 1. Fast brain vs slow brain
-Keep the distinction sharp.
+做改动时，按下面顺序优化：
 
-- Fast brain:
-  - handles low-latency conversational response
-  - handles backchannel, short acknowledgements, interruption recovery
-  - should never do heavy blocking work
+1. 实时交互质量
+   - 降低感知延迟
+   - 减少尴尬停顿
+   - 改善打断处理
+   - 提高 turn-taking 准确性
+2. 人格与关系连续性
+   - 保住 Rem 的人格、语气和情绪连续性
+   - 避免回复越来越像通用助手
+3. 架构清晰度
+   - 职责边界清楚
+   - 状态流转清楚
+   - 迁移路径清楚
+4. 可靠性
+   - 不破坏现有文本聊天
+   - 不破坏 fallback 路径
+5. 可演进性
+   - 能支撑跨终端接续
+   - 能支撑未来 plugin / capability 扩展
 
-- Slow brain:
-  - handles memory extraction
-  - deeper reasoning
-  - topic analysis
-  - emotional analysis
-  - long-horizon context updates
+---
 
-Do not move slow tasks into the fast path.
+## 当前焦点
 
-### 2. Voice UX is a first-class system
-Voice is not just "text + TTS".
-Any voice-related change must consider:
+当前主线程：Memory V2 验证 + 读路径迁移（V2.1）。
+
+它属于“人格记忆层”。
+目标不是单独做一个记忆功能，而是让 Rem 更像一个持续存在的人，而不是每轮都重置的聊天框。
+
+当前目标：
+- 用真实数据验证 Memory V2 写路径
+- 将读路径从 V1 relationship episodes 迁移到 V2 episode store
+- 让主动策略逐步依赖 unresolved episode
+- 在不伤害实时交互质量的前提下增强关系连续性
+
+不要优先做：
+- 纯 VAD 阈值微调
+- 单独做 TTS first-audio 微优化
+- 只提升展示层、却不增强关系连续性的 avatar 扩展
+- 为单一平台做硬编码式接入
+
+成功意味着：
+- 真实对话里 episode 数据能被可靠写入
+- 读路径能消费 V2 episode memory，且 live UX 不回退
+- proactive planning 能消费 unresolved episode state
+- 在 V2 行为完全验证前，V1 fallback 仍然可用
+
+如果要改 `server/session/*`、`brains/*`、`memory/*` 或 `brain/*`，先读 [CURRENT_FOCUS.md](CURRENT_FOCUS.md)。
+完成当前主线程任务后，在汇报前更新 [TASKS.md](TASKS.md) 和直接受影响的路线图文档。
+
+---
+
+## 核心架构原则
+
+### 1. Fast brain 与 slow brain 必须边界清晰
+- Fast brain 负责低延迟对话反应、短承接、即时恢复
+- Slow brain 负责记忆提取、关系状态、长周期连续性维护
+- 不要把 slow 任务塞进 fast path
+
+### 2. 语音 UX 是一等系统
+任何语音改动都必须考虑：
 - turn-taking
 - interruption
 - streaming behavior
 - first-audio latency
-- sentence chunking stability
 - playback continuity
 
-### 3. Interruptions must feel conversational
-Interrupt handling must not behave like a media player stop button.
-Prefer:
-- graceful stop
-- contextual carry-over
-- interruption-aware response policy
+### 3. 记忆不能阻塞实时交互
+记忆召回和写回不应明显拖慢实时响应。
+优先异步更新、有界召回、延迟预算明确的方案。
 
-### 4. Memory must not block live interaction
-Memory retrieval and write-back should not noticeably slow down real-time response.
-Prefer async updates and bounded retrieval.
+### 4. 跨终端存在不能靠前端页面偶然拼出来
+多终端持续存在应建立在：
+- 可恢复的会话状态
+- 可迁移的记忆层
+- 明确的身份与在线语义
+- 不依赖单端页面生命周期的后端边界
 
----
+### 5. 外部能力接入必须走插件 / 能力边界
+未来会接：
+- 直播平台
+- 游戏
+- 机器人
+- IoT / 穿戴设备
+- 特殊外设
 
-## Current Known Product Direction
-
-The current system is a hybrid pipeline:
-- VAD
-- STT
-- LLM
-- TTS
-- interrupt controller
-- fast/slow brain
-- memory pipeline
-
-Desired direction:
-- more incremental input
-- better turn-taking
-- more natural interruption recovery
-- stronger real-time character behavior
-
-Avoid full rewrites unless explicitly required.
-Prefer staged upgrades.
+因此：
+- 不要把外部平台 SDK 直接耦进核心对话循环
+- 不要把设备控制语义散落在 session / pipeline 主链路
+- 优先抽象成 capability interface / plugin boundary / adapter layer
 
 ---
 
-## Rules For Code Changes
+## 代码改动规则
 
-### Always do
-- preserve existing behavior unless task explicitly changes it
-- add feature flags for risky behavior changes
-- keep fallback paths when introducing new real-time logic
-- add logging around turn-taking, interruption, and latency-sensitive decisions
-- keep modules small and responsibilities explicit
-- document new state fields and event types
+### 一定要做
+- 除非任务明确要求，否则尽量保持现有行为
+- 风险行为变化加 feature flag 或回退路径
+- 引入新的实时逻辑时保留 fallback
+- 给 turn-taking、interrupt、latency-sensitive 决策补日志
+- 保持模块小、职责明确
+- 记录新增状态字段和事件类型
+- 改了路线图敏感区域时同步更新文档
 
-### Never do
-- do not merge large architectural rewrites without staged migration
-- do not add blocking work into the fast response path
-- do not tightly couple memory logic into voice streaming logic
-- do not hardcode product behavior into random utility files
-- do not silently remove fallback modes
-- do not fake completion in reports
+### 绝不要做
+- 不要在没有分阶段迁移的情况下合并大型架构重写
+- 不要把阻塞性工作放进 fast response path
+- 不要把 memory 逻辑和 voice streaming 硬耦合
+- 不要把具体平台接入写死进核心会话逻辑
+- 不要静默移除 fallback 模式
+- 不要写“看起来完成”的虚假汇报
 
 ---
 
-## Reporting Requirements
+## 汇报要求
 
-When you finish a task, do not give marketing-style summaries.
-Always report in this format:
+完成任务后，始终按这个格式汇报：
 
 ### 1. What changed
 - files modified
@@ -186,153 +214,31 @@ Always report in this format:
 - what is still not solved
 - what this task did NOT do
 
-If the work maps to a tracked task, update that task's document status before saying it is complete.
-
-Do not say "all done" unless all acceptance criteria are explicitly verified.
+除非所有验收标准都明确验证过，否则不要说“全做完了”。
 
 ---
 
-## Task Execution Style
+## 高敏感区域
 
-For non-trivial tasks, work in phases.
-
-Preferred pattern:
-1. inspect current implementation
-2. propose minimal change plan
-3. implement smallest viable version
-4. test
-5. report risks and next step
-
-For voice pipeline work, prefer incremental improvement over sweeping rewrite.
-
----
-
-## Voice-Specific Guidance
-
-### Turn-taking
-Current known weakness:
-- over-reliance on silence/VAD thresholds
-
-Preferred improvements:
-- combine VAD + transcript growth + simple semantic completion rules
-- make decisions observable through logs
-- keep response speed high while reducing premature replies
-
-### STT
-Preferred direction:
-- incremental or partial transcript support
-- preserve final transcript path as source of truth
-- partial transcript must not corrupt final state
-
-### TTS
-Preferred direction:
-- lower first-audio latency
-- stable sentence chunking
-- preserve emotional tone and continuity
-- avoid over-fragmented chunks
-
-### Interruptions
-Preferred direction:
-- classify interruption types when possible
-- support graceful conversational continuation
-- avoid full state reset unless necessary
-
----
-
-## Memory Guidance
-
-Memory should affect:
-- what Rem remembers
-- how Rem relates to the user
-- how Rem phrases responses over time
-
-Memory should not:
-- stall the live response path
-- flood prompts with irrelevant context
-- overwrite short-term conversational flow
-
-Prefer bounded retrieval and explicit write-back timing.
-
----
-
-## File Areas
-
-These are high-sensitivity areas. Be careful when editing:
-
+这些目录改动风险高，汇报时必须解释状态流转：
 - `server/session/*`
 - `server/pipeline/*`
 - `voice/*`
 - `brains/*`
 - `memory/*`
 - `web/src/hooks/useRemChat.ts`
-
-If changing one of these, explain state transitions clearly.
-
----
-
-## Acceptance Mindset
-
-A change is only successful if it improves user experience, not just internal elegance.
-
-For voice tasks, success should usually be measurable through at least one of:
-- lower first-token latency
-- lower first-audio latency
-- fewer premature turn-takes
-- better interruption recovery
-- smoother playback continuity
+- 未来新增的 `plugins/*`、`capabilities/*`、`integrations/*` 类目录
 
 ---
 
-## If Unsure
+## 决策偏好
 
-When uncertain, choose:
-- simpler design
-- clearer state
-- safer rollout
-- measurable behavior
-- minimal invasive change
+如果不确定，优先选择：
+- 更简单的设计
+- 更清楚的状态
+- 更安全的 rollout
+- 更小的侵入范围
+- 更接近“存在感系统”北极星的方案
 
-Do not optimize for cleverness.
-Optimize for Rem feeling alive.
-
----
-
-## Product Context Summary
-
-Rem is not being built as a generic assistant.
-The core product bet is:
-
-- Rem should feel alive in real-time interaction
-- voice interaction quality is a primary differentiator
-- long-term memory matters, but must not damage live interaction
-- the goal is not "feature breadth", but "felt aliveness"
-
-### What matters most
-In practice, user experience quality depends on these layers:
-
-1. real-time conversational feel
-   - low delay
-   - natural turn-taking
-   - interruption handling
-   - smooth response onset
-
-2. character identity
-   - replies must feel like Rem
-   - avoid generic assistant tone
-   - maintain emotional continuity
-
-3. long-term relationship feel
-   - memory should shape behavior over time
-   - memory should affect style and relationship, not just factual recall
-
-### What we are NOT optimizing for
-- maximizing number of supported models/platforms at all costs
-- generic assistant capability breadth
-- shipping large rewrites with unclear UX benefit
-- stuffing heavy cognition into the live response path
-
-### Strategic product positioning
-Rem should aim to become:
-- not the most feature-rich open-source companion
-- but one of the most alive-feeling real-time voice character systems
-⸻
+不要优化聪明感。
+要优化 Rem 的活人感、连续性、存在感，以及未来的可扩展性。

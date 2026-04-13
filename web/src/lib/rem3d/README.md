@@ -1,6 +1,6 @@
-# Rem Avatar Runtime
+# Rem Avatar 运行时说明
 
-## Data Flow
+## 数据流
 
 1. `useRemChat.ts` receives WS events and derives:
 - `avatarFrame`: server-provided face and lip-sync overlays
@@ -15,37 +15,37 @@
 
 3. `runtimeAdapter.ts` keeps the live lip-signal reference and bridges React props to `RemVrmViewer`.
 
-4. `vrmViewer.ts` is the renderer/runtime:
-- resolves bones and camera
-- blends idle, speech, emotion, action, and intent cues
-- consumes `face` and `lipSync`
-- publishes runtime snapshots to devtools
+4. `vrmViewer.ts` 是渲染器 / 运行时：
+- 解析骨骼与相机
+- 混合 idle、speech、emotion、action 与 intent 信号
+- 消费 `face` 和 `lipSync`
+- 向 devtools 发布运行时快照
 
-## Module Ownership
+## 模块职责
 
 - `avatarIntent.ts`
-  High-level schema and rule fallback. This is the place to evolve LLM output parsing later.
+  高层 schema 与规则兜底。后续如果要演进 LLM 输出解析，这里是主要入口。
 
 - `faceToVrm.ts`
-  Mapping from protocol face/lip inputs to VRM expression presets.
+  把协议里的 face / lip 输入映射到 VRM expression preset。
 
 - `emotionToVrm.ts`
-  Baseline emotion weights and low-level expression merge helpers.
+  基础情绪权重与底层表情合并辅助。
 
 - `speechMotion.ts`
-  Talking-state micro motion and envelope-driven speaking behavior.
+  说话状态下的微动作，以及包络驱动的 speaking 行为。
 
 - `devtoolsStore.ts`
-  Shared ring-buffer log store and latest runtime snapshot.
+  共享环形日志存储，以及最新的运行时快照。
 
-## Rules For Future Changes
+## 后续修改规则
 
-- Do not add direct bone-control fields to network payloads.
-- New gestures should enter through high-level intent or action labels first.
-- Keep mouth control layered:
+- 不要把直接控制骨骼的字段加进网络 payload。
+- 新手势应优先通过高层 intent 或 action label 进入系统。
+- 嘴部控制要保持分层：
   1. emotion
   2. face overlay
   3. action / intent accent
   4. speech micro motion
   5. viseme / lip-sync override
-- If a new debug surface needs avatar internals, subscribe to `devtoolsStore` instead of reading viewer internals directly.
+- 如果新的 debug 面板需要读取 avatar 内部状态，应订阅 `devtoolsStore`，不要直接读取 viewer 内部实现。

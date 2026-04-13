@@ -4,11 +4,13 @@
 >
 > 前置状态：Memory V1 已完成（per-user relationship state 持久化、episode 分层召回、proactive ledger、关系风格槽位）。
 >
-> **开发阶段约束（重要）**：产品无外部用户，V2 落地不为兼容性和降级留预算。
-> - 假设 Postgres + pgvector **必须**可用；没有就直接抛错，不做 keyword fallback。
-> - 假设 embedding API（OpenAI 兼容）**必须**可用；没有就直接抛错。
-> - 不做数据迁移脚本：旧 JSON state 在 V2 模型下按"冷启动"处理即可。
-> - 不做灰度/feature flag：一次切换，不保留旧路径。
+> **当前状态说明（2026-04-12）**：Memory V2 基础设施已经落地，但项目仍处于“验证写路径、准备切读路径”的阶段，不是一次性硬切换完成态。
+>
+> **当前落地约束（更新）**：
+> - Postgres + pgvector 仍然是 V2 的目标运行前提。
+> - embedding 服务仍然是 V2 语义能力的关键依赖。
+> - 但在真实数据验证完成前，V1 fallback 路径仍然保留，用于避免 live UX 回退。
+> - 这份文档描述的是 Memory V2 的目标设计与当前迁移现实，不再等同于“一步切完、不留旧路径”的执行说明。
 
 ---
 
@@ -42,7 +44,7 @@
 | `brains/proactive_planner.ts` | 新建：基于关系状态 + 未完结 episode 的主动开口决策 |
 
 ### Out of Scope（V2 不做）
-- keyword fallback 路径（前置约束）
+- 新增另一套长期 keyword fallback 体系
 - 旧数据迁移（前置约束）
 - 前端呈现（T-035.x 另开）
 - 情绪推断改造（T-040 另开）
@@ -202,7 +204,8 @@ flowchart LR
 - `REM_EMBEDDING_API_KEY` — key
 - `REM_EMBEDDING_MODEL` — 默认 `text-embedding-3-small`（1536 维，与 schema 对齐）
 
-**不新增 feature flag**：V2 直接替换，`REM_EPISODE_MEMORY_ENABLED` 保留但含义变为"是否开启 episode 系统"（默认 `1`）。
+`REM_EPISODE_MEMORY_ENABLED` 保留为 episode 系统开关。
+在当前验证阶段，V1 读路径 fallback 仍然存在；等 V2 读路径验证完成后，再考虑继续收口旧路径。
 
 ---
 
