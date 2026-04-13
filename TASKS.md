@@ -161,10 +161,22 @@
 - [x] 用户明确“先不聊某话题（如项目）”后，slow brain 会在短窗口内抑制 continuity/proactive 回拉
 - [x] 用户已进入共创场景时，回复不再退回成“要不要我陪你想象”的重新开场
 - [x] 修复 `embedding_client` 与 LM Studio/OpenAI SDK 兼容问题，恢复 768 维写路径
+- [x] 收口本地/远程访问语义：远程强制 JWT，本机回环可无 token 调试
+- [x] 修复 access gate 与 JWT 冲突：持 token 的 HTTP/WS 请求可直通，不再被 cookie 门禁误拦
+- [x] 前端聊天本地缓存改为按 token 用户分桶，避免不同用户共享同一份本地历史
+- [x] `/vrm/*` 资源加入鉴权放行，修复 3D VRM 401 导致的加载失败
 
 关键提交：
 - `4ab7237` embedding 失效修复
 - `42d9893` 当前焦点文档更新
+- `7a1707b` 本地/远程访问稳定化与 per-user chat 隔离
+
+### 运行链路约束（后续 agent 必看）
+
+- 本机开发入口 `http://localhost:3000/` 视为“开发主入口”，默认无 token，必须保留历史连续性。
+- 远程入口（如 `https://app-rem.remi.run`）视为“分用户入口”，必须带 token，并保证用户隔离。
+- `user_001` / `user_002` 等 token 用户的聊天缓存与持久化必须隔离，禁止出现前端本地缓存串号。
+- 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；此时只能走原生 `dev:once` / `dev:native`，并显式标注“DB/Redis 未连接”风险。
 
 ---
 

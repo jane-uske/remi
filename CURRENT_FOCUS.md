@@ -36,8 +36,11 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 - ✅ `memory/memory_agent.ts::retrievePromptMemory()` 已优先走 `episodeStore.findRelevant()`；召回失败时安全回退到 snapshot episode
 - ✅ `server/session/index.ts::fireSilenceNudge()` 已优先走 `proactive_planner.planProactiveNudge()`；planner 失败时安全回退到 legacy nudge plan
 - ✅ `llm/embedding_client.ts` 已绕开 LM Studio / OpenAI SDK 兼容问题；直接请求本地 endpoint，并强校验 768 维
+- ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
+- ✅ `REM_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
+- ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
 - ⏳ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
-- ⏳ 真实会话链路验收还没完成：本地裸 WebSocket 调试命中 `401`，需要在真实前端会话里再验一次
+- ⏳ 真实会话链路验收仍需持续观察：鉴权/WS 主路径已修复，但在 Docker 未就绪时会退化为无 PG/Redis 运行
 - ⏳ V1 旧 episode 路径仍在：`buildEpisodes` / `buildTopicThreads` / `PersistentEpisode` 尚未收口
 
 ### 下一步

@@ -115,6 +115,15 @@ npm run test --prefix web
 
 `/health` 现在由网关直接返回轻量 JSON（`ok` / `service` / `uptimeSec`），用于本地 smoke 和基础连通性检查，不表示 DB/Redis readiness。
 
+### 访问与用户隔离（关键）
+
+- 开启 `JWT_SECRET` 后，远程访问（如 `https://app-rem.remi.run`）必须带 token（query 或 `Authorization: Bearer`）。
+- 本机回环访问（`localhost` / `127.0.0.1`）允许无 token 进入，保留开发态调试入口。
+- 若同时配置了 `REM_ACCESS_PASSWORD` 与 `JWT_SECRET`：有效 JWT token 可直通访问，不再强依赖 access cookie 登录页。
+- WebSocket 会自动复用页面 URL 中的 `token` 参数，降低“页面可开但 WS 401 断连”风险。
+- 前端聊天本地缓存按用户隔离：无 token 走默认缓存；带 token 时按 token 的 `id` 分桶，避免 `user_001` / `user_002` 共享同一份本地聊天历史。
+- 3D 模型静态资源路径 `/vrm/*` 已加入鉴权放行，避免 VRM 请求被 `401` 拦截。
+
 ### 实时语义约定
 
 - `interrupt` 只表示“一个已激活 generation 被新输入抢占”，不再用于 idle 文本发送时的清队列。
@@ -138,6 +147,8 @@ npm run test --prefix web
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `REDIS_URL` | Redis 连接串 |
 | `JWT_SECRET` | JWT 签名密钥 |
+| `REM_MOBILE_DEV_ENABLED` | 是否允许移动端开发 key 鉴权（默认 `0`）。用于 iOS/TestFlight 内测兜底，不建议生产开启。 |
+| `REM_MOBILE_DEV_KEY` | 移动端开发 key（配合 `X-Rem-Mobile-Key` 请求头使用）。 |
 | `LOG_LEVEL` | 日志级别（默认 `info`） |
 | `PORT` | 服务端口（默认 `3000`） |
 | `REM_SILENCE_NUDGE_MS` | 用户无消息后多久由 Rem 主动搭话（毫秒）；`0` 或不设为关闭 |
