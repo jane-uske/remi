@@ -288,7 +288,7 @@ function updateRelationship(store: SlowBrainStore, userMessage: string): void {
 }
 
 function episodeMemoryEnabled(): boolean {
-  const raw = (process.env.REM_EPISODE_MEMORY_ENABLED ?? "1").trim().toLowerCase();
+  const raw = (process.env.REMI_EPISODE_MEMORY_ENABLED ?? "1").trim().toLowerCase();
   return raw !== "0" && raw !== "false";
 }
 

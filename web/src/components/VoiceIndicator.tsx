@@ -19,11 +19,11 @@ export function VoiceIndicator({ active }: VoiceIndicatorProps) {
         {[0, 1, 2, 3].map((i) => (
           <span
             key={i}
-            className="rem-voice-bar inline-block w-[4px] self-end rounded-sm bg-[var(--rem-dot-off)] transition-colors"
+            className="rem-voice-bar inline-block w-[4px] self-end rounded-sm bg-[var(--remi-dot-off)] transition-colors"
           />
         ))}
       </div>
-      <span className="max-w-[5rem] truncate text-[11px] font-medium text-[var(--rem-dim)]">
+      <span className="max-w-[5rem] truncate text-[11px] font-medium text-[var(--remi-dim)]">
         {active ? "播放中" : "语音"}
       </span>
     </div>

@@ -5,7 +5,7 @@ import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import { extractMemory, retrievePromptMemory } from "../memory/memory_agent";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
-import type { RemSessionContext } from "./rem_session_context";
+import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
 import {
   relationshipStateEnabled,
@@ -16,7 +16,7 @@ const MAX_HISTORY = 10;
 const logger = createLogger("brain_router");
 
 function slowBrainEnabled(): boolean {
-  const raw = (process.env.REM_SLOW_BRAIN_ENABLED ?? "1").trim().toLowerCase();
+  const raw = (process.env.REMI_SLOW_BRAIN_ENABLED ?? "1").trim().toLowerCase();
   return raw !== "0" && raw !== "false";
 }
 
@@ -29,7 +29,7 @@ export interface RouteMessageOptions {
   carryForwardHint?: string;
 }
 
-async function persistContinuityCueState(ctx: RemSessionContext): Promise<void> {
+async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void> {
   if (!relationshipStateEnabled()) return;
   const relationshipRepo =
     ctx.persistentRelationshipRepo ??
@@ -64,7 +64,7 @@ async function persistContinuityCueState(ctx: RemSessionContext): Promise<void> 
  * Slow brain NEVER blocks the token stream.
  */
 export async function* routeMessage(
-  ctx: RemSessionContext,
+  ctx: RemiSessionContext,
   userMessage: string,
   emotion: Emotion,
   signal?: AbortSignal,

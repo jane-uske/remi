@@ -8,8 +8,8 @@ import type {
   FaceParams,
   InterruptionType,
   LipSyncFrame,
-  RemTurnState,
-  RemTurnStateReason,
+  RemiTurnState,
+  RemiTurnStateReason,
   Viseme,
 } from "../../../avatar/types";
 
@@ -34,8 +34,8 @@ export type {
   AvatarIntentGesture,
   AvatarIntentSource,
   InterruptionType,
-  RemTurnState,
-  RemTurnStateReason,
+  RemiTurnState,
+  RemiTurnStateReason,
 };
 
 export type AvatarFrameState = {

@@ -14,7 +14,7 @@ import type {
   AvatarIntent,
   LipSignal,
   RemState,
-  RemTurnState,
+  RemiTurnState,
 } from "@/types/avatar";
 
 /** 关闭每帧「归一化骨骼 → 蒙皮」的自动同步，改由我们直接写 raw 骨骼，否则摆好的手臂会被覆盖回 T-pose */
@@ -143,7 +143,7 @@ export class RemVrmViewer {
   private gestureT = 0;
   private loopStarted = false;
   private remState: RemState = "idle";
-  private turnState: RemTurnState = "confirmed_end";
+  private turnState: RemiTurnState = "confirmed_end";
   private activeAction: (AvatarActionCommand & { endAtMs: number }) | null = null;
   private currentIntent: AvatarIntent | null = null;
   private currentFrame: AvatarFrameState | null = null;
@@ -899,7 +899,7 @@ export class RemVrmViewer {
     this.remState = state;
   }
 
-  setTurnState(state: RemTurnState): void {
+  setTurnState(state: RemiTurnState): void {
     this.turnState = state;
   }
 

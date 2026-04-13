@@ -3,7 +3,7 @@ const { routeMessage } = loadModule<{
   routeMessage: typeof import("../brains/brain_router").routeMessage;
 }>("../brains/brain_router");
 import type { RouteMessageOptions } from "../brains/brain_router";
-import type { RemSessionContext } from "../brains/rem_session_context";
+import type { RemiSessionContext } from "../brains/remi_session_context";
 import type { Emotion } from "../emotion/emotion_state";
 
 export interface Message {
@@ -17,7 +17,7 @@ export interface Message {
  * and Slow Brain (background analysis) in parallel.
  */
 export async function* chatStream(
-  ctx: RemSessionContext,
+  ctx: RemiSessionContext,
   message: string,
   emotion: Emotion,
   signal?: AbortSignal,

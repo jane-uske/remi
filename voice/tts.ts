@@ -944,7 +944,7 @@ export async function textToSpeech(
 
 export function canStreamTextToSpeech(): boolean {
   const streamingEnabled =
-    process.env.rem_tts_stream === "1" || process.env.REM_TTS_STREAM === "1";
+    process.env.rem_tts_stream === "1" || process.env.REMI_TTS_STREAM === "1";
   return (
     streamingEnabled &&
     getProvider() === "edge" &&

@@ -5,7 +5,7 @@ import type {
   AvatarIntentFacialAccent,
   AvatarIntentGesture,
   AvatarIntentSource,
-  RemTurnState,
+  RemiTurnState,
 } from "@/types/avatar";
 import { asEmotion, clampBand, clampMs } from "../../../../avatar/utils";
 
@@ -56,7 +56,7 @@ export function deriveAvatarIntent(input: {
   emotion: string;
   action?: AvatarActionCommand | null;
   face?: AvatarFaceOverlay | null;
-  turnState?: RemTurnState | null;
+  turnState?: RemiTurnState | null;
   source?: AvatarIntentSource;
   reason?: string;
 }): AvatarIntent {

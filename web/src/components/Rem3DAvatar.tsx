@@ -16,14 +16,14 @@ import type {
   AvatarModelPreset,
   LipSignal,
   RemState,
-  RemTurnState,
+  RemiTurnState,
 } from "@/types/avatar";
 import type { VrmViewerState } from "@/lib/rem3d/vrmViewer";
 
 export type Rem3DAvatarProps = {
   emotion: string;
   remState?: RemState;
-  turnState?: RemTurnState;
+  turnState?: RemiTurnState;
   avatarIntent?: AvatarIntent | null;
   avatarFrame?: AvatarFrameState | null;
   actionSignal?: { action: AvatarActionCommand; nonce: number } | null;
@@ -130,23 +130,23 @@ export function Rem3DAvatar({
       <div ref={hostRef} className={canvasHost} />
 
       {state === "loading" && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25 text-sm text-[var(--rem-dim)] backdrop-blur-sm">
+        <p className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25 text-sm text-[var(--remi-dim)] backdrop-blur-sm">
           加载 3D 模型中…
         </p>
       )}
       {state === "error" && (
-        <p className="absolute inset-x-0 bottom-0 bg-[var(--rem-error-bg)]/95 px-3 py-2 text-center text-xs text-[var(--rem-danger)] backdrop-blur-md">
+        <p className="absolute inset-x-0 bottom-0 bg-[var(--remi-error-bg)]/95 px-3 py-2 text-center text-xs text-[var(--remi-danger)] backdrop-blur-md">
           3D 加载失败：{err}
         </p>
       )}
       {state === "ready" && !isStage && (
-        <div className="flex items-center justify-between border-t border-white/10 bg-transparent px-3 py-2 text-xs text-[var(--rem-dim)]">
+        <div className="flex items-center justify-between border-t border-white/10 bg-transparent px-3 py-2 text-xs text-[var(--remi-dim)]">
           <span>当前情绪</span>
           <div className="flex items-center gap-2">
-            <span className="font-medium text-[var(--rem-accent)]">
+            <span className="font-medium text-[var(--remi-accent)]">
               {getEmotionLabel(emotion)}
             </span>
-            <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--rem-dim)]">
+            <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--remi-dim)]">
               {engine}
             </span>
           </div>

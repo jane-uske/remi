@@ -2,7 +2,7 @@ import { WebSocket } from "ws";
 
 import { chatStream } from "../../agents/conversation_agent";
 import { inferAvatarIntentFromReply } from "../../agents/avatar_intent_agent";
-import type { RemSessionContext } from "../../brains/rem_session_context";
+import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { decayEmotion } from "../../emotion/decay_emotion";
 import { updateEmotion } from "../../emotion/emotion_engine";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
@@ -28,11 +28,11 @@ function parseNonNegativeMs(raw: string | undefined, fallback: number): number {
 }
 
 function thinkingFillerDelayMs(): number {
-  return parseNonNegativeMs(process.env.REM_THINKING_FILLER_DELAY_MS, 520);
+  return parseNonNegativeMs(process.env.REMI_THINKING_FILLER_DELAY_MS, 520);
 }
 
 function avatarIntentEnabled(): boolean {
-  const raw = (process.env.REM_AVATAR_INTENT_ENABLED ?? "1").trim().toLowerCase();
+  const raw = (process.env.REMI_AVATAR_INTENT_ENABLED ?? "1").trim().toLowerCase();
   return raw !== "0" && raw !== "false";
 }
 
@@ -52,7 +52,7 @@ export async function runPipeline(
   ic: InterruptController,
   avatar: AvatarController,
   sessionId: string | null,
-  ctx: RemSessionContext,
+  ctx: RemiSessionContext,
   generationId: number,
   traceId: string,
   options?: RunPipelineOptions,
@@ -88,7 +88,7 @@ export async function runPipeline(
     const thinkingFiller =
       !options?.silenceNudge &&
       (process.env.rem_thinking_filler === "1" ||
-        process.env.REM_THINKING_FILLER === "1");
+        process.env.REMI_THINKING_FILLER === "1");
 
     // ── Producer-consumer TTS: synthesize sentences as they stream in ──
 

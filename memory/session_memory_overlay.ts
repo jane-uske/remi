@@ -12,14 +12,14 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 }
 
 export function persistentMemoryOverlayEnabled(): boolean {
-  const raw = (process.env.REM_PERSISTENT_MEMORY_OVERLAY_ENABLED ?? "1")
+  const raw = (process.env.REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED ?? "1")
     .trim()
     .toLowerCase();
   return raw !== "0" && raw !== "false";
 }
 
 export function persistentMemoryPreloadLimit(): number {
-  return parsePositiveInt(process.env.REM_PERSISTENT_MEMORY_PRELOAD_LIMIT, 12);
+  return parsePositiveInt(process.env.REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT, 12);
 }
 
 export class SessionMemoryOverlayRepository implements MemoryRepository {

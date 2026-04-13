@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { clearAvatarDevtoolsLogs, useAvatarDevtoolsState } from "@/lib/rem3d/devtoolsStore";
-import type { RemTurnState, RemTurnStateReason } from "@/types/avatar";
+import type { RemiTurnState, RemiTurnStateReason } from "@/types/avatar";
 
 type AvatarDevtoolsPanelProps = {
   title?: string;
@@ -44,7 +44,7 @@ function safeStringify(value: unknown): string {
   }
 }
 
-function getTurnStateLabel(turnState: RemTurnState | null | undefined): string {
+function getTurnStateLabel(turnState: RemiTurnState | null | undefined): string {
   switch (turnState) {
     case "listening_active":
       return "专心听";
@@ -65,7 +65,7 @@ function getTurnStateLabel(turnState: RemTurnState | null | undefined): string {
   }
 }
 
-function getTurnReasonLabel(reason: RemTurnStateReason | null | undefined): string {
+function getTurnReasonLabel(reason: RemiTurnStateReason | null | undefined): string {
   switch (reason) {
     case "speech_start":
       return "speech_start";
@@ -88,7 +88,7 @@ function getTurnReasonLabel(reason: RemTurnStateReason | null | undefined): stri
   }
 }
 
-function getTurnStateAccent(turnState: RemTurnState | null | undefined): string {
+function getTurnStateAccent(turnState: RemiTurnState | null | undefined): string {
   switch (turnState) {
     case "listening_active":
       return "border-sky-400/30 bg-sky-500/10 text-sky-100";
@@ -331,7 +331,7 @@ export function AvatarDevtoolsPanel({
         className={`flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 ${draggable ? (dragging ? "cursor-grabbing select-none" : "cursor-grab select-none") : ""}`}
       >
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--rem-dim)]">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--remi-dim)]">
             Debug Surface
           </p>
           <h2 className="text-sm font-semibold">{title}</h2>
@@ -340,7 +340,7 @@ export function AvatarDevtoolsPanel({
           <button
             type="button"
             onClick={() => clearAvatarDevtoolsLogs()}
-            className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-[var(--rem-dim)] transition hover:border-white/20 hover:text-[var(--foreground)]"
+            className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-[var(--remi-dim)] transition hover:border-white/20 hover:text-[var(--foreground)]"
           >
             清日志
           </button>
@@ -348,7 +348,7 @@ export function AvatarDevtoolsPanel({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-[var(--rem-dim)] transition hover:border-white/20 hover:text-[var(--foreground)]"
+              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-[var(--remi-dim)] transition hover:border-white/20 hover:text-[var(--foreground)]"
             >
               关闭
             </button>
@@ -359,19 +359,19 @@ export function AvatarDevtoolsPanel({
       <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="space-y-3">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <div className="mb-2 text-xs font-medium text-[var(--rem-dim)]">当前快照</div>
+            <div className="mb-2 text-xs font-medium text-[var(--remi-dim)]">当前快照</div>
             {deferredSnapshot ? (
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Emotion</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Emotion</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.emotion}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">State</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">State</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.remState}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Turn</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Turn</div>
                   <div
                     className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getTurnStateAccent(deferredSnapshot.turnState)}`}
                   >
@@ -379,49 +379,49 @@ export function AvatarDevtoolsPanel({
                   </div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Turn Reason</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Turn Reason</div>
                   <div className="mt-1 font-medium">{turnReasonLabel}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Turn For</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Turn For</div>
                   <div className="mt-1 font-medium">{formatDuration(turnElapsed)}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Lip</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Lip</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.lipEnvelope.toFixed(2)}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Voice</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Voice</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.voiceActive ? "active" : "idle"}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Prediction</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Prediction</div>
                   <div className="mt-1 break-words font-medium">
                     {deferredSnapshot.sttPredictionPreview ?? "none"}
                   </div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Interrupt</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Interrupt</div>
                   <div className="mt-1 font-medium">
                     {deferredSnapshot.interruptionType ?? "none"}
                   </div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Cue</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Cue</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.activeCue ?? "none"}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                  <div className="text-[10px] text-[var(--rem-dim)]">Action</div>
+                  <div className="text-[10px] text-[var(--remi-dim)]">Action</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.activeAction?.action ?? "none"}</div>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[var(--rem-dim)]">还没有 runtime 快照。</p>
+              <p className="text-xs text-[var(--remi-dim)]">还没有 runtime 快照。</p>
             )}
           </div>
 
           <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3" open>
-            <summary className="cursor-pointer text-xs font-medium text-[var(--rem-dim)]">
+            <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
               Latest Intent
             </summary>
             <pre className="mt-3 overflow-auto rounded-lg bg-black/25 p-3 text-[11px] leading-5 text-[var(--foreground)]/85">
@@ -430,7 +430,7 @@ export function AvatarDevtoolsPanel({
           </details>
 
           <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <summary className="cursor-pointer text-xs font-medium text-[var(--rem-dim)]">
+            <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
               Expression Merge
             </summary>
             <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-black/25 p-3 text-[11px] leading-5 text-[var(--foreground)]/85">
@@ -441,14 +441,14 @@ export function AvatarDevtoolsPanel({
 
         <div className="min-h-0 rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-xs font-medium text-[var(--rem-dim)]">事件流</div>
-            <div className="text-[10px] text-[var(--rem-dim)]">
+            <div className="text-xs font-medium text-[var(--remi-dim)]">事件流</div>
+            <div className="text-[10px] text-[var(--remi-dim)]">
               {visibleLogs.length}/{deferredLogs.length} entries
             </div>
           </div>
           <div className="max-h-[32rem] space-y-2 overflow-auto pr-1">
             {visibleLogs.length === 0 ? (
-              <p className="text-xs text-[var(--rem-dim)]">暂无日志。</p>
+              <p className="text-xs text-[var(--remi-dim)]">暂无日志。</p>
             ) : (
               visibleLogs.map((entry) => (
                   <details
@@ -459,11 +459,11 @@ export function AvatarDevtoolsPanel({
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-[11px] font-medium">{entry.summary}</div>
-                          <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[var(--rem-dim)]">
+                          <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-[var(--remi-dim)]">
                             {entry.kind}
                           </div>
                         </div>
-                        <div className="shrink-0 text-[10px] text-[var(--rem-dim)]">
+                        <div className="shrink-0 text-[10px] text-[var(--remi-dim)]">
                           {formatTs(entry.ts)}
                         </div>
                       </div>

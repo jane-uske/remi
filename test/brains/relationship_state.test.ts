@@ -1,7 +1,7 @@
 const assert = require("assert").strict;
 const path = require("path");
 
-const { RemSessionContext } = require("../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../brains/remi_session_context");
 const { SlowBrainStore } = require("../../brains/slow_brain_store");
 const { fastBrainPredictOnly } = require("../../brains/fast_brain");
 const { retrieveMemory } = require("../../memory/memory_agent");
@@ -141,7 +141,7 @@ describe("relationship state persistence", () => {
   });
 
   it("restores relationship continuity without polluting fact memory overlay", async () => {
-    const ctx = new RemSessionContext("relationship-restore");
+    const ctx = new RemiSessionContext("relationship-restore");
     const { repo } = createPersistentRepo();
     await repo.upsert("名字", "阿宁", 0.5);
     await repo.upsert(
@@ -561,7 +561,7 @@ describe("relationship state persistence", () => {
       releasePending = resolve;
     });
     const controller = new AbortController();
-    const ctx = new RemSessionContext("relationship-interrupt");
+    const ctx = new RemiSessionContext("relationship-interrupt");
     const { hooks, repo } = createPersistentRepo();
     ctx.attachPersistentRelationshipRepo(repo);
 

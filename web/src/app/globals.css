@@ -107,7 +107,7 @@ body {
   min-height: 100dvh;
   min-height: 100svh;
   background-color: #050a10;
-  background-image: var(--rem-page-overlay), var(--rem-page-bg-image);
+  background-image: var(--remi-page-overlay), var(--remi-page-bg-image);
   background-size: cover, cover;
   background-position: center, center;
   background-repeat: no-repeat;
@@ -138,13 +138,13 @@ body {
 .rem-stage {
   position: relative;
   background: transparent;
-  background-image: var(--rem-stage-veil);
+  background-image: var(--remi-stage-veil);
   background-size: cover;
   background-position: center top;
 }
 
 .rem-chat-panel {
-  background: var(--rem-panel);
+  background: var(--remi-panel);
   backdrop-filter: blur(20px) saturate(1.15);
   -webkit-backdrop-filter: blur(20px) saturate(1.15);
 }
@@ -180,7 +180,7 @@ body {
 }
 
 .rem-voice-bars[data-active="true"] .rem-voice-bar {
-  background-color: var(--rem-accent);
+  background-color: var(--remi-accent);
 }
 
 .rem-voice-bars[data-active="true"] .rem-voice-bar:nth-child(1) {

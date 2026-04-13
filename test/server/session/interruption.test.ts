@@ -1,7 +1,7 @@
 const assert = require("assert").strict;
 const path = require("path");
 const { InterruptController } = require("../../../voice/interrupt_controller");
-const { RemSessionContext } = require("../../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../../brains/remi_session_context");
 const { routeMessage } = require("../../../brains/brain_router");
 const { loadSessionHarness, waitFor } = require("../../helpers/session_harness");
 
@@ -55,7 +55,7 @@ describe("interruption handling", () => {
   });
 
   it("marks topic continuation when the user clearly continues the previous topic", () => {
-    const ctx = new RemSessionContext("test-conn");
+    const ctx = new RemiSessionContext("test-conn");
     ctx.updateLiveState("neutral", "我想优化一下语音体验", "好，我们先看 turn-taking");
     ctx.updateLiveState("neutral", "继续说刚才那个语音体验", "可以");
 
@@ -65,7 +65,7 @@ describe("interruption handling", () => {
   });
 
   it("only marks a real interruption, not slow brain cancellation", () => {
-    const ctx = new RemSessionContext("test-conn");
+    const ctx = new RemiSessionContext("test-conn");
     ctx.beginSlowBrain();
     ctx.cancelSlowBrain();
     assert.equal(ctx.persona.liveState.wasInterrupted, false);
@@ -80,7 +80,7 @@ describe("interruption handling", () => {
   });
 
   it("returns the last interrupted reply for a carry-forward query", async () => {
-    const ctx = new RemSessionContext("test-conn");
+    const ctx = new RemiSessionContext("test-conn");
     ctx.lastInterruptedReply = "我刚才说到语音真人感最重要的是接话时机。";
 
     const chunks = [];
@@ -112,7 +112,7 @@ describe("interruption handling", () => {
     });
 
     try {
-      const ctx = new RemSessionContext("test-conn");
+      const ctx = new RemiSessionContext("test-conn");
       const ac = new AbortController();
       const chunks = [];
 

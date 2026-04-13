@@ -28,7 +28,7 @@ export const PORT = (() => {
  * Next 的 `hostname` 只能是主机名，不能含端口。误设 `localhost:3000` 或完整 URL 会导致畸形绝对链接/重定向。
  */
 function remNextHostname(): string {
-  const raw = process.env.REM_NEXT_HOSTNAME?.trim();
+  const raw = process.env.REMI_NEXT_HOSTNAME?.trim();
   if (!raw) return "localhost";
   try {
     const u = raw.includes("://") ? new URL(raw) : new URL(`http://${raw}`);
@@ -66,7 +66,7 @@ function requestPathname(req: IncomingMessage): string {
 }
 
 function getAccessPassword(): string | null {
-  const raw = process.env.REM_ACCESS_PASSWORD?.trim();
+  const raw = process.env.REMI_ACCESS_PASSWORD?.trim();
   return raw ? raw : null;
 }
 

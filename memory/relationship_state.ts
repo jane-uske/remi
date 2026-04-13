@@ -435,7 +435,7 @@ function toProactiveStrategyState(value: unknown): PersistentProactiveStrategySt
 }
 
 export function relationshipStateEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_RELATIONSHIP_STATE_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_RELATIONSHIP_STATE_ENABLED, true);
 }
 
 export function isSystemMemoryKey(key: string): boolean {

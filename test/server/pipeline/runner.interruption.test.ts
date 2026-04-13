@@ -2,7 +2,7 @@ const assert = require("assert").strict;
 const path = require("path");
 
 const { AvatarController } = require("../../../avatar/avatar_controller");
-const { RemSessionContext } = require("../../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../../brains/remi_session_context");
 const { InterruptController } = require("../../../voice/interrupt_controller");
 const { FakeWebSocket } = require("../../helpers/fake_ws");
 
@@ -109,7 +109,7 @@ describe("pipeline interruption persistence", () => {
 
     try {
       const ws = new FakeWebSocket();
-      const ctx = new RemSessionContext("conn-test");
+      const ctx = new RemiSessionContext("conn-test");
       const ic = new InterruptController();
       const avatar = new AvatarController();
       const pipelinePromise = runPipeline(

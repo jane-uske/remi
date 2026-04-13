@@ -2,9 +2,9 @@ const { expect } = require("chai");
 const {
   shouldAwaitPlaybackDrain,
   shouldFinalizeDeferredChatEnd,
-} = require("../src/hooks/useRemChatTurnState");
+} = require("../src/hooks/useRemiChatTurnState");
 
-describe("useRemChat turn lifecycle helpers", () => {
+describe("useRemiChat turn lifecycle helpers", () => {
   it("defers confirmed_end when chat_end arrives after playback already started", () => {
     expect(
       shouldAwaitPlaybackDrain({

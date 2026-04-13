@@ -89,7 +89,7 @@ export interface AvatarIntentBeat {
   reason?: string;
 }
 
-export type RemTurnState =
+export type RemiTurnState =
   | "listening_active"
   | "listening_hold"
   | "likely_end"
@@ -98,7 +98,7 @@ export type RemTurnState =
   | "assistant_speaking"
   | "interrupted_by_user";
 
-export type RemTurnStateReason =
+export type RemiTurnStateReason =
   | "speech_start"
   | "partial_growth"
   | "semantic_hold"
@@ -140,7 +140,7 @@ export type AvatarCommand =
       reason?: "tts_start" | "tts_end" | "interrupt" | "startup";
     };
 
-export type RemServerMessage =
+export type RemiServerMessage =
   | {
       type: "emotion";
       emotion: Emotion;
@@ -184,8 +184,8 @@ export type RemServerMessage =
     }
   | {
       type: "turn_state";
-      state: RemTurnState;
-      reason: RemTurnStateReason;
+      state: RemiTurnState;
+      reason: RemiTurnStateReason;
       generationId?: number;
       preview?: string;
       interruptionType?: InterruptionType;
@@ -232,4 +232,4 @@ export type RemServerMessage =
       content: string;
     };
 
-export type RemServerMessageType = RemServerMessage["type"];
+export type RemiServerMessageType = RemiServerMessage["type"];

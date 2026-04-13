@@ -279,7 +279,7 @@ export function Rem3DDemo() {
 
   const outerRing =
     remState === "speaking" && demoSpeaking
-      ? "ring-[var(--rem-accent)]/55 shadow-[0_0_0_1px_rgba(45,212,191,0.2),0_24px_80px_rgba(45,212,191,0.18)]"
+      ? "ring-[var(--remi-accent)]/55 shadow-[0_0_0_1px_rgba(45,212,191,0.2),0_24px_80px_rgba(45,212,191,0.18)]"
       : emotion === "happy"
         ? "ring-emerald-300/40 shadow-[0_24px_70px_rgba(16,185,129,0.12)]"
         : emotion === "sad"
@@ -321,7 +321,7 @@ export function Rem3DDemo() {
           <div className="relative flex h-full min-h-[68vh] flex-col p-4 sm:p-5">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-[var(--rem-dim)]">
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--remi-dim)]">
                   Rem 3D Demo
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -329,8 +329,8 @@ export function Rem3DDemo() {
                 </h1>
               </div>
               <div className={`rounded-full border px-3 py-1.5 text-xs ${outerRing} bg-black/20 backdrop-blur-md`}>
-                <span className="text-[var(--rem-dim)]">运行态</span>
-                <span className="ml-2 font-medium text-[var(--rem-accent)]">
+                <span className="text-[var(--remi-dim)]">运行态</span>
+                <span className="ml-2 font-medium text-[var(--remi-accent)]">
                   {runtimeState}
                 </span>
               </div>
@@ -359,9 +359,9 @@ export function Rem3DDemo() {
               </div>
 
               <div className="pointer-events-none absolute left-4 right-4 top-4 flex items-start justify-between gap-3">
-                <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-[var(--rem-dim)] backdrop-blur-md">
+                <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-[var(--remi-dim)] backdrop-blur-md">
                   <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-[var(--rem-accent)]" />
+                    <span className="h-2 w-2 rounded-full bg-[var(--remi-accent)]" />
                     <span>{getEmotionLabel(emotion)}</span>
                     <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
                       {remState}
@@ -372,16 +372,16 @@ export function Rem3DDemo() {
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-[var(--rem-dim)] backdrop-blur-md">
+                <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-[var(--remi-dim)] backdrop-blur-md">
                   <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-[var(--rem-accent)]/80" />
+                    <span className="h-2 w-2 rounded-full bg-[var(--remi-accent)]/80" />
                     <span>口型信号</span>
                   </div>
                   <div className="mt-2 flex items-end gap-1.5" aria-label="lip signal bars">
                     {[0.25, 0.52, 0.74, 1].map((scale, index) => (
                       <span
                         key={index}
-                        className="w-2 rounded-full bg-[var(--rem-accent)] transition-all duration-100"
+                        className="w-2 rounded-full bg-[var(--remi-accent)] transition-all duration-100"
                         style={{
                           height: `${Math.max(8, 10 + lipEnvelope * 34 * scale)}px`,
                           opacity: demoSpeaking ? 0.62 + lipEnvelope * 0.38 : 0.28,
@@ -393,7 +393,7 @@ export function Rem3DDemo() {
               </div>
 
               <div className="pointer-events-none absolute bottom-4 left-4 right-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-xs text-[var(--rem-dim)] backdrop-blur-md">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-xs text-[var(--remi-dim)] backdrop-blur-md">
                   <div>
                     <div className="font-medium text-[var(--foreground)]">
                       {demoPhrase}
@@ -425,7 +425,7 @@ export function Rem3DDemo() {
 
         <aside className="flex min-h-[68vh] flex-col gap-4 rounded-[28px] border border-white/10 bg-white/[0.04] p-4 shadow-[0_18px_80px_rgba(0,0,0,0.3)] backdrop-blur-2xl sm:p-5">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-[var(--rem-dim)]">
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--remi-dim)]">
               Control Deck
             </p>
             <h2 className="mt-1 text-xl font-semibold tracking-tight">
@@ -437,7 +437,7 @@ export function Rem3DDemo() {
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">情绪</span>
-                <span className="text-[11px] text-[var(--rem-dim)]">
+                <span className="text-[11px] text-[var(--remi-dim)]">
                   {pickMoodCopy(emotion)}
                 </span>
               </div>
@@ -452,8 +452,8 @@ export function Rem3DDemo() {
                       aria-pressed={active}
                       className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
                         active
-                          ? "border-[var(--rem-accent)] bg-[var(--rem-accent)]/15 text-[var(--foreground)] shadow-[0_0_0_1px_rgba(45,212,191,0.24)]"
-                          : "border-white/10 bg-white/[0.03] text-[var(--rem-dim)] hover:border-white/20 hover:bg-white/[0.06]"
+                          ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)] shadow-[0_0_0_1px_rgba(45,212,191,0.24)]"
+                          : "border-white/10 bg-white/[0.03] text-[var(--remi-dim)] hover:border-white/20 hover:bg-white/[0.06]"
                       }`}
                     >
                       <div className="font-medium">{item.title}</div>
@@ -474,8 +474,8 @@ export function Rem3DDemo() {
                   onClick={() => setDemoSpeaking((value) => !value)}
                   className={`rounded-full border px-3 py-1 text-[11px] transition ${
                     demoSpeaking
-                      ? "border-[var(--rem-accent)] bg-[var(--rem-accent)]/15 text-[var(--foreground)]"
-                      : "border-white/10 bg-white/[0.03] text-[var(--rem-dim)]"
+                      ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)]"
+                      : "border-white/10 bg-white/[0.03] text-[var(--remi-dim)]"
                   }`}
                 >
                   {demoSpeaking ? "假口型开" : "假口型关"}
@@ -492,8 +492,8 @@ export function Rem3DDemo() {
                       aria-pressed={active}
                       className={`rounded-xl border px-3 py-3 text-left transition ${
                         active
-                          ? "border-[var(--rem-accent)] bg-[var(--rem-accent)]/15 text-[var(--foreground)]"
-                          : "border-white/10 bg-white/[0.03] text-[var(--rem-dim)] hover:border-white/20 hover:bg-white/[0.06]"
+                          ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)]"
+                          : "border-white/10 bg-white/[0.03] text-[var(--remi-dim)] hover:border-white/20 hover:bg-white/[0.06]"
                       }`}
                     >
                       <div className="text-sm font-medium">{item.title}</div>
@@ -507,7 +507,7 @@ export function Rem3DDemo() {
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">动作</span>
-                <span className="text-[11px] text-[var(--rem-dim)]">
+                <span className="text-[11px] text-[var(--remi-dim)]">
                   点一下发给 `Rem3DAvatar`
                 </span>
               </div>
@@ -521,8 +521,8 @@ export function Rem3DDemo() {
                       onClick={() => handleTriggerAction(item)}
                       className={`rounded-xl border px-3 py-3 text-left transition ${
                         active
-                          ? "border-[var(--rem-accent)] bg-[var(--rem-accent)]/15 text-[var(--foreground)]"
-                          : "border-white/10 bg-white/[0.03] text-[var(--rem-dim)] hover:border-white/20 hover:bg-white/[0.06]"
+                          ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)]"
+                          : "border-white/10 bg-white/[0.03] text-[var(--remi-dim)] hover:border-white/20 hover:bg-white/[0.06]"
                       }`}
                     >
                       <div className="text-sm font-medium">{item.label}</div>
@@ -536,7 +536,7 @@ export function Rem3DDemo() {
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">演示文案</span>
-                <span className="text-[11px] text-[var(--rem-dim)]">
+                <span className="text-[11px] text-[var(--remi-dim)]">
                   只影响 demo 提示
                 </span>
               </div>
@@ -544,34 +544,34 @@ export function Rem3DDemo() {
                 value={demoPhrase}
                 onChange={(event) => setDemoPhrase(event.target.value)}
                 rows={4}
-                className="min-h-[100px] w-full resize-y rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--rem-dim)] focus:border-[var(--rem-accent)]"
+                className="min-h-[100px] w-full resize-y rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--remi-dim)] focus:border-[var(--remi-accent)]"
                 placeholder="输入一段 demo 文案"
               />
             </div>
           </div>
 
           <div className="mt-auto rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-4">
-            <div className="flex items-center justify-between text-xs text-[var(--rem-dim)]">
+            <div className="flex items-center justify-between text-xs text-[var(--remi-dim)]">
               <span>现场读数</span>
-              <span className="font-medium text-[var(--rem-accent)]">
+              <span className="font-medium text-[var(--remi-accent)]">
                 {lipEnvelope.toFixed(2)}
               </span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <div className="text-[11px] text-[var(--rem-dim)]">Emotion</div>
+                <div className="text-[11px] text-[var(--remi-dim)]">Emotion</div>
                 <div className="mt-1 font-medium">{getEmotionLabel(emotion)}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <div className="text-[11px] text-[var(--rem-dim)]">State</div>
+                <div className="text-[11px] text-[var(--remi-dim)]">State</div>
                 <div className="mt-1 font-medium">{remState}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <div className="text-[11px] text-[var(--rem-dim)]">Action</div>
+                <div className="text-[11px] text-[var(--remi-dim)]">Action</div>
                 <div className="mt-1 font-medium">{selectedAction.label}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <div className="text-[11px] text-[var(--rem-dim)]">Model</div>
+                <div className="text-[11px] text-[var(--remi-dim)]">Model</div>
                 <div className="mt-1 font-medium">`{MODEL_PRESET}`</div>
               </div>
             </div>

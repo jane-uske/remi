@@ -5,23 +5,18 @@ import dynamic from "next/dynamic";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { ChatWindow } from "@/components/ChatWindow";
 import { InputBar } from "@/components/InputBar";
-import { PresetControlPanel } from "@/components/PresetControlPanel";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
-import {
-  useRemChat,
-  type RemConnectionPhase,
-} from "@/hooks/useRemChat";
+import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemChat";
 import { getEmotionLabel } from "@/lib/emotionLabels";
-import type { RemState, RemTurnState } from "@/types/avatar";
+import type { RemState, RemiTurnState } from "@/types/avatar";
 
 const Rem3DAvatar = dynamic(
-  () =>
-    import("@/components/Rem3DAvatar").then((m) => m.Rem3DAvatar),
+  () => import("@/components/Rem3DAvatar").then((m) => m.Rem3DAvatar),
   {
     ssr: false,
     loading: () => (
       <div
-        className="flex min-h-[240px] w-full flex-1 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-sm text-[var(--rem-dim)] backdrop-blur-md"
+        className="flex min-h-[240px] w-full flex-1 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-sm text-[var(--remi-dim)] backdrop-blur-md"
         aria-hidden
       >
         3D 加载中…
@@ -31,7 +26,7 @@ const Rem3DAvatar = dynamic(
 );
 
 function remConnectionStatusText(
-  phase: RemConnectionPhase,
+  phase: RemiConnectionPhase,
   reconnectInSec: number | null,
 ): string {
   switch (phase) {
@@ -51,7 +46,7 @@ function remConnectionStatusText(
 }
 
 function remConnectionDotClass(
-  phase: RemConnectionPhase,
+  phase: RemiConnectionPhase,
   reconnectInSec: number | null,
 ): string {
   const base = "h-2 w-2 shrink-0 rounded-full";
@@ -59,17 +54,17 @@ function remConnectionDotClass(
     case "connecting":
       return `${base} bg-sky-400`;
     case "open":
-      return `${base} bg-[var(--rem-accent)]`;
+      return `${base} bg-[var(--remi-accent)]`;
     case "closed":
       if (reconnectInSec != null) {
         return `${base} bg-amber-400`;
       }
-      return `${base} bg-[var(--rem-dot-off)]`;
+      return `${base} bg-[var(--remi-dot-off)]`;
   }
 }
 
 function remStateFromTurnState(
-  turnState: RemTurnState,
+  turnState: RemiTurnState,
   voiceActive: boolean,
   busy: boolean,
 ): RemState {
@@ -113,14 +108,13 @@ export function RemChatApp() {
     lipSignalRef,
     hasMic,
     sendText,
-    applyDevPreset,
-    resetDevState,
     toggleMic,
-  } = useRemChat();
+  } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
-  const remState: RemState = userSpeaking || recording
-    ? "listening"
-    : remStateFromTurnState(turnState, voiceActive, typing || waiting);
+  const remState: RemState =
+    userSpeaking || recording
+      ? "listening"
+      : remStateFromTurnState(turnState, voiceActive, typing || waiting);
 
   const inputDisabled = !connected || recording;
   const micDisabled = !connected || !hasMic;
@@ -165,11 +159,6 @@ export function RemChatApp() {
         </section>
 
         <aside className="rem-chat-panel rem-glass-edge flex min-h-0 w-full min-w-0 flex-1 flex-col border-t lg:w-[min(100%,clamp(320px,42vw,440px))] lg:max-w-[min(100%,440px)] lg:flex-none lg:border-l lg:border-t-0 lg:pt-14">
-          <PresetControlPanel
-            connected={connected}
-            onApply={applyDevPreset}
-            onReset={resetDevState}
-          />
           <ChatWindow
             messages={messages}
             sttPartialText={sttPartialText}
@@ -193,16 +182,16 @@ export function RemChatApp() {
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-2 bg-transparent px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-4 sm:px-6">
         <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--rem-accent)] to-[var(--rem-accent-dim)] text-sm font-bold text-[#042f2e] shadow-lg shadow-teal-500/25 ring-1 ring-white/20">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--remi-accent)] to-[var(--remi-accent-dim)] text-sm font-bold text-[#042f2e] shadow-lg shadow-teal-500/25 ring-1 ring-white/20">
             R
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-semibold tracking-tight text-[var(--foreground)]">
               Rem
             </h1>
-            <p className="text-[11px] text-[var(--rem-dim)]">
+            <p className="text-[11px] text-[var(--remi-dim)]">
               AI 陪伴
-              <span className="font-medium text-[var(--rem-accent)]">
+              <span className="font-medium text-[var(--remi-accent)]">
                 {" "}
                 · {getEmotionLabel(emotion)}
               </span>
@@ -210,7 +199,7 @@ export function RemChatApp() {
           </div>
         </div>
         <div
-          className="pointer-events-auto flex min-w-0 max-w-[min(100%,min(14rem,45vw))] shrink items-center gap-2 rounded-full bg-transparent px-2 py-1.5 text-xs text-[var(--rem-dim)] sm:max-w-none sm:px-3"
+          className="pointer-events-auto flex min-w-0 max-w-[min(100%,min(14rem,45vw))] shrink items-center gap-2 rounded-full bg-transparent px-2 py-1.5 text-xs text-[var(--remi-dim)] sm:max-w-none sm:px-3"
           aria-live="polite"
           aria-atomic="true"
         >

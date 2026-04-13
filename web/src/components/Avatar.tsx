@@ -30,11 +30,11 @@ export function Avatar({ emotion }: AvatarProps) {
       <img
         src={src}
         alt="Rem Avatar"
-        className="h-[84px] w-[84px] shrink-0 rounded-[14px] border border-[var(--rem-border)] bg-[var(--rem-input)] object-cover"
+        className="h-[84px] w-[84px] shrink-0 rounded-[14px] border border-[var(--remi-border)] bg-[var(--remi-input)] object-cover"
       />
       <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs text-[var(--rem-dim)]">当前情绪</span>
-        <span className="break-words text-sm font-semibold text-[var(--rem-accent)]">
+        <span className="text-xs text-[var(--remi-dim)]">当前情绪</span>
+        <span className="break-words text-sm font-semibold text-[var(--remi-accent)]">
           {getEmotionLabel(key)}
         </span>
       </div>

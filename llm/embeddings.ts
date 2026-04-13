@@ -12,17 +12,17 @@ function embeddingConfig(): {
   model: string;
 } | null {
   const apiKey =
-    process.env.REM_EMBEDDING_API_KEY?.trim() ||
+    process.env.REMI_EMBEDDING_API_KEY?.trim() ||
     process.env.EMBEDDING_API_KEY?.trim() ||
     process.env.key?.trim() ||
     "";
   const baseURL =
-    process.env.REM_EMBEDDING_BASE_URL?.trim() ||
+    process.env.REMI_EMBEDDING_BASE_URL?.trim() ||
     process.env.EMBEDDING_BASE_URL?.trim() ||
     process.env.base_url?.trim() ||
     "";
   const model =
-    process.env.REM_EMBEDDING_MODEL?.trim() ||
+    process.env.REMI_EMBEDDING_MODEL?.trim() ||
     process.env.EMBEDDING_MODEL?.trim() ||
     "";
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage } from "@/types/chat";
-import type { RemTurnState } from "@/types/avatar";
+import type { RemiTurnState } from "@/types/avatar";
 import { MessageBubble } from "@/components/MessageBubble";
 
 export type ChatWindowProps = {
@@ -12,10 +12,10 @@ export type ChatWindowProps = {
   listeningHint: boolean;
   /** STT 结束或发送消息后、首 token 到达前 */
   thinkingHint: boolean;
-  turnState: RemTurnState;
+  turnState: RemiTurnState;
 };
 
-function getTurnStateLabel(turnState: RemTurnState): string | null {
+function getTurnStateLabel(turnState: RemiTurnState): string | null {
   switch (turnState) {
     case "listening_active":
       return "听着";
@@ -110,13 +110,13 @@ export function ChatWindow({
         aria-live="off"
         aria-busy={responseBusy}
         tabIndex={0}
-        className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 outline-none min-[480px]:px-4 min-[480px]:py-4 sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--rem-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 outline-none min-[480px]:px-4 min-[480px]:py-4 sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
         {statusLabel ? (
           <div className="flex justify-start px-1 pb-1">
             <div
               role="status"
-              className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--rem-dim)] backdrop-blur-md"
+              className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--remi-dim)] backdrop-blur-md"
             >
               {statusLabel}
             </div>

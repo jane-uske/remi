@@ -1,7 +1,7 @@
 const assert = require("assert").strict;
 const { buildPrompt } = require("../../brain/prompt_builder");
 const { createDefaultPersona } = require("../../persona");
-const { RemSessionContext } = require("../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../brains/remi_session_context");
 
 describe("prompt builder emotion speech style", () => {
   it("includes richer happy expression and speech rhythm hints", () => {
@@ -145,7 +145,7 @@ describe("prompt builder emotion speech style", () => {
   });
 
   it("does not add interruption guidance after slow brain cancellation alone", () => {
-    const ctx = new RemSessionContext("test-conn");
+    const ctx = new RemiSessionContext("test-conn");
     ctx.beginSlowBrain();
     ctx.cancelSlowBrain();
 

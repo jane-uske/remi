@@ -5,15 +5,19 @@ function getEmbeddingConfig(): {
   baseURL: string;
   model: string;
 } {
-  const baseURL = process.env.REM_EMBEDDING_BASE_URL?.trim();
-  const apiKey = process.env.REM_EMBEDDING_API_KEY?.trim();
-  const model = process.env.REM_EMBEDDING_MODEL?.trim() || "nomic-embed-text";
+  const baseURL = process.env.REMI_EMBEDDING_BASE_URL?.trim();
+  const apiKey = process.env.REMI_EMBEDDING_API_KEY?.trim();
+  const model = process.env.REMI_EMBEDDING_MODEL?.trim() || "nomic-embed-text";
 
   if (!baseURL) {
-    throw new Error("Embedding client is not configured: missing REM_EMBEDDING_BASE_URL");
+    throw new Error(
+      "Embedding client is not configured: missing REM_EMBEDDING_BASE_URL",
+    );
   }
   if (!apiKey) {
-    throw new Error("Embedding client is not configured: missing REM_EMBEDDING_API_KEY");
+    throw new Error(
+      "Embedding client is not configured: missing REM_EMBEDDING_API_KEY",
+    );
   }
 
   return { apiKey, baseURL, model };
@@ -24,9 +28,13 @@ function buildEmbeddingsUrl(baseURL: string): string {
 }
 
 function extractEmbedding(responseBody: unknown): number[] {
-  const data = (responseBody as { data?: Array<{ embedding?: unknown }> })?.data;
+  const data = (responseBody as { data?: Array<{ embedding?: unknown }> })
+    ?.data;
   const embedding = data?.[0]?.embedding;
-  if (!Array.isArray(embedding) || embedding.some((value) => typeof value !== "number")) {
+  if (
+    !Array.isArray(embedding) ||
+    embedding.some((value) => typeof value !== "number")
+  ) {
     throw new Error("Embedding client returned an invalid embedding payload");
   }
   if (embedding.length !== EMBEDDING_DIMENSIONS) {

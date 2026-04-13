@@ -1,7 +1,7 @@
 import type {
-  RemServerMessage,
-  RemServerMessageType,
+  RemiServerMessage,
+  RemiServerMessageType,
 } from "../../avatar/types";
 
-export type ServerMessage = RemServerMessage;
-export type ServerMessageType = RemServerMessageType;
+export type ServerMessage = RemiServerMessage;
+export type ServerMessageType = RemiServerMessageType;

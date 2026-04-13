@@ -1,8 +1,8 @@
-import type { RemTurnState } from "../../avatar/types";
+import type { RemiTurnState } from "../../avatar/types";
 
 export interface TurnTimingInput {
-  previousState: RemTurnState | null;
-  nextState: RemTurnState;
+  previousState: RemiTurnState | null;
+  nextState: RemiTurnState;
   reason: string;
   nowMs: number;
   stateEnteredAtMs: number | null;

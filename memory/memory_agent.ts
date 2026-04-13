@@ -111,11 +111,11 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
 }
 
 function episodeLongHorizonRankingEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_EPISODE_LONG_HORIZON_RANKING_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED, true);
 }
 
 function episodeStorePromptEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_EPISODE_STORE_PROMPT_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_EPISODE_STORE_PROMPT_ENABLED, true);
 }
 
 function normalizeText(text: string): string {
@@ -586,7 +586,7 @@ function buildEpisodePromptMemory(
   if (!slowBrainSnapshot || maxEntries <= 0) return [];
   if (!slowBrainSnapshot.sharedMoments?.length) return [];
 
-  const enabled = parseBooleanFlag(process.env.REM_EPISODE_RETRIEVAL_V1_ENABLED, true);
+  const enabled = parseBooleanFlag(process.env.REMI_EPISODE_RETRIEVAL_V1_ENABLED, true);
   const userText = normalizeText(userMessage);
   const userKeywords = extractKeywords(userMessage);
   const relationship = buildRelationshipTexts(slowBrainSnapshot);
@@ -786,7 +786,7 @@ export async function retrievePromptMemory(
         : null;
     if (persistentBackend && typeof persistentBackend.findSimilar === "function") {
       const timeoutMs = parsePositiveInt(
-        process.env.REM_SEMANTIC_RECALL_TIMEOUT_MS,
+        process.env.REMI_SEMANTIC_RECALL_TIMEOUT_MS,
         300,
       );
       try {

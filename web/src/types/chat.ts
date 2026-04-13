@@ -3,7 +3,7 @@ import type {
   AvatarFrame,
   AvatarPhase,
   Emotion,
-  RemServerMessage,
+  RemiServerMessage,
 } from "../../../avatar/types";
 
 export type MessageRole = "user" | "rem" | "partial" | "error" | "sys";
@@ -14,8 +14,8 @@ export type ChatMessage = {
   text: string;
 };
 
-export type RemChatEmotion = Emotion;
-export type RemAvatarCommand = AvatarCommand;
-export type RemAvatarFrame = AvatarFrame;
-export type RemAvatarPhase = AvatarPhase;
-export type RemServerWsMessage = RemServerMessage;
+export type RemiChatEmotion = Emotion;
+export type RemiAvatarCommand = AvatarCommand;
+export type RemiAvatarFrame = AvatarFrame;
+export type RemiAvatarPhase = AvatarPhase;
+export type RemiServerWsMessage = RemiServerMessage;

@@ -1,10 +1,10 @@
 const assert = require("assert").strict;
 
-const { RemSessionContext } = require("../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../brains/remi_session_context");
 
 describe("session history guard", () => {
   it("filters fallback assistant replies when hydrating history from db", () => {
-    const ctx = new RemSessionContext("history-guard");
+    const ctx = new RemiSessionContext("history-guard");
     ctx.hydrateHistoryFromDb([
       {
         id: "1",

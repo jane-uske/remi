@@ -13,14 +13,14 @@ import { ensureDevUser } from "../../storage/repositories/dev_identity";
 import { getPgMemoryRepository } from "../../storage/repositories/pg_memory_repository";
 import { createSession as createDbSession, endSession } from "../../storage/repositories/session_repository";
 import { getRecentUserMessages } from "../../storage/repositories/message_repository";
-import { RemSessionContext } from "../../brains/rem_session_context";
+import { RemiSessionContext } from "../../brains/remi_session_context";
 import { runPipeline } from "../pipeline";
 import { send, getWsRateLimiter } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import { fastBrainPredictOnly } from "../../brains/fast_brain";
 import { retrievePromptMemory } from "../../memory/memory_agent";
 import { trimHistoryToTokenBudget } from "../../brains/history_budget";
-import type { InterruptionType, RemTurnState, RemTurnStateReason } from "../../avatar/types";
+import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
 import {
   persistentMemoryOverlayEnabled,
   persistentMemoryPreloadLimit,
@@ -102,11 +102,11 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
 }
 
 function devPresetCommandsEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_DEV_PRESETS_ENABLED, process.env.NODE_ENV !== "production");
+  return parseBooleanFlag(process.env.REMI_DEV_PRESETS_ENABLED, process.env.NODE_ENV !== "production");
 }
 
 function proactivePlannerMainPathEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_PROACTIVE_PLANNER_MAIN_PATH_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED, true);
 }
 
 function isSemanticallyCompletePreview(text: string): boolean {
@@ -207,7 +207,7 @@ function effectiveUtteranceGapMs(speechDurationMs: number): number {
 
 /** 用户多久没发消息后触发 Rem 主动搭话（ms）；未设置或 0 表示关闭 */
 function silenceNudgeMs(): number {
-  const raw = process.env.REM_SILENCE_NUDGE_MS;
+  const raw = process.env.REMI_SILENCE_NUDGE_MS;
   if (raw === undefined || raw === "") return 0;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -349,7 +349,7 @@ function pcmPeak(pcm: Buffer): number {
 
 export class ConnectionSession {
   readonly connId: string;
-  readonly brain: RemSessionContext;
+  readonly brain: RemiSessionContext;
   readonly ws: WebSocket;
   readonly stt: SttStream;
   readonly vad: VadDetector;
@@ -413,9 +413,9 @@ export class ConnectionSession {
   private readonly PARTIAL_SHAPE_MAX_SAMPLES = 6;
   private lastPredictionIssuedAt = 0;
   private lastPredictionIssuedText = "";
-  private turnState: RemTurnState = "confirmed_end";
-  private lastPublishedTurnState: RemTurnState | null = null;
-  private lastPublishedTurnReason: RemTurnStateReason | null = null;
+  private turnState: RemiTurnState = "confirmed_end";
+  private lastPublishedTurnState: RemiTurnState | null = null;
+  private lastPublishedTurnReason: RemiTurnStateReason | null = null;
   private turnStateEnteredAt = 0;
   private lastSpeechStartAt = 0;
   private lastSpeechEndAt = 0;
@@ -446,7 +446,7 @@ export class ConnectionSession {
 
   constructor(ws: WebSocket) {
     this.connId = randomUUID();
-    this.brain = new RemSessionContext(this.connId);
+    this.brain = new RemiSessionContext(this.connId);
     this.ws = ws;
     this.stt = new SttStream();
     this.vad = new VadDetector();
@@ -691,8 +691,8 @@ export class ConnectionSession {
   }
 
   private publishTurnState(
-    state: RemTurnState,
-    reason: RemTurnStateReason,
+    state: RemiTurnState,
+    reason: RemiTurnStateReason,
     extras?: {
       generationId?: number;
       preview?: string;

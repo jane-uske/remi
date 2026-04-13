@@ -38,8 +38,8 @@ export function InputBar({
           onClick={onMicToggle}
           className={
             recording
-              ? "rem-mic-pulse flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--rem-danger)] text-base text-white disabled:cursor-default disabled:opacity-40"
-              : "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--rem-border)] bg-[var(--rem-surface)] text-[var(--rem-accent)] transition hover:bg-[var(--rem-border)]/40 disabled:cursor-default disabled:opacity-40"
+              ? "rem-mic-pulse flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--remi-danger)] text-base text-white disabled:cursor-default disabled:opacity-40"
+              : "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--remi-border)] bg-[var(--remi-surface)] text-[var(--remi-accent)] transition hover:bg-[var(--remi-border)]/40 disabled:cursor-default disabled:opacity-40"
           }
           aria-pressed={recording}
         >
@@ -47,7 +47,7 @@ export function InputBar({
           <span aria-hidden>{recording ? "■" : "🎤"}</span>
         </button>
         <input
-          className="min-h-0 min-w-0 flex-1 border-0 bg-transparent py-2 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--rem-dim)] disabled:opacity-60"
+          className="min-h-0 min-w-0 flex-1 border-0 bg-transparent py-2 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--remi-dim)] disabled:opacity-60"
           type="text"
           placeholder={placeholder}
           autoComplete="off"
@@ -67,7 +67,7 @@ export function InputBar({
         disabled={disabled}
         onClick={submit}
         title="发送"
-        className="flex h-10 w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--rem-accent)] to-[var(--rem-accent-dim)] text-lg font-semibold text-[#042f2e] shadow-md shadow-teal-500/15 transition hover:opacity-95 disabled:cursor-default disabled:opacity-40 sm:h-10 sm:w-10"
+        className="flex h-10 w-full shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--remi-accent)] to-[var(--remi-accent-dim)] text-lg font-semibold text-[#042f2e] shadow-md shadow-teal-500/15 transition hover:opacity-95 disabled:cursor-default disabled:opacity-40 sm:h-10 sm:w-10"
       >
         <span aria-hidden>↑</span>
       </button>

@@ -2,7 +2,7 @@ import { RemVrmViewer } from "./vrmViewer";
 import type { VrmViewerState } from "./vrmViewer";
 import type {
   RemState,
-  RemTurnState,
+  RemiTurnState,
   AvatarActionCommand,
   AvatarEngine,
   AvatarModelPreset,
@@ -21,7 +21,7 @@ export type CreateAvatarRuntimeOptions = {
 export interface AvatarRuntimeAdapter {
   setEmotion(emotion: string): void;
   setState(state: RemState): void;
-  setTurnState(state: RemTurnState): void;
+  setTurnState(state: RemiTurnState): void;
   setIntent(intent: AvatarIntent | null): void;
   setFrame(frame: AvatarFrameState | null): void;
   playAction(action: AvatarActionCommand): void;
@@ -54,7 +54,7 @@ export function createAvatarRuntime(
       viewer.setState(state);
     },
 
-    setTurnState(state: RemTurnState): void {
+    setTurnState(state: RemiTurnState): void {
       viewer.setTurnState(state);
     },
 

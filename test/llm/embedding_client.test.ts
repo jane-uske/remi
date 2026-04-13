@@ -7,9 +7,9 @@ function clearEmbeddingClientModule() {
 
 describe("embedding_client", () => {
   const originalEnv = {
-    REM_EMBEDDING_BASE_URL: process.env.REM_EMBEDDING_BASE_URL,
-    REM_EMBEDDING_API_KEY: process.env.REM_EMBEDDING_API_KEY,
-    REM_EMBEDDING_MODEL: process.env.REM_EMBEDDING_MODEL,
+    REM_EMBEDDING_BASE_URL: process.env.REMI_EMBEDDING_BASE_URL,
+    REM_EMBEDDING_API_KEY: process.env.REMI_EMBEDDING_API_KEY,
+    REM_EMBEDDING_MODEL: process.env.REMI_EMBEDDING_MODEL,
   };
   const originalFetch = global.fetch;
 
@@ -17,19 +17,19 @@ describe("embedding_client", () => {
     clearEmbeddingClientModule();
     global.fetch = originalFetch;
     if (originalEnv.REM_EMBEDDING_BASE_URL === undefined) {
-      delete process.env.REM_EMBEDDING_BASE_URL;
+      delete process.env.REMI_EMBEDDING_BASE_URL;
     } else {
-      process.env.REM_EMBEDDING_BASE_URL = originalEnv.REM_EMBEDDING_BASE_URL;
+      process.env.REMI_EMBEDDING_BASE_URL = originalEnv.REM_EMBEDDING_BASE_URL;
     }
     if (originalEnv.REM_EMBEDDING_API_KEY === undefined) {
-      delete process.env.REM_EMBEDDING_API_KEY;
+      delete process.env.REMI_EMBEDDING_API_KEY;
     } else {
-      process.env.REM_EMBEDDING_API_KEY = originalEnv.REM_EMBEDDING_API_KEY;
+      process.env.REMI_EMBEDDING_API_KEY = originalEnv.REM_EMBEDDING_API_KEY;
     }
     if (originalEnv.REM_EMBEDDING_MODEL === undefined) {
-      delete process.env.REM_EMBEDDING_MODEL;
+      delete process.env.REMI_EMBEDDING_MODEL;
     } else {
-      process.env.REM_EMBEDDING_MODEL = originalEnv.REM_EMBEDDING_MODEL;
+      process.env.REMI_EMBEDDING_MODEL = originalEnv.REM_EMBEDDING_MODEL;
     }
   });
 
@@ -44,9 +44,9 @@ describe("embedding_client", () => {
         },
       };
     };
-    process.env.REM_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
-    process.env.REM_EMBEDDING_API_KEY = "test-key";
-    process.env.REM_EMBEDDING_MODEL = "nomic-embed-text";
+    process.env.REMI_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
+    process.env.REMI_EMBEDDING_MODEL = "nomic-embed-text";
 
     const { embed } = require("../../llm/embedding_client");
     const embedding = await embed("hello");
@@ -62,8 +62,8 @@ describe("embedding_client", () => {
   });
 
   it("throws a clear error when required env vars are missing", async () => {
-    delete process.env.REM_EMBEDDING_BASE_URL;
-    process.env.REM_EMBEDDING_API_KEY = "test-key";
+    delete process.env.REMI_EMBEDDING_BASE_URL;
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
 
     const { embed } = require("../../llm/embedding_client");
     await assert.rejects(
@@ -79,8 +79,8 @@ describe("embedding_client", () => {
         return { data: [{ embedding: new Array(192).fill(0.1) }] };
       },
     });
-    process.env.REM_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
-    process.env.REM_EMBEDDING_API_KEY = "test-key";
+    process.env.REMI_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
 
     const { embed } = require("../../llm/embedding_client");
     await assert.rejects(
@@ -101,8 +101,8 @@ describe("embedding_client", () => {
         },
       };
     };
-    process.env.REM_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
-    process.env.REM_EMBEDDING_API_KEY = "test-key";
+    process.env.REMI_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
 
     const { embedBatch } = require("../../llm/embedding_client");
     const embeddings = await embedBatch(["a", "bb", "ccc"]);

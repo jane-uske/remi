@@ -9,8 +9,8 @@ import type {
   AvatarIntentBeat,
   AvatarIntent,
   InterruptionType,
-  RemTurnState,
-  RemTurnStateReason,
+  RemiTurnState,
+  RemiTurnStateReason,
 } from "@/types/avatar";
 import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import {
@@ -82,7 +82,7 @@ export const REM_WS_RECONNECT_DELAY_MS = 3000;
 /** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」） */
 const WS_CONNECT_TIMEOUT_MS = 12_000;
 
-export type RemConnectionPhase = "connecting" | "open" | "closed";
+export type RemiConnectionPhase = "connecting" | "open" | "closed";
 
 const MESSAGE_STORAGE_KEY = "rem-chat-messages-v1";
 const MESSAGE_STORAGE_MAX = 50;
@@ -162,11 +162,11 @@ function loadPersistedMessages(storageKey: string): ChatMessage[] {
   }
 }
 
-export function useRemChat() {
+export function useRemiChat() {
   const [emotion, setEmotion] = useState("neutral");
   const [connected, setConnected] = useState(false);
   const [connectionPhase, setConnectionPhase] =
-    useState<RemConnectionPhase>("connecting");
+    useState<RemiConnectionPhase>("connecting");
   const [reconnectDeadline, setReconnectDeadline] = useState<number | null>(null);
   /** 仅用于在重连倒计时期间驱动按秒刷新（deadline 派生秒数） */
   const [, bumpReconnectTick] = useState(0);
@@ -177,7 +177,7 @@ export function useRemChat() {
   const [sttPartialText, setSttPartialText] = useState("");
   const [typing, setTyping] = useState(false);
   const [waiting, setWaiting] = useState(false);
-  const [turnState, setTurnState] = useState<RemTurnState>("confirmed_end");
+  const [turnState, setTurnState] = useState<RemiTurnState>("confirmed_end");
   const [sttPredictionPreview, setSttPredictionPreview] = useState<string | null>(null);
   const [interruptionType, setInterruptionType] = useState<InterruptionType | null>(null);
   /** 首 token 前：转成更弱的状态提示，不再直接显示“Rem 在想…” */
@@ -214,10 +214,10 @@ export function useRemChat() {
     awaitingPlaybackDrain: boolean;
   } | null>(null);
   const pendingChatEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const turnStateRef = useRef<RemTurnState>("confirmed_end");
+  const turnStateRef = useRef<RemiTurnState>("confirmed_end");
   const turnStateMetaRef = useRef<{
-    state: RemTurnState;
-    reason: RemTurnStateReason;
+    state: RemiTurnState;
+    reason: RemiTurnStateReason;
     sinceAtMs: number;
     generationId: number | null;
     preview: string | null;
@@ -247,8 +247,8 @@ export function useRemChat() {
 
   const commitTurnState = useCallback(
     (
-      nextState: RemTurnState,
-      reason: RemTurnStateReason,
+      nextState: RemiTurnState,
+      reason: RemiTurnStateReason,
       extras?: {
         preview?: string | null;
         interruptionType?: InterruptionType | null;
@@ -872,8 +872,8 @@ export function useRemChat() {
 
       switch (t) {
         case "turn_state": {
-          const nextState = data.state as RemTurnState | undefined;
-          const reason = data.reason as RemTurnStateReason | undefined;
+          const nextState = data.state as RemiTurnState | undefined;
+          const reason = data.reason as RemiTurnStateReason | undefined;
           const preview =
             typeof data.preview === "string" && data.preview.trim()
               ? data.preview.trim()

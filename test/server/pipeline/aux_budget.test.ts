@@ -2,7 +2,7 @@ const assert = require("assert").strict;
 const path = require("path");
 
 const { AvatarController } = require("../../../avatar/avatar_controller");
-const { RemSessionContext } = require("../../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../../brains/remi_session_context");
 const { InterruptController } = require("../../../voice/interrupt_controller");
 const { FakeWebSocket } = require("../../helpers/fake_ws");
 
@@ -141,7 +141,7 @@ describe("auxiliary llm budget gates", () => {
     });
 
     try {
-      const ctx = new RemSessionContext("budget-slow-brain");
+      const ctx = new RemiSessionContext("budget-slow-brain");
       const chunks = [];
       for await (const chunk of routeMessage(ctx, "继续聊", "neutral")) {
         chunks.push(chunk);
@@ -186,7 +186,7 @@ describe("auxiliary llm budget gates", () => {
 
     try {
       const ws = new FakeWebSocket();
-      const ctx = new RemSessionContext("budget-avatar-intent");
+      const ctx = new RemiSessionContext("budget-avatar-intent");
       const ic = new InterruptController();
       const avatar = new AvatarController();
 

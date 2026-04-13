@@ -999,7 +999,7 @@ export class SlowBrainStore {
   }
 
   buildSilenceNudgePlan(): SilenceNudgePlan | null {
-    const minTurns = Number(process.env.REM_SILENCE_NUDGE_MIN_TURNS ?? 2);
+    const minTurns = Number(process.env.REMI_SILENCE_NUDGE_MIN_TURNS ?? 2);
     const snap = this.getSnapshot();
     if (snap.relationship.turnCount < minTurns) return null;
     if (!shouldTriggerSilenceNudge(snap)) return null;
@@ -1050,33 +1050,33 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
 }
 
 function relationshipStyleGuidanceEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED, true);
 }
 
 function realtimeContinuityHintEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_REALTIME_CONTINUITY_HINT_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_REALTIME_CONTINUITY_HINT_ENABLED, true);
 }
 
 function proactivePromptEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_PROACTIVE_PROMPT_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_PROACTIVE_PROMPT_ENABLED, true);
 }
 
 function proactiveLedgerEnabled(): boolean {
-  return parseBooleanFlag(process.env.REM_PROACTIVE_LEDGER_ENABLED, true);
+  return parseBooleanFlag(process.env.REMI_PROACTIVE_LEDGER_ENABLED, true);
 }
 
 function proactiveCooldownTurns(): number {
-  const raw = Number(process.env.REM_PROACTIVE_COOLDOWN_TURNS ?? 3);
+  const raw = Number(process.env.REMI_PROACTIVE_COOLDOWN_TURNS ?? 3);
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 3;
 }
 
 function sharedMomentCooldownTurns(): number {
-  const raw = Number(process.env.REM_SHARED_MOMENT_COOLDOWN_TURNS ?? 4);
+  const raw = Number(process.env.REMI_SHARED_MOMENT_COOLDOWN_TURNS ?? 4);
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 4;
 }
 
 function topicBoundaryTtlTurns(): number {
-  const raw = Number(process.env.REM_TOPIC_BOUNDARY_TTL_TURNS ?? 4);
+  const raw = Number(process.env.REMI_TOPIC_BOUNDARY_TTL_TURNS ?? 4);
   return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
 }
 

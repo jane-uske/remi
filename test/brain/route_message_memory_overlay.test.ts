@@ -1,7 +1,7 @@
 const assert = require("assert").strict;
 const path = require("path");
 
-const { RemSessionContext } = require("../../brains/rem_session_context");
+const { RemiSessionContext } = require("../../brains/remi_session_context");
 
 function applyEnv(values) {
   const previous = {};
@@ -68,7 +68,7 @@ function loadMockedRouteMessage(fastBrainStream) {
 
 describe("routeMessage with session memory overlay", () => {
   it("uses hydrated local memory without re-reading persistent storage on each prompt build", async () => {
-    const ctx = new RemSessionContext("memory-overlay-route");
+    const ctx = new RemiSessionContext("memory-overlay-route");
     const { hooks, repo } = createPersistentRepo([
       {
         key: "名字",
@@ -107,7 +107,7 @@ describe("routeMessage with session memory overlay", () => {
 
   it("limits prompt memory to relationship-relevant facts instead of flooding all facts", async () => {
     const restoreEnv = applyEnv({ MAX_PROMPT_MEMORY_ENTRIES: "4" });
-    const ctx = new RemSessionContext("memory-overlay-relevant");
+    const ctx = new RemiSessionContext("memory-overlay-relevant");
     const { repo } = createPersistentRepo([
       {
         key: "名字",
@@ -192,7 +192,7 @@ describe("routeMessage with session memory overlay", () => {
       REM_PROACTIVE_PROMPT_ENABLED: "1",
       REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
     });
-    const ctx = new RemSessionContext("memory-overlay-shared-moment");
+    const ctx = new RemiSessionContext("memory-overlay-shared-moment");
     const { repo } = createPersistentRepo([
       {
         key: "名字",
@@ -273,7 +273,7 @@ describe("routeMessage with session memory overlay", () => {
       REM_PROACTIVE_COOLDOWN_TURNS: "10",
       REM_SHARED_MOMENT_COOLDOWN_TURNS: "10",
     });
-    const ctx = new RemSessionContext("memory-overlay-no-repeat");
+    const ctx = new RemiSessionContext("memory-overlay-no-repeat");
     ctx.slowBrain.recordTurn();
     ctx.slowBrain.recordTurn();
     ctx.slowBrain.bumpRelationship({ familiarityDelta: 0.5, emotionalBondDelta: 0.45 });
@@ -317,7 +317,7 @@ describe("routeMessage with session memory overlay", () => {
       REM_PROACTIVE_PROMPT_ENABLED: "1",
       REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
     });
-    const ctx = new RemSessionContext("memory-overlay-direct-question");
+    const ctx = new RemiSessionContext("memory-overlay-direct-question");
     ctx.slowBrain.recordTurn();
     ctx.slowBrain.recordTurn();
     ctx.slowBrain.recordTurn();
@@ -355,7 +355,7 @@ describe("routeMessage with session memory overlay", () => {
 
   it("does not persist fallback assistant reply into formal history", async () => {
     const restoreEnv = applyEnv({ REM_SLOW_BRAIN_ENABLED: "1" });
-    const ctx = new RemSessionContext("memory-overlay-fallback-guard");
+    const ctx = new RemiSessionContext("memory-overlay-fallback-guard");
     const { routeMessage, restore } = loadMockedRouteMessage(async function* () {
       yield "啊…出了点问题，等我缓缓再试试…";
     });
