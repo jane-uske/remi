@@ -1,4 +1,4 @@
-# Rem AI — Memory V2 设计文档
+# Remi AI — Memory V2 设计文档
 
 > 对应目标：关系层第二阶段 —— 语义 Episode 聚类 + 关系驱动的主动对话 + 增量更新。
 >
@@ -70,7 +70,7 @@ CREATE TABLE episodes (
   unresolved BOOLEAN NOT NULL DEFAULT FALSE,
   first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_referenced_at TIMESTAMPTZ,     -- Rem 最近一次在对话里引用它的时间
+  last_referenced_at TIMESTAMPTZ,     -- Remi 最近一次在对话里引用它的时间
   centroid_embedding vector(768) NOT NULL,  -- 所有 moment 的平均向量（nomic-embed-text）
   origin_moment_summaries TEXT[] NOT NULL DEFAULT '{}',  -- 组成本 episode 的 moment 原文列表（上限 8 条）
   relationship_weight REAL NOT NULL DEFAULT 0, -- V1 就有的字段，继续沿用
@@ -200,11 +200,11 @@ flowchart LR
 ## 6. 环境变量
 
 **新增**：
-- `REM_EMBEDDING_BASE_URL` — embedding 服务 baseURL（OpenAI 兼容）
-- `REM_EMBEDDING_API_KEY` — key
-- `REM_EMBEDDING_MODEL` — 默认 `text-embedding-3-small`（1536 维，与 schema 对齐）
+- `REMI_EMBEDDING_BASE_URL` — embedding 服务 baseURL（OpenAI 兼容）
+- `REMI_EMBEDDING_API_KEY` — key
+- `REMI_EMBEDDING_MODEL` — 默认 `text-embedding-3-small`（1536 维，与 schema 对齐）
 
-`REM_EPISODE_MEMORY_ENABLED` 保留为 episode 系统开关。
+`REMI_EPISODE_MEMORY_ENABLED` 保留为 episode 系统开关。
 在当前验证阶段，V1 读路径 fallback 仍然存在；等 V2 读路径验证完成后，再考虑继续收口旧路径。
 
 ---
@@ -274,7 +274,7 @@ flowchart LR
 1. **embedding 服务用哪个？**
    - `text-embedding-3-small`（OpenAI 官方，1536 维，$0.02/M tokens）
    - 本地 `nomic-embed-text`（Ollama，768 维 —— **schema 需要改成 768**）
-   - 项目现有的 `base_url` / `model` 环境变量是否复用一套？还是独立 `REM_EMBEDDING_*`？
+   - 项目现有的 `base_url` / `model` 环境变量是否复用一套？还是独立 `REMI_EMBEDDING_*`？
 
 2. **episode 表的 `episodes.summary` 由谁写？**
    - 选项 A：ingest 时由 LLM 生成（贵但自然）

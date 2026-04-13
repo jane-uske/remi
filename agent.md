@@ -1,4 +1,4 @@
-# Rem AI Agent Notes
+# Remi AI Agent Notes
 
 这份文件给后续主控线程使用。
 目标不是介绍整个仓库，而是帮助新线程快速接上当前项目状态，少走弯路。
@@ -7,16 +7,16 @@
 
 当前用户最关注的是实时双向语音体验，重点链路：
 
-- 前端采集: `/Users/rare/Desktop/rem-ai/web/src/lib/pcmCapture.ts`
-- 前端会话状态: `/Users/rare/Desktop/rem-ai/web/src/hooks/useRemChat.ts`
-- 前端播放队列: `/Users/rare/Desktop/rem-ai/web/src/hooks/useAudioBase64Queue.ts`
-- 服务端会话/VAD/STT 拼接: `/Users/rare/Desktop/rem-ai/server/session/index.ts`
-- VAD: `/Users/rare/Desktop/rem-ai/voice/vad_detector.ts`
-- STT: `/Users/rare/Desktop/rem-ai/voice/stt_stream.ts`
-- TTS: `/Users/rare/Desktop/rem-ai/voice/tts.ts`
-- LLM fast path: `/Users/rare/Desktop/rem-ai/brains/fast_brain.ts`
-- Router/slow brain: `/Users/rare/Desktop/rem-ai/brains/brain_router.ts`
-- 延迟打点: `/Users/rare/Desktop/rem-ai/infra/latency_tracer.ts`
+- 前端采集: `/Users/rare/Desktop/remi-ai/web/src/lib/pcmCapture.ts`
+- 前端会话状态: `/Users/rare/Desktop/remi-ai/web/src/hooks/useRemiChat.ts`
+- 前端播放队列: `/Users/rare/Desktop/remi-ai/web/src/hooks/useAudioBase64Queue.ts`
+- 服务端会话/VAD/STT 拼接: `/Users/rare/Desktop/remi-ai/server/session/index.ts`
+- VAD: `/Users/rare/Desktop/remi-ai/voice/vad_detector.ts`
+- STT: `/Users/rare/Desktop/remi-ai/voice/stt_stream.ts`
+- TTS: `/Users/rare/Desktop/remi-ai/voice/tts.ts`
+- LLM fast path: `/Users/rare/Desktop/remi-ai/brains/fast_brain.ts`
+- Router/slow brain: `/Users/rare/Desktop/remi-ai/brains/brain_router.ts`
+- 延迟打点: `/Users/rare/Desktop/remi-ai/infra/latency_tracer.ts`
 
 ## Current Runtime Shape
 
@@ -105,7 +105,7 @@
 - 先看日志，不要先猜参数
 - 用户说“我明明一直在说话却被截断”，优先看 `speech_start/speech_end` 是否在抖
 - 用户说“有文本没声音”，优先对照 `tts_first_audio` 和 `playback_start`
-- 用户说“Rem 回得慢”，优先拆：
+- 用户说“Remi 回得慢”，优先拆：
   - `speech_end -> stt_final`
   - `stt_final -> llm_first_token`
   - `llm_first_token -> tts_first_audio`
@@ -113,12 +113,12 @@
 
 ## Files Most Likely To Change Next
 
-- `/Users/rare/Desktop/rem-ai/server/session/index.ts`
-- `/Users/rare/Desktop/rem-ai/voice/vad_detector.ts`
-- `/Users/rare/Desktop/rem-ai/voice/stt_stream.ts`
-- `/Users/rare/Desktop/rem-ai/web/src/hooks/useRemChat.ts`
-- `/Users/rare/Desktop/rem-ai/web/src/hooks/useAudioBase64Queue.ts`
-- `/Users/rare/Desktop/rem-ai/infra/latency_tracer.ts`
+- `/Users/rare/Desktop/remi-ai/server/session/index.ts`
+- `/Users/rare/Desktop/remi-ai/voice/vad_detector.ts`
+- `/Users/rare/Desktop/remi-ai/voice/stt_stream.ts`
+- `/Users/rare/Desktop/remi-ai/web/src/hooks/useRemiChat.ts`
+- `/Users/rare/Desktop/remi-ai/web/src/hooks/useAudioBase64Queue.ts`
+- `/Users/rare/Desktop/remi-ai/infra/latency_tracer.ts`
 
 ## Working Agreements
 
@@ -134,8 +134,8 @@
 1. `嗯……我想一下`
 2. `我现在这个句子还没说完`
 3. 说一段 4 到 6 秒，中间有轻微停顿
-4. Rem 正在说话时，用户插入 `等下等下`
-5. 文本发送后是否显示 `Rem 在想…`
+4. Remi 正在说话时，用户插入 `等下等下`
+5. 文本发送后是否显示 `Remi 在想…`
 6. 文本和语音回复是否都有 `playback_start`
 
 ## Notes On Naming

@@ -15,14 +15,14 @@ import type {
   AvatarIntent,
   AvatarModelPreset,
   LipSignal,
-  RemState,
+  RemiState,
   RemiTurnState,
 } from "@/types/avatar";
 import type { VrmViewerState } from "@/lib/rem3d/vrmViewer";
 
-export type Rem3DAvatarProps = {
+export type Remi3DAvatarProps = {
   emotion: string;
-  remState?: RemState;
+  remiState?: RemiState;
   turnState?: RemiTurnState;
   avatarIntent?: AvatarIntent | null;
   avatarFrame?: AvatarFrameState | null;
@@ -36,9 +36,9 @@ export type Rem3DAvatarProps = {
   onRuntimeStateChange?: CreateAvatarRuntimeOptions["onStateChange"];
 };
 
-export function Rem3DAvatar({
+export function Remi3DAvatar({
   emotion,
-  remState = "idle",
+  remiState = "idle",
   turnState = "confirmed_end",
   avatarIntent = null,
   avatarFrame = null,
@@ -47,10 +47,10 @@ export function Rem3DAvatar({
   className = "",
   variant = "card",
   engine = "vrm",
-  modelPreset = "rem",
+  modelPreset = "remi",
   modelUrl,
   onRuntimeStateChange,
-}: Rem3DAvatarProps) {
+}: Remi3DAvatarProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<AvatarRuntimeAdapter | null>(null);
   const runtimeStateChangeRef = useRef(onRuntimeStateChange);
@@ -96,8 +96,8 @@ export function Rem3DAvatar({
   }, [emotion]);
 
   useEffect(() => {
-    runtimeRef.current?.setState(remState);
-  }, [remState]);
+    runtimeRef.current?.setState(remiState);
+  }, [remiState]);
 
   useEffect(() => {
     runtimeRef.current?.setTurnState(turnState);

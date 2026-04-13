@@ -1,4 +1,4 @@
-# Rem AI — 网页版 ChatGPT 用项目简报
+# Remi AI — 网页版 ChatGPT 用项目简报
 
 > **怎么用**：在 **ChatGPT 网页版** 开一个新对话，把**从下一行「---」到文末**整段复制粘贴进去，作为本仓库的固定上下文。更新本文件后重新粘贴即可同步进展。
 >
@@ -8,7 +8,7 @@
 
 ## 1. 产品一句话
 
-**Rem AI** 是一套自托管的**实时 AI 陪伴**系统：多轮对话、会话内记忆与情绪、语音输入输出、WebSocket 全双工；前端为 **Next.js**，形象为 **VRM 三维角色**（Three.js），后端为 **Node + Express**，管线内含快慢脑 LLM、STT/TTS、VAD、打断控制等。
+**Remi AI** 是一套自托管的**实时 AI 陪伴**系统：多轮对话、会话内记忆与情绪、语音输入输出、WebSocket 全双工；前端为 **Next.js**，形象为 **VRM 三维角色**（Three.js），后端为 **Node + Express**，管线内含快慢脑 LLM、STT/TTS、VAD、打断控制等。
 
 ---
 
@@ -17,8 +17,8 @@
 
 | 层级          | 路径 / 技术                                 | 职责摘要                                                                                                                      |
 | ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **客户端**     | `web/`（Next.js 15、React 19、Tailwind v4） | `RemChatApp`、聊天窗、输入栏、`useRemChat`（WebSocket）、`useAudioBase64Queue`（TTS PCM）、`Rem3DAvatar` + `lib/rem3d/vrmViewer.ts`（VRM） |
-| **网关**      | `server/gateway/`                       | HTTP 服务 + 集成 Next；`ws` **noServer** 模式，`/ws` 升级；请求 URL 规范化；`PORT`、`REM_NEXT_HOSTNAME` 与 Next 一致；HTTP 限流；可选 JWT            |
+| **客户端**     | `web/`（Next.js 15、React 19、Tailwind v4） | `RemiChatApp`、聊天窗、输入栏、`useRemiChat`（WebSocket）、`useAudioBase64Queue`（TTS PCM）、`Remi3DAvatar` + `lib/rem3d/vrmViewer.ts`（VRM） |
+| **网关**      | `server/gateway/`                       | HTTP 服务 + 集成 Next；`ws` **noServer** 模式，`/ws` 升级；请求 URL 规范化；`PORT`、`REMI_NEXT_HOSTNAME` 与 Next 一致；HTTP 限流；可选 JWT            |
 | **会话**      | `server/session/`                       | 每连接 `ConnectionSession`：消息路由、STT/VAD、与 `server/pipeline` 编排                                                               |
 | **管线**      | `server/pipeline/`                      | `runPipeline()`：情绪、记忆、快慢脑、流式回复、断句、TTS、下行消息                                                                                |
 | **大脑**      | `brains/`、`brain/`、`llm/`               | 双脑路由、Prompt 组装、OpenAI 兼容流式客户端                                                                                             |
@@ -79,7 +79,7 @@
 | ----------- | ----------------------------------------------------------------- |
 | 整体数据流与模块边界  | `docs/ARCHITECTURE.md`                                            |
 | 管线与时序       | `docs/PIPELINE.md`                                                |
-| 前端协议与组件     | `web/src/hooks/useRemChat.ts`、`web/src/components/RemChatApp.tsx` |
+| 前端协议与组件     | `web/src/hooks/useRemiChat.ts`、`web/src/components/RemiChatApp.tsx` |
 | VRM 与 Three | `web/src/lib/rem3d/vrmViewer.ts`、`emotionToVrm.ts`                |
 | 网关与 WS      | `server/gateway/index.ts`                                         |
 | 环境变量全表      | 根目录 `README.md` 表格、`.env.example`                                 |
@@ -99,4 +99,4 @@
 
 ---
 
-*一句话：Rem AI 是带记忆与情绪的实时陪伴后端 + Next/VRM 前端，WebSocket 全双工，快慢脑与语音管线已落地，3D 口型级同步仍为后续工作。*
+*一句话：Remi AI 是带记忆与情绪的实时陪伴后端 + Next/VRM 前端，WebSocket 全双工，快慢脑与语音管线已落地，3D 口型级同步仍为后续工作。*

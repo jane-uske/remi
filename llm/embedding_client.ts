@@ -11,12 +11,12 @@ function getEmbeddingConfig(): {
 
   if (!baseURL) {
     throw new Error(
-      "Embedding client is not configured: missing REM_EMBEDDING_BASE_URL",
+      "Embedding client is not configured: missing REMI_EMBEDDING_BASE_URL",
     );
   }
   if (!apiKey) {
     throw new Error(
-      "Embedding client is not configured: missing REM_EMBEDDING_API_KEY",
+      "Embedding client is not configured: missing REMI_EMBEDDING_API_KEY",
     );
   }
 

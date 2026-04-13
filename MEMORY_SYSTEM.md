@@ -1,8 +1,8 @@
-# Rem AI — Memory System
+# Remi AI — Memory System
 
 ## 1. 文档目标
 
-这份文档用于整理 Rem 当前的记忆系统实现，并定义后续演进方向。
+这份文档用于整理 Remi 当前的记忆系统实现，并定义后续演进方向。
 
 目标有三件事：
 
@@ -14,12 +14,12 @@
 
 ## 2. 设计目标
 
-从产品角度，Rem 的记忆系统需要同时服务两类体验：
+从产品角度，Remi 的记忆系统需要同时服务两类体验：
 
 1. 陪伴感
-   - Rem 要记得你是谁。
-   - Rem 要记得你最近在经历什么。
-   - Rem 要记得你们关系发展到了哪一步。
+   - Remi 要记得你是谁。
+   - Remi 要记得你最近在经历什么。
+   - Remi 要记得你们关系发展到了哪一步。
 2. 工程可迭代性
    - 记忆层要可替换、可扩展，而不是散落在主对话流程里。
    - 新增一种记忆类型时，不应该重写整条 pipeline。
@@ -53,7 +53,7 @@ flowchart TD
 ### 3.1 会话上下文
 
 文件：
-- [brains/rem_session_context.ts](/Users/rare/Desktop/rem-ai/brains/rem_session_context.ts)
+- [brains/rem_session_context.ts](/Users/rare/Desktop/remi-ai/brains/rem_session_context.ts)
 
 作用：
 - 保存单条 WebSocket 连接上的状态。
@@ -71,7 +71,7 @@ flowchart TD
 ### 3.2 轻量记忆提取
 
 文件：
-- [memory/memory_agent.ts](/Users/rare/Desktop/rem-ai/memory/memory_agent.ts)
+- [memory/memory_agent.ts](/Users/rare/Desktop/remi-ai/memory/memory_agent.ts)
 
 作用：
 - 从用户输入里用正则提取结构化事实。
@@ -92,8 +92,8 @@ flowchart TD
 ### 3.3 慢脑状态
 
 文件：
-- [brains/slow_brain_store.ts](/Users/rare/Desktop/rem-ai/brains/slow_brain_store.ts)
-- [brains/slow_brain.ts](/Users/rare/Desktop/rem-ai/brains/slow_brain.ts)
+- [brains/slow_brain_store.ts](/Users/rare/Desktop/remi-ai/brains/slow_brain_store.ts)
+- [brains/slow_brain.ts](/Users/rare/Desktop/remi-ai/brains/slow_brain.ts)
 
 作用：
 - 保存陪伴体验最关键的一批状态：
@@ -109,7 +109,7 @@ flowchart TD
 ### 3.4 Prompt 注入
 
 文件：
-- [brain/prompt_builder.ts](/Users/rare/Desktop/rem-ai/brain/prompt_builder.ts)
+- [brain/prompt_builder.ts](/Users/rare/Desktop/remi-ai/brain/prompt_builder.ts)
 
 作用：
 - 把当前可用记忆写进 system prompt。
@@ -128,9 +128,9 @@ flowchart TD
 ### 3.5 存储层
 
 文件：
-- [memory/memory_repository.ts](/Users/rare/Desktop/rem-ai/memory/memory_repository.ts)
-- [storage/repositories/memory_repository.ts](/Users/rare/Desktop/rem-ai/storage/repositories/memory_repository.ts)
-- [storage/schema.sql](/Users/rare/Desktop/rem-ai/storage/schema.sql)
+- [memory/memory_repository.ts](/Users/rare/Desktop/remi-ai/memory/memory_repository.ts)
+- [storage/repositories/memory_repository.ts](/Users/rare/Desktop/remi-ai/storage/repositories/memory_repository.ts)
+- [storage/schema.sql](/Users/rare/Desktop/remi-ai/storage/schema.sql)
 
 作用：
 - 提供内存版和数据库版的记忆存储。
@@ -201,7 +201,7 @@ flowchart TD
 - proactiveTopics
 
 产品后果是：
-- 刷新页面后，Rem 可能又像重新认识用户。
+- 刷新页面后，Remi 可能又像重新认识用户。
 - 最像“陪伴关系”的那部分状态，稳定性反而最低。
 
 ### 5.2 当前长期记忆更像用户资料卡，不像共同经历
@@ -338,7 +338,7 @@ flowchart TD
 ### 6.4 Relationship Memory
 
 作用：
-- 保存 Rem 与用户之间的关系状态。
+- 保存 Remi 与用户之间的关系状态。
 
 内容建议：
 - familiarity
@@ -502,7 +502,7 @@ interface MemoryPlugin {
 示例：
 - 更喜欢先被安慰，再听建议
 - 不喜欢被过度分析
-- 会在深夜来找 Rem 聊心事
+- 会在深夜来找 Remi 聊心事
 
 ### 11.4 Open Loop
 
@@ -519,7 +519,7 @@ interface MemoryPlugin {
 - `resolved`
 - `stale`
 
-它是“下次 Rem 能自然追问一句”的核心来源之一。
+它是“下次 Remi 能自然追问一句”的核心来源之一。
 
 ## 12. 目录建议
 
@@ -589,7 +589,7 @@ memory/
 ### Phase 4：补齐陪伴型记忆对象
 
 目标：
-- 让 Rem 具备更强的延续感
+- 让 Remi 具备更强的延续感
 
 建议动作：
 - `open_loops`
@@ -601,15 +601,15 @@ memory/
 
 记忆系统第一阶段升级完成后，至少应满足：
 
-1. 用户刷新或重连后，Rem 的关系语气不会完全丢失。
-2. Rem 可以在后续对话中自然提到最近未完的话题。
+1. 用户刷新或重连后，Remi 的关系语气不会完全丢失。
+2. Remi 可以在后续对话中自然提到最近未完的话题。
 3. prompt 不再依赖全量 `getAll()` 注入。
 4. working / episodic / semantic 至少在接口层被分开。
 5. 新增一种 memory layer 时，不需要改整条 pipeline。
 
 ## 15. 一句话结论
 
-当前 Rem 已经有记忆系统雏形，但它仍然是“会话历史 + 慢脑状态 + 长期 KV 存储”的松散组合。
+当前 Remi 已经有记忆系统雏形，但它仍然是“会话历史 + 慢脑状态 + 长期 KV 存储”的松散组合。
 
 后续最值得做的，不是直接重写，而是先把它收口为一个统一的、分层的、可编排的记忆系统：
 
@@ -618,4 +618,4 @@ memory/
 - semantic memory 保长期画像
 - relationship memory 保陪伴关系
 
-只要把这四层理顺，Rem 的陪伴感和持久记忆感就会明显提升，而且后续也更适合交给多个子 agent 并行迭代。
+只要把这四层理顺，Remi 的陪伴感和持久记忆感就会明显提升，而且后续也更适合交给多个子 agent 并行迭代。

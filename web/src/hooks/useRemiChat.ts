@@ -16,7 +16,7 @@ import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import {
   shouldAwaitPlaybackDrain,
   shouldFinalizeDeferredChatEnd,
-} from "./useRemChatTurnState";
+} from "./useRemiChatTurnState";
 import { startPcmCapture, type PcmCapture } from "@/lib/pcmCapture";
 import { deriveAvatarIntent } from "@/lib/rem3d/avatarIntent";
 import {
@@ -36,7 +36,7 @@ function encodePcmAudioFrame(pcm16: ArrayBuffer, sampleRate: number): ArrayBuffe
   const out = new Uint8Array(frame);
   const view = new DataView(frame);
 
-  // Magic: "RAUD" (Rem audio), version 1, codec 1=pcm16le mono
+  // Magic: "RAUD" (Remi audio), version 1, codec 1=pcm16le mono
   out[0] = 0x52;
   out[1] = 0x41;
   out[2] = 0x55;
@@ -84,7 +84,7 @@ const WS_CONNECT_TIMEOUT_MS = 12_000;
 
 export type RemiConnectionPhase = "connecting" | "open" | "closed";
 
-const MESSAGE_STORAGE_KEY = "rem-chat-messages-v1";
+const MESSAGE_STORAGE_KEY = "remi-chat-messages-v1";
 const MESSAGE_STORAGE_MAX = 50;
 const USER_SPEAKING_END_DEBOUNCE_MS = 260;
 const STT_FALLBACK_PREFIX = "录音中";
@@ -180,7 +180,7 @@ export function useRemiChat() {
   const [turnState, setTurnState] = useState<RemiTurnState>("confirmed_end");
   const [sttPredictionPreview, setSttPredictionPreview] = useState<string | null>(null);
   const [interruptionType, setInterruptionType] = useState<InterruptionType | null>(null);
-  /** 首 token 前：转成更弱的状态提示，不再直接显示“Rem 在想…” */
+  /** 首 token 前：转成更弱的状态提示，不再直接显示“Remi 在想…” */
   const thinkingHint = waiting && streamingText.length === 0;
   const [avatarAction, setAvatarAction] = useState<{
     action: AvatarActionCommand;
@@ -847,7 +847,7 @@ export function useRemiChat() {
         hasAnnouncedConnectedRef.current = true;
         setMessages((m) => [
           ...m,
-          { id: uid(), role: "sys", text: "已连接，和 Rem 聊聊吧" },
+          { id: uid(), role: "sys", text: "已连接，和 Remi 聊聊吧" },
         ]);
       }
       if (

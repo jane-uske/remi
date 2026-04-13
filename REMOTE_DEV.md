@@ -1,13 +1,13 @@
 # Remote Dev On Home Computer
 
-目标场景：`rem-ai` 常驻在家里电脑；公司电脑只通过办公网的浏览器或浏览器插件访问同一套开发环境，并实时预览页面与 WebSocket。
+目标场景：`remi` 常驻在家里电脑；公司电脑只通过办公网的浏览器或浏览器插件访问同一套开发环境，并实时预览页面与 WebSocket。
 
 这台 `MacBook Air 16GB` 的推荐做法是：**应用原生跑在家里电脑上，Docker 默认只负责 Postgres/Redis，`code-server` 和容器内 `app-dev` 都是可选项。**
 
 ## 推荐架构
 
 - 家里电脑作为唯一开发主机，保存仓库、`.env`、Postgres、Redis。
-- `rem-ai` 主程序默认原生运行在家里电脑上，不放进 Docker。
+- `remi` 主程序默认原生运行在家里电脑上，不放进 Docker。
 - Docker 默认只跑 `postgres` 和 `redis`。
 - 轻量远程开发优先使用 `ttyd + tmux` 浏览器终端，而不是常驻 `code-server`。
 - 浏览器 IDE 跑在家里电脑的 `127.0.0.1:8443`，仅在需要时启动。
@@ -34,7 +34,7 @@ key=...
 base_url=...
 model=...
 JWT_SECRET=...
-REM_NEXT_HOSTNAME=app-rem.example.com
+REMI_NEXT_HOSTNAME=app-remi.example.com
 ```
 
 如果预览页与 `/ws` 使用同一 HTTPS 域名，通常不需要再设置 `NEXT_PUBLIC_WS_URL`。当前前端会在 HTTPS 页面下自动回退到 `wss://当前域名/ws`。

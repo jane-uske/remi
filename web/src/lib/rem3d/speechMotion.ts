@@ -1,12 +1,12 @@
 import { VRMExpressionPresetName } from "@pixiv/three-vrm";
-import type { RemState } from "@/types/avatar";
+import type { RemiState } from "@/types/avatar";
 import type { VrmExpressionWeights } from "./emotionToVrm";
 
 export interface SpeechMotionInput {
   delta: number;
   elapsed: number;
   emotion: string;
-  remState: RemState;
+  remState: RemiState;
   lipEnvelope: number;
   voiceActive: boolean;
 }

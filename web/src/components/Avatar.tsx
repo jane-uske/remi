@@ -29,7 +29,7 @@ export function Avatar({ emotion }: AvatarProps) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
-        alt="Rem Avatar"
+        alt="Remi Avatar"
         className="h-[84px] w-[84px] shrink-0 rounded-[14px] border border-[var(--remi-border)] bg-[var(--remi-input)] object-cover"
       />
       <div className="flex min-w-0 flex-col gap-1">

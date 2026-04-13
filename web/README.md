@@ -1,4 +1,4 @@
-# Rem Web（Next.js 15）
+# Remi Web（Next.js 15）
 
 与仓库根目录 **一体启动** 时，由 `server/gateway` 托管本应用（默认 `http://localhost:3000`）。仅前端开发时在仓库根目录执行：
 

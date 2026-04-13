@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
-import { Rem3DAvatar } from "@/components/Rem3DAvatar";
+import { Remi3DAvatar } from "@/components/Remi3DAvatar";
 import { getEmotionLabel } from "@/lib/emotionLabels";
 import { deriveAvatarIntent } from "@/lib/rem3d/avatarIntent";
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
@@ -13,7 +13,7 @@ import type {
   AvatarIntent,
   AvatarModelPreset,
   LipSignal,
-  RemState,
+  RemiState,
 } from "@/types/avatar";
 
 type EmotionKey = "neutral" | "happy" | "curious" | "shy" | "sad";
@@ -45,14 +45,14 @@ const ACTIONS: ActionPreset[] = [
   { label: "挑眉", action: "eyebrow_raise", hint: "惊讶" },
 ];
 
-const STATES: Array<{ value: RemState; title: string; note: string }> = [
+const STATES: Array<{ value: RemiState; title: string; note: string }> = [
   { value: "idle", title: "待机", note: "轻呼吸、慢摆动" },
   { value: "listening", title: "倾听", note: "让出话权" },
   { value: "thinking", title: "思考", note: "略微收紧" },
   { value: "speaking", title: "说话", note: "口型与微动作" },
 ];
 
-const MODEL_PRESET: AvatarModelPreset = "rem";
+const MODEL_PRESET: AvatarModelPreset = "remi";
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -77,7 +77,7 @@ function pickMoodCopy(emotion: EmotionKey): string {
   }
 }
 
-export function Rem3DDemo() {
+export function Remi3DDemo() {
   const lipSignalRef = useRef<LipSignal>({
     envelope: 0,
     active: false,
@@ -86,7 +86,7 @@ export function Rem3DDemo() {
   const speakingStartRef = useRef<number | null>(null);
 
   const [emotion, setEmotion] = useState<EmotionKey>("happy");
-  const [remState, setRemState] = useState<RemState>("idle");
+  const [remiState, setRemiState] = useState<RemiState>("idle");
   const [selectedAction, setSelectedAction] = useState<ActionPreset>(ACTIONS[0]);
   const [actionSignal, setActionSignal] = useState<{
     action: AvatarActionCommand;
@@ -182,13 +182,13 @@ export function Rem3DDemo() {
 
   useEffect(() => {
     pushAvatarDevtoolsLog("system", "demo state", {
-      remState,
+      remiState,
       demoSpeaking,
     });
-  }, [demoSpeaking, remState]);
+  }, [demoSpeaking, remiState]);
 
   useEffect(() => {
-    const active = demoSpeaking && remState === "speaking";
+    const active = demoSpeaking && remiState === "speaking";
     let raf = 0;
 
     if (!active) {
@@ -235,7 +235,7 @@ export function Rem3DDemo() {
     return () => {
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [demoSpeaking, remState]);
+  }, [demoSpeaking, remiState]);
 
   const stageMotion = useMemo(() => {
     const lift =
@@ -278,7 +278,7 @@ export function Rem3DDemo() {
             : "from-white/20 via-white/8 to-transparent";
 
   const outerRing =
-    remState === "speaking" && demoSpeaking
+    remiState === "speaking" && demoSpeaking
       ? "ring-[var(--remi-accent)]/55 shadow-[0_0_0_1px_rgba(45,212,191,0.2),0_24px_80px_rgba(45,212,191,0.18)]"
       : emotion === "happy"
         ? "ring-emerald-300/40 shadow-[0_24px_70px_rgba(16,185,129,0.12)]"
@@ -287,11 +287,11 @@ export function Rem3DDemo() {
           : "ring-white/10 shadow-[0_24px_60px_rgba(255,255,255,0.06)]";
 
   const stateNote =
-    remState === "speaking" && demoSpeaking
+    remiState === "speaking" && demoSpeaking
       ? "假口型开启，后续 runtime 接通后会直接驱动嘴型。"
-      : remState === "listening"
-        ? "倾听态优先，适合看 Rem 让出话权。"
-        : remState === "thinking"
+      : remiState === "listening"
+        ? "倾听态优先，适合看 Remi 让出话权。"
+        : remiState === "thinking"
           ? "思考态会更收一点。"
           : "待机态保留轻微呼吸和摆动。";
 
@@ -322,7 +322,7 @@ export function Rem3DDemo() {
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-[var(--remi-dim)]">
-                  Rem 3D Demo
+                  Remi 3D Demo
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
                   开心会往上跳，不高兴会皱眉
@@ -341,9 +341,9 @@ export function Rem3DDemo() {
               <div className="absolute inset-x-10 bottom-0 h-32 rounded-full bg-gradient-to-t from-black/35 to-transparent blur-3xl" />
 
               <div className="relative flex min-h-0 min-w-0 flex-1" style={stageMotion}>
-                <Rem3DAvatar
+                <Remi3DAvatar
                   emotion={emotion}
-                  remState={remState}
+                  remiState={remiState}
                   avatarIntent={avatarIntent}
                   avatarFrame={avatarFrame}
                   actionSignal={actionSignal}
@@ -364,7 +364,7 @@ export function Rem3DDemo() {
                     <span className="h-2 w-2 rounded-full bg-[var(--remi-accent)]" />
                     <span>{getEmotionLabel(emotion)}</span>
                     <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
-                      {remState}
+                      {remiState}
                     </span>
                   </div>
                   <p className="mt-2 max-w-[36rem] text-[11px] leading-5 text-[var(--foreground)]/70">
@@ -483,12 +483,12 @@ export function Rem3DDemo() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {STATES.map((item) => {
-                  const active = remState === item.value;
+                  const active = remiState === item.value;
                   return (
                     <button
                       key={item.value}
                       type="button"
-                      onClick={() => setRemState(item.value)}
+                      onClick={() => setRemiState(item.value)}
                       aria-pressed={active}
                       className={`rounded-xl border px-3 py-3 text-left transition ${
                         active
@@ -508,7 +508,7 @@ export function Rem3DDemo() {
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">动作</span>
                 <span className="text-[11px] text-[var(--remi-dim)]">
-                  点一下发给 `Rem3DAvatar`
+                  点一下发给 `Remi3DAvatar`
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -564,7 +564,7 @@ export function Rem3DDemo() {
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="text-[11px] text-[var(--remi-dim)]">State</div>
-                <div className="mt-1 font-medium">{remState}</div>
+                <div className="mt-1 font-medium">{remiState}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <div className="text-[11px] text-[var(--remi-dim)]">Action</div>

@@ -1,4 +1,4 @@
-# Rem 前端踩坑记录
+# Remi 前端踩坑记录
 
 本文记录 Next.js 一体网关、WebSocket、VRM 三维形象与布局相关的问题与结论，便于后续维护与排障。
 
@@ -22,7 +22,7 @@
 
 少数代理会把 `http://host/path` 整段放进 `req.url`，Next 会拼出畸形重定向。网关内用 **`normalizeIncomingUrl`** 只保留 `pathname + search`。
 
-### `REM_NEXT_HOSTNAME`
+### `REMI_NEXT_HOSTNAME`
 
 Next 的 `hostname` **只能是主机名**，不能写 `localhost:3000` 或整段 URL，否则内部绝对链接会错乱。代码里会解析成纯 `hostname`。
 
@@ -34,12 +34,12 @@ Next 的 `hostname` **只能是主机名**，不能写 `localhost:3000` 或整�
 
 端口占用时原先会触发未捕获异常；改为 **`server.once('error', …)`** 打日志后 **`process.exit(1)`**。
 
-## 3. WebSocket（`useRemChat` / `wsUrl.ts`）
+## 3. WebSocket（`useRemiChat` / `wsUrl.ts`）
 
 - 仅跑 `npm run web:dev` 时，Next 常在 **3001**，后端在 **3000**；代码对 3001/3002 默认连 `ws://hostname:3000/ws`，或显式设置 `NEXT_PUBLIC_WS_URL`。
 - 环境变量里的 WS 地址需 **`normalizeEnvWsUrl`**，避免 `host:port/ws` 被当成相对路径。
 
-## 4. RemChatApp 布局与顶栏
+## 4. RemiChatApp 布局与顶栏
 
 ### 顶栏挡住 3D 拖拽或「裁切」脸部
 
@@ -53,7 +53,7 @@ Next 的 `hostname` **只能是主机名**，不能写 `localhost:3000` 或整�
 
 ### 情绪与底部条占画布高度
 
-「当前情绪」若放在 3D 列底部会挤占画布高度，腿易被「挤没」。**改为顶栏副标题**（`RemChatApp` 内 `AI 陪伴 · 情绪`），stage 模式 **`Rem3DAvatar`** 不再渲染底部情绪条。
+「当前情绪」若放在 3D 列底部会挤占画布高度，腿易被「挤没」。**改为顶栏副标题**（`RemiChatApp` 内 `AI 陪伴 · 情绪`），stage 模式 **`Remi3DAvatar`** 不再渲染底部情绪条。
 
 ### 舞台容器 padding
 
@@ -106,7 +106,7 @@ Next 的 `hostname` **只能是主机名**，不能写 `localhost:3000` 或整�
 | VRM 加载与待机姿势 | `web/src/lib/rem3d/vrmViewer.ts` |
 | WS URL | `web/src/lib/wsUrl.ts` |
 | 网关 HTTP/WS | `server/gateway/index.ts` |
-| 聊天壳与顶栏 | `web/src/components/RemChatApp.tsx` |
+| 聊天壳与顶栏 | `web/src/components/RemiChatApp.tsx` |
 | 畸形路径中间件 | `web/src/middleware.ts` |
 
 ---

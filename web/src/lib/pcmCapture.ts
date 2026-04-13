@@ -118,7 +118,7 @@ export async function startPcmCapture(
   try {
     source = ctx.createMediaStreamSource(stream);
     await ctx.audioWorklet.addModule(WORKLET_URL);
-    processor = new AudioWorkletNode(ctx, "rem-pcm-capture-processor", {
+    processor = new AudioWorkletNode(ctx, "remi-pcm-capture-processor", {
       numberOfInputs: 1,
       numberOfOutputs: 0,
       channelCount: 1,

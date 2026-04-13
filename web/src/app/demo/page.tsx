@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Rem3DDemo } from "@/components/Rem3DDemo";
+import { Remi3DDemo } from "@/components/Remi3DDemo";
 
 export const metadata = {
-  title: "Rem 3D Demo",
+  title: "Remi 3D Demo",
   description: "无后端 3D 验收与控制台",
 };
 
@@ -17,7 +17,7 @@ export default function DemoPage() {
           返回聊天页
         </Link>
       </div>
-      <Rem3DDemo />
+      <Remi3DDemo />
     </main>
   );
 }

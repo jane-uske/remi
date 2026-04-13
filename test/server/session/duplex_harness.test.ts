@@ -22,7 +22,7 @@ describe("duplex harness", () => {
           STT_PARTIAL_PREDICTION_ENABLED: "0",
           STT_PREDICTION_PUSH_ENABLED: "0",
           VOICE_BACKCHANNEL_ENABLED: "0",
-          REM_THINKING_FILLER: "0",
+          REMI_THINKING_FILLER: "0",
           rem_thinking_filler: "0",
           whisper_use_server: "0",
           WHISPER_USE_SERVER: "0",

@@ -13,13 +13,13 @@
    - 当前什么不该优先做
 3. [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
    - 完整产品语境
-   - 为什么 Rem 不是普通聊天机器人
+   - 为什么 Remi 不是普通聊天机器人
 4. [ARCHITECTURE.md](ARCHITECTURE.md) / [PIPELINE.md](PIPELINE.md)
    - 系统结构与实时链路
 
 ## 你需要先知道的事
 
-- Rem 的目标不是做一个更会答题的助手，而是做“存在感系统”
+- Remi 的目标不是做一个更会答题的助手，而是做“存在感系统”
 - 当前主线程是 `Memory V2 验证 + 读路径迁移（V2.1）`
 - 实时交互质量优先于堆功能
 - 人格连续性优先于单轮回答漂亮

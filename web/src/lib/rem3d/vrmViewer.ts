@@ -13,7 +13,7 @@ import type {
   AvatarFrameState,
   AvatarIntent,
   LipSignal,
-  RemState,
+  RemiState,
   RemiTurnState,
 } from "@/types/avatar";
 
@@ -142,7 +142,7 @@ export class RemVrmViewer {
   /** 情绪切换时短暂增强头部动作 */
   private gestureT = 0;
   private loopStarted = false;
-  private remState: RemState = "idle";
+  private remState: RemiState = "idle";
   private turnState: RemiTurnState = "confirmed_end";
   private activeAction: (AvatarActionCommand & { endAtMs: number }) | null = null;
   private currentIntent: AvatarIntent | null = null;
@@ -895,7 +895,7 @@ export class RemVrmViewer {
     }
   }
 
-  setState(state: RemState): void {
+  setState(state: RemiState): void {
     this.remState = state;
   }
 

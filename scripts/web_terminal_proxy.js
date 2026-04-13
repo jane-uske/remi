@@ -7,9 +7,9 @@ const { spawn } = require("node:child_process");
 const { URLSearchParams, parse: parseUrl } = require("node:url");
 const net = require("node:net");
 
-const ROOT_DIR = process.env.REM_TERMINAL_ROOT_DIR || process.cwd();
-const PUBLIC_PORT = toPort(process.env.REM_TERMINAL_PORT, 7681);
-const INTERNAL_PORT = toPort(process.env.REM_TERMINAL_INTERNAL_PORT, 7682);
+const ROOT_DIR = env("REMI_TERMINAL_ROOT_DIR", "REM_TERMINAL_ROOT_DIR") || process.cwd();
+const PUBLIC_PORT = toPort(env("REMI_TERMINAL_PORT", "REM_TERMINAL_PORT"), 7681);
+const INTERNAL_PORT = toPort(env("REMI_TERMINAL_INTERNAL_PORT", "REM_TERMINAL_INTERNAL_PORT"), 7682);
 const ACCESS_COOKIE_NAME = "rem_term_access";
 const ACCESS_LOGIN_PATH = "/__term_access/login";
 const SESSION_PICKER_PATH = "/__term_access/sessions";
@@ -24,11 +24,21 @@ function toPort(raw, fallback) {
 }
 
 function getAccessPassword() {
-  if (typeof process.env.REM_TERMINAL_PASSWORD === "string") {
-    const password = process.env.REM_TERMINAL_PASSWORD.trim();
+  const rawPassword = env("REMI_TERMINAL_PASSWORD", "REM_TERMINAL_PASSWORD");
+  if (typeof rawPassword === "string") {
+    const password = rawPassword.trim();
     if (password) return password;
   }
-  return (process.env.REM_ACCESS_PASSWORD || "").trim();
+  return env("REMI_ACCESS_PASSWORD", "REM_ACCESS_PASSWORD").trim();
+}
+
+function env(preferredKey, legacyKey) {
+  const preferred = process.env[preferredKey];
+  if (typeof preferred === "string" && preferred.length > 0) {
+    return preferred;
+  }
+  const legacy = process.env[legacyKey];
+  return typeof legacy === "string" ? legacy : "";
 }
 
 function parseCookies(req) {
@@ -117,7 +127,7 @@ function loginHtml(message) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rem Terminal Access</title>
+    <title>Remi Terminal Access</title>
     <style>
       body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b1020;color:#f8fafc;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
       .card{width:min(100%,420px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:26px;box-shadow:0 18px 48px rgba(0,0,0,.35)}
@@ -130,7 +140,7 @@ function loginHtml(message) {
   </head>
   <body>
     <main class="card">
-      <h1>Rem 终端验证</h1>
+      <h1>Remi 终端验证</h1>
       <p>这个远程终端入口会直接落到你家里电脑的 <code>tmux</code> 会话。输入共享密码后才能继续访问。</p>
       ${error}
       <form method="post" action="${ACCESS_LOGIN_PATH}">
@@ -156,7 +166,7 @@ function sessionPickerHtml() {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rem Terminal Sessions</title>
+    <title>Remi Terminal Sessions</title>
     <style>
       body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b1020;color:#f8fafc;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
       .card{width:min(100%,520px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:26px;box-shadow:0 18px 48px rgba(0,0,0,.35)}

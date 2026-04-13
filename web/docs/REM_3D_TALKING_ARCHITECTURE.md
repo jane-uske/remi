@@ -1,8 +1,8 @@
-# Rem 3D 说话线程主方案
+# Remi 3D 说话线程主方案
 
 ## 目标
 
-这条线程只解决一件事：让 Rem 在 TTS 播放时具备稳定、低延迟、可打断、具有人感的说话表现。
+这条线程只解决一件事：让 Remi 在 TTS 播放时具备稳定、低延迟、可打断、具有人感的说话表现。
 
 我们不重做主链路，不改 UI 架构，不重构 LLM / STT / TTS。所有改动都围绕现有前端 3D Avatar 与音频播放链路做最小接入。
 
@@ -10,10 +10,10 @@
 
 “真人说话感”在这个项目里的定义不是更丰富的动画，而是用户能直觉感受到：
 
-- Rem 在开口表达，而不是嘴巴在机械开合
+- Remi 在开口表达，而不是嘴巴在机械开合
 - 说话节奏、表情、眼神和头部微动作属于同一个角色状态
-- 用户插话时，Rem 能像真人一样迅速停住并让出话权
-- 说完后 Rem 会自然回到在场待机，而不是突然断电
+- 用户插话时，Remi 能像真人一样迅速停住并让出话权
+- 说完后 Remi 会自然回到在场待机，而不是突然断电
 
 ## 主线程职责
 
@@ -50,7 +50,7 @@ MVP 只保证四件事：
 
 当前接入点：
 
-- [`web/src/hooks/useAudioBase64Queue.ts`](/Users/rare/Desktop/rem-ai/web/src/hooks/useAudioBase64Queue.ts)
+- [`web/src/hooks/useAudioBase64Queue.ts`](/Users/rare/Desktop/remi-ai/web/src/hooks/useAudioBase64Queue.ts)
 
 主策略：
 
@@ -64,9 +64,9 @@ MVP 只保证四件事：
 
 当前接入点：
 
-- [`web/src/lib/rem3d/vrmViewer.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/vrmViewer.ts)
-- [`web/src/lib/rem3d/speechMotion.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/speechMotion.ts)
-- [`web/src/lib/rem3d/emotionToVrm.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/emotionToVrm.ts)
+- [`web/src/lib/rem3d/vrmViewer.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/vrmViewer.ts)
+- [`web/src/lib/rem3d/speechMotion.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/speechMotion.ts)
+- [`web/src/lib/rem3d/emotionToVrm.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/emotionToVrm.ts)
 
 主策略：
 
@@ -76,12 +76,12 @@ MVP 只保证四件事：
 
 ### 3. 主页面状态层
 
-职责：决定 Rem 当前处于哪种产品状态。
+职责：决定 Remi 当前处于哪种产品状态。
 
 当前接入点：
 
-- [`web/src/components/RemChatApp.tsx`](/Users/rare/Desktop/rem-ai/web/src/components/RemChatApp.tsx)
-- [`web/src/hooks/useRemChat.ts`](/Users/rare/Desktop/rem-ai/web/src/hooks/useRemChat.ts)
+- [`web/src/components/RemiChatApp.tsx`](/Users/rare/Desktop/remi-ai/web/src/components/RemiChatApp.tsx)
+- [`web/src/hooks/useRemiChat.ts`](/Users/rare/Desktop/remi-ai/web/src/hooks/useRemiChat.ts)
 
 主策略：
 

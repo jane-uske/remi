@@ -2,7 +2,7 @@ services:
   app-dev:
     profiles: ["app"]
     image: node:20-bookworm
-    working_dir: /workspace/rem-ai
+    working_dir: /workspace/remi-ai
     command: sh -lc "npm run dev"
     env_file:
       - .env
@@ -12,9 +12,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://rem:rem_password@postgres:5432/rem_ai}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
-      - .:/workspace/rem-ai
-      - rem_root_node_modules:/workspace/rem-ai/node_modules
-      - rem_web_node_modules:/workspace/rem-ai/web/node_modules
+      - .:/workspace/remi-ai
+      - rem_root_node_modules:/workspace/remi-ai/node_modules
+      - rem_web_node_modules:/workspace/remi-ai/web/node_modules
     ports:
       - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     depends_on:
@@ -65,9 +65,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       PASSWORD: ${CODE_SERVER_PASSWORD:-changeme}
       SUDO_PASSWORD: ${CODE_SERVER_SUDO_PASSWORD:-changeme}
-      DEFAULT_WORKSPACE: /workspace/rem-ai
+      DEFAULT_WORKSPACE: /workspace/remi-ai
     volumes:
-      - .:/workspace/rem-ai
+      - .:/workspace/remi-ai
       - rem_code_server_config:/config
     ports:
       - "127.0.0.1:${CODE_SERVER_PORT:-8443}:8443"

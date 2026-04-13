@@ -1,4 +1,4 @@
-const assert = require("assert").strict;
+  const assert = require("assert").strict;
 
 function clearEmbeddingClientModule() {
   const modulePath = require.resolve("../../llm/embedding_client");
@@ -7,29 +7,29 @@ function clearEmbeddingClientModule() {
 
 describe("embedding_client", () => {
   const originalEnv = {
-    REM_EMBEDDING_BASE_URL: process.env.REMI_EMBEDDING_BASE_URL,
-    REM_EMBEDDING_API_KEY: process.env.REMI_EMBEDDING_API_KEY,
-    REM_EMBEDDING_MODEL: process.env.REMI_EMBEDDING_MODEL,
+    REMI_EMBEDDING_BASE_URL: process.env.REMI_EMBEDDING_BASE_URL,
+    REMI_EMBEDDING_API_KEY: process.env.REMI_EMBEDDING_API_KEY,
+    REMI_EMBEDDING_MODEL: process.env.REMI_EMBEDDING_MODEL,
   };
   const originalFetch = global.fetch;
 
   afterEach(() => {
     clearEmbeddingClientModule();
     global.fetch = originalFetch;
-    if (originalEnv.REM_EMBEDDING_BASE_URL === undefined) {
+    if (originalEnv.REMI_EMBEDDING_BASE_URL === undefined) {
       delete process.env.REMI_EMBEDDING_BASE_URL;
     } else {
-      process.env.REMI_EMBEDDING_BASE_URL = originalEnv.REM_EMBEDDING_BASE_URL;
+      process.env.REMI_EMBEDDING_BASE_URL = originalEnv.REMI_EMBEDDING_BASE_URL;
     }
-    if (originalEnv.REM_EMBEDDING_API_KEY === undefined) {
+    if (originalEnv.REMI_EMBEDDING_API_KEY === undefined) {
       delete process.env.REMI_EMBEDDING_API_KEY;
     } else {
-      process.env.REMI_EMBEDDING_API_KEY = originalEnv.REM_EMBEDDING_API_KEY;
+      process.env.REMI_EMBEDDING_API_KEY = originalEnv.REMI_EMBEDDING_API_KEY;
     }
-    if (originalEnv.REM_EMBEDDING_MODEL === undefined) {
+    if (originalEnv.REMI_EMBEDDING_MODEL === undefined) {
       delete process.env.REMI_EMBEDDING_MODEL;
     } else {
-      process.env.REMI_EMBEDDING_MODEL = originalEnv.REM_EMBEDDING_MODEL;
+      process.env.REMI_EMBEDDING_MODEL = originalEnv.REMI_EMBEDDING_MODEL;
     }
   });
 
@@ -68,7 +68,7 @@ describe("embedding_client", () => {
     const { embed } = require("../../llm/embedding_client");
     await assert.rejects(
       () => embed("hello"),
-      /missing REM_EMBEDDING_BASE_URL/,
+      /missing REMI_EMBEDDING_BASE_URL/,
     );
   });
 

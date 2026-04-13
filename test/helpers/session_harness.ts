@@ -9,7 +9,7 @@ const ENV_PATCHES: Record<string, string> = {
   STT_PARTIAL_PREDICTION_ENABLED: "0",
   STT_PREDICTION_PUSH_ENABLED: "0",
   VOICE_BACKCHANNEL_ENABLED: "0",
-  REM_SILENCE_NUDGE_MS: "0",
+  REMI_SILENCE_NUDGE_MS: "0",
   interrupt_reaction: "0",
 };
 

@@ -8,7 +8,7 @@
 |----|-----------|
 | 框架 | Next.js 15 App Router |
 | UI | React 19 + Tailwind CSS v4 |
-| 实时 | WebSocket（`useRemChat`） |
+| 实时 | WebSocket（`useRemiChat`） |
 | 脚本 | `npm run dev` / `npm run build`；根目录 `npm run typecheck` |
 
 ## 原则
@@ -26,12 +26,12 @@
 
 | 优先级 | 事项 | 落点提示 |
 |--------|------|----------|
-| P0 | 连接态：连接中 / 已连接 / 断线重连提示 | `useRemChat` + 顶栏或 `ChatWindow` |
+| P0 | 连接态：连接中 / 已连接 / 断线重连提示 | `useRemiChat` + 顶栏或 `ChatWindow` |
 | P0 | 情绪：与 WS `emotion` 同步，UI 有稳定展示（色点/标签/小条） | `ChatWindow` / 新 `EmotionBadge` |
 
 **已做（一次并行迭代）：** `connectionPhase` + `reconnectInSec` + 顶栏色点/文案 + `aria-live`；`Avatar` 情绪中文标签（`lib/emotionLabels.ts`）；`MessageBubble` emoji 字体栈与无障碍；`ChatWindow` `role="log"` + 流式/思考播报策略。
 | P1 | 打断：`interrupt` 时 TTS/文案反馈可感知 | 已有队列，补轻提示即可 |
-| P1 | 思考态：首 token 前「Rem 在想…」已部分有，统一文案与出现条件 | `ChatWindow`、`globals.css` |
+| P1 | 思考态：首 token 前「Remi 在想…」已部分有，统一文案与出现条件 | `ChatWindow`、`globals.css` |
 
 **完成标准**：断网能看懂；一轮对话里情绪变化能看见（不要求 3D）。
 
@@ -43,7 +43,7 @@
 
 | 优先级 | 事项 | 落点提示 |
 |--------|------|----------|
-| P0 | 气泡：用户 / Rem 区分清晰，长消息可读性（行高、宽度） | `MessageBubble` |
+| P0 | 气泡：用户 / Remi 区分清晰，长消息可读性（行高、宽度） | `MessageBubble` |
 | P0 | Emoji：原样显示，不破坏布局（字体 fallback） | 全局 `font-family` / bubble |
 | P1 | 代码块 / 列表：若模型常输出，再做轻量 markdown 或等宽块 | 按需 |
 | P2 | 括号舞台说明：是否与 TTS strip 对齐，单独规则（可选） | 文档 + 组件注释 |
@@ -69,7 +69,7 @@
 
 | 状态 | 事项 |
 |------|------|
-| ✅ | `Rem3DAvatar` + `three` + `@pixiv/three-vrm`：默认加载 [VRM1 官方示例](https://github.com/pixiv/three-vrm)（`NEXT_PUBLIC_VRM_URL` 可换自有 `.vrm`） |
+| ✅ | `Remi3DAvatar` + `three` + `@pixiv/three-vrm`：默认加载 [VRM1 官方示例](https://github.com/pixiv/three-vrm)（`NEXT_PUBLIC_VRM_URL` 可换自有 `.vrm`） |
 | ✅ | 情绪 → VRM Expression 预设（`web/src/lib/rem3d/emotionToVrm.ts`）；脊柱/头/手臂随情绪轻摆（`vrmViewer.ts`） |
 | 后续 | 口型 viseme、服务端 `avatar_frame` 细调 blend → **T-032 / T-040** |
 
@@ -80,8 +80,8 @@
 ```
 web/src/
 ├── app/           # layout、globals.css
-├── components/    # ChatWindow、RemChatApp、InputBar、MessageBubble…
-├── hooks/         # useRemChat、useAudioBase64Queue、pcmCapture
+├── components/    # ChatWindow、RemiChatApp、InputBar、MessageBubble…
+├── hooks/         # useRemiChat、useAudioBase64Queue、pcmCapture
 └── lib/           # 工具、可放 ws 类型封装
 ```
 

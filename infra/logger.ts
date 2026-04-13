@@ -30,4 +30,4 @@ export function createLogger(module: string): Logger {
   };
 }
 
-export const logger = createLogger("rem-ai");
+export const logger = createLogger("remi");

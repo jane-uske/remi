@@ -5,7 +5,7 @@ import type {
   AvatarActionCommand,
   AvatarIntent,
   InterruptionType,
-  RemState,
+  RemiState,
   RemiTurnState,
   RemiTurnStateReason,
 } from "@/types/avatar";
@@ -21,7 +21,7 @@ export interface AvatarDevtoolsLogEntry {
 export interface AvatarRuntimeSnapshot {
   ts: number;
   emotion: string;
-  remState: RemState;
+  remState: RemiState;
   turnState?: RemiTurnState | null;
   turnReason?: RemiTurnStateReason | null;
   turnStateAtMs?: number | null;

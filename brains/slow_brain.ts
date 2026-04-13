@@ -164,7 +164,7 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
   "personality_note": "对用户性格的一句话观察，没有明显观察则为空字符串",
   "emotional_undertone": "用户在这段对话中的深层情绪（一两个词）",
   "conversation_summary": "用一两句话概括到目前为止的对话内容和进展",
-  "proactive_topics": ["Rem 下次可以主动提起的话题"],
+  "proactive_topics": ["Remi 下次可以主动提起的话题"],
   "relationship_signal": "warming 或 stable 或 cooling"
 }
 
@@ -184,7 +184,7 @@ async function llmAnalysis(
 ): Promise<void> {
   const recentHistory = history.slice(-8);
   const historyText = recentHistory
-    .map((m) => `${m.role === "user" ? "用户" : "Rem"}：${m.content}`)
+    .map((m) => `${m.role === "user" ? "用户" : "Remi"}：${m.content}`)
     .join("\n");
 
   const currentTurn = `用户：${userMessage}\nRem：${assistantReply}`;

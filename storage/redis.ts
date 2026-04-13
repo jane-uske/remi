@@ -2,27 +2,35 @@ import Redis from 'ioredis';
 
 let client: Redis | null = null;
 
-export async function initRedis(url?: string): Promise<void> {
+export async function initRedis(url?: string): Promise<boolean> {
   const redisUrl = url ?? process.env.REDIS_URL;
   if (!redisUrl) {
     const err = new Error('REDIS_URL is not set');
     console.log('[Storage] initRedis failed:', err.message);
-    throw err;
+    return false;
   }
+  const nextClient = new Redis(redisUrl, {
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 1_000,
+    retryStrategy: () => null,
+  });
+  const onError = (err: unknown): void => {
+    console.log('[Storage] Redis client error:', err);
+  };
+  nextClient.on('error', onError);
   try {
-    client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: false,
-    });
-    await client.ping();
+    await nextClient.connect();
+    client = nextClient;
     console.log('[Storage] Redis client initialized');
+    return true;
   } catch (e) {
-    if (client) {
-      client.disconnect();
-      client = null;
-    }
     console.log('[Storage] initRedis failed:', e);
-    throw e;
+    nextClient.disconnect();
+    return false;
+  } finally {
+    nextClient.off('error', onError);
   }
 }
 
@@ -49,6 +57,9 @@ export async function closeRedis(): Promise<void> {
 }
 
 export async function cacheGet(key: string): Promise<string | null> {
+  if (!client) {
+    return null;
+  }
   try {
     const value = await getRedis().get(key);
     return value;
@@ -63,6 +74,9 @@ export async function cacheSet(
   value: string,
   ttlSeconds?: number
 ): Promise<void> {
+  if (!client) {
+    return;
+  }
   try {
     const r = getRedis();
     if (ttlSeconds !== undefined && ttlSeconds > 0) {
@@ -77,6 +91,9 @@ export async function cacheSet(
 }
 
 export async function cacheDel(key: string): Promise<void> {
+  if (!client) {
+    return;
+  }
   try {
     await getRedis().del(key);
   } catch (e) {

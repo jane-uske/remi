@@ -1,12 +1,12 @@
-# Rem Avatar 运行时说明
+# Remi Avatar 运行时说明
 
 ## 数据流
 
-1. `useRemChat.ts` receives WS events and derives:
+1. `useRemiChat.ts` receives WS events and derives:
 - `avatarFrame`: server-provided face and lip-sync overlays
 - `avatarIntent`: high-level intent derived from emotion and action
 
-2. `Rem3DAvatar.tsx` forwards runtime inputs to the adapter:
+2. `Remi3DAvatar.tsx` forwards runtime inputs to the adapter:
 - `setEmotion()`
 - `setState()`
 - `setIntent()`

@@ -2,7 +2,7 @@ import { buildCharacterRulesPrompt } from "../brain/character_rules";
 import { buildPersonalityPrompt } from "../brain/personality";
 
 // ── Layer 2: 角色状态层 ──────────────────────────────────────────
-// 6 个状态回答「Rem 此刻是怎样的她」，让每轮回复像同一个人延续下去。
+// 6 个状态回答「Remi 此刻是怎样的她」，让每轮回复像同一个人延续下去。
 
 export type EnergyLevel = "high" | "medium" | "low";
 export type ClosenessLevel = "normal" | "familiar" | "relaxed" | "dependent";

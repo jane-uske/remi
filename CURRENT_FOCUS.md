@@ -5,7 +5,7 @@
 Memory V2 基础设施、prompt 读路径和 proactive planner 主路径已接通；当前还差真实会话验收，以及 V1 旧路径清理。
 
 这条主线程服务的不是“再做一个记忆功能”，而是终极目标里最重要的一层之一：
-让 Rem 更像一个持续存在的人，而不是每轮都重置的聊天框。
+让 Remi 更像一个持续存在的人，而不是每轮都重置的聊天框。
 
 放进当前总纲里看，它属于三层路线图中的“人格记忆层”：
 - 实时交互层
@@ -37,7 +37,7 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 - ✅ `server/session/index.ts::fireSilenceNudge()` 已优先走 `proactive_planner.planProactiveNudge()`；planner 失败时安全回退到 legacy nudge plan
 - ✅ `llm/embedding_client.ts` 已绕开 LM Studio / OpenAI SDK 兼容问题；直接请求本地 endpoint，并强校验 768 维
 - ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
-- ✅ `REM_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
+- ✅ `REMI_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
 - ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
 - ⏳ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
 - ⏳ 真实会话链路验收仍需持续观察：鉴权/WS 主路径已修复，但在 Docker 未就绪时会退化为无 PG/Redis 运行
@@ -65,7 +65,7 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 ## 这条主线程和终极目标的关系
 
 当前不是在单独优化“数据库里的记忆结构”。
-当前是在补 Rem 的“持续存在感”：
+当前是在补 Remi 的“持续存在感”：
 
 - 用户下次回来时，她还能像同一个人一样接上
 - 她记得的不只是事实，还包括关系主线、未完结话题、情绪轨迹
@@ -73,7 +73,7 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 
 所以判断当前任务价值时，优先问：
 
-- 这是不是让 Rem 更像同一个人持续活着？
+- 这是不是让 Remi 更像同一个人持续活着？
 - 这会不会破坏她像真人一样即时接话？
 
 ## 当前非目标
@@ -82,9 +82,9 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 - 不做 V1 episode 路径的强制删除（等读路径切完后自然清理）
 
 ## 环境变量新增（Memory V2）
-- `REM_EMBEDDING_BASE_URL` — embedding 服务地址（如 `http://localhost:11434/v1`）
-- `REM_EMBEDDING_API_KEY` — API key（Ollama 可填任意值）
-- `REM_EMBEDDING_MODEL` — 模型名（默认 `nomic-embed-text`）
+- `REMI_EMBEDDING_BASE_URL` — embedding 服务地址（如 `http://localhost:11434/v1`）
+- `REMI_EMBEDDING_API_KEY` — API key（Ollama 可填任意值）
+- `REMI_EMBEDDING_MODEL` — 模型名（默认 `nomic-embed-text`）
 
 ## 执行规则
 - 当前主线程内的代码任务做完后，必须回写对应任务文档状态

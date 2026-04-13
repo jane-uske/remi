@@ -38,7 +38,7 @@ export function InputBar({
           onClick={onMicToggle}
           className={
             recording
-              ? "rem-mic-pulse flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--remi-danger)] text-base text-white disabled:cursor-default disabled:opacity-40"
+              ? "remi-mic-pulse flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent bg-[var(--remi-danger)] text-base text-white disabled:cursor-default disabled:opacity-40"
               : "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--remi-border)] bg-[var(--remi-surface)] text-[var(--remi-accent)] transition hover:bg-[var(--remi-border)]/40 disabled:cursor-default disabled:opacity-40"
           }
           aria-pressed={recording}

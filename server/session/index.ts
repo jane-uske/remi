@@ -205,7 +205,7 @@ function effectiveUtteranceGapMs(speechDurationMs: number): number {
   return Math.round(minG + t * (maxG - minG));
 }
 
-/** 用户多久没发消息后触发 Rem 主动搭话（ms）；未设置或 0 表示关闭 */
+/** 用户多久没发消息后触发 Remi 主动搭话（ms）；未设置或 0 表示关闭 */
 function silenceNudgeMs(): number {
   const raw = process.env.REMI_SILENCE_NUDGE_MS;
   if (raw === undefined || raw === "") return 0;
@@ -372,7 +372,7 @@ export class ConnectionSession {
   /** Deferred STT after speech_end so mid-sentence pauses can merge into one utterance. */
   private pendingUtteranceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** 用户无消息后触发陪伴搭话（需 REM_SILENCE_NUDGE_MS>0） */
+  /** 用户无消息后触发陪伴搭话（需 REMI_SILENCE_NUDGE_MS>0） */
   private silenceNudgeTimer: ReturnType<typeof setTimeout> | null = null;
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
   private previewInFlight = false;
@@ -459,7 +459,7 @@ export class ConnectionSession {
   }
 
   async initializeAsync(): Promise<void> {
-    logger.info("[Rem] 新客户端已连接", { connId: this.connId });
+    logger.info("[Remi] 新客户端已连接", { connId: this.connId });
 
     if (isDbReady()) {
       try {
@@ -2580,7 +2580,7 @@ export class ConnectionSession {
 
   private setupCloseHandlers(): void {
     this.ws.on("close", () => {
-      logger.info("[Rem] 客户端已断开", { connId: this.connId });
+      logger.info("[Remi] 客户端已断开", { connId: this.connId });
       this.cleanupAllResources();
     });
 

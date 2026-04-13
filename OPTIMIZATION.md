@@ -1,7 +1,7 @@
-# Rem AI — 系统架构分析、优化点与提升方案
+# Remi AI — 系统架构分析、优化点与提升方案
 
 > 这份文档主要记录历史优化项、已完成改进与工程层待办。
-> 阅读时请以最新产品总纲为准：Rem 当前不只是“聊天机器人优化”，而是在推进一个以活人感、人格连续性和跨终端持续存在为目标的存在感系统。
+> 阅读时请以最新产品总纲为准：Remi 当前不只是“聊天机器人优化”，而是在推进一个以活人感、人格连续性和跨终端持续存在为目标的存在感系统。
 > 因此，下面所有优化项都应该优先映射到三层路线图理解：
 > - 实时交互层
 > - 人格记忆层
@@ -22,7 +22,7 @@
 | S6  | memory_agent.ts 扩展正则规则集                          | d44b5e4                               |
 | S7  | SentenceChunker 增加字数阈值强制输出                       | d44b5e4                               |
 | S8  | 丰富 personality.ts 和 character_rules.ts 内容        | d44b5e4                               |
-| S9  | 前端「Rem 在想…」等待态（首 token 前）                        | `web/src/components/ChatWindow.tsx` 等 |
+| S9  | 前端「Remi 在想…」等待态（首 token 前）                        | `web/src/components/ChatWindow.tsx` 等 |
 | S10 | 短句 TTS 内存 LRU 缓存                                 | `voice/tts.ts`                        |
 
 
@@ -39,10 +39,10 @@
 | M6  | 慢脑画像 + 策略合并为 `priorityContext`，置于 system 最前                                                        | `brain/prompt_builder.ts`, `brains/fast_brain.ts`                                   |
 | M7  | Edge TTS **连接池**：同 voice/lang/rate/pitch/fmt 复用 WebSocket，仅 SSML 多轮；`edge_tts_pool=0` 关闭           | `voice/tts.ts`                                                                      |
 | M8  | 可选服务端短填充音：环境变量 `rem_thinking_filler=1` 时与 LLM 并行异步播「嗯」                                             | `server/pipeline/runner.ts`                                                         |
-| M9  | 前端 user/rem 消息 localStorage 持久化（最近 50 条）                                                           | `web/src/hooks/useRemChat.ts`                                                       |
+| M9  | 前端 user/rem 消息 localStorage 持久化（最近 50 条）                                                           | `web/src/hooks/useRemiChat.ts`                                                       |
 | M10 | 打断语义修复：被打断 partial 不进 formal history / slow brain / assistant 持久化；`wasInterrupted` 仅由真实打断触发 | `brains/brain_router.ts`, `brains/rem_session_context.ts`, `server/pipeline/runner.ts` |
 | M11 | 观测性收口：网关 `/health`、稳定 latency snapshot、固定 duplex harness 场景名                                  | `server/gateway/index.ts`, `infra/latency_tracer.ts`, `test/server/session/duplex_harness.ts` |
-| M12 | turn lifecycle 收口：idle text send 不再误发 `interrupt`；`chat_end` 与 playback drain 分离                    | `server/session/index.ts`, `web/src/hooks/useRemChat.ts`                           |
+| M12 | turn lifecycle 收口：idle text send 不再误发 `interrupt`；`chat_end` 与 playback drain 分离                    | `server/session/index.ts`, `web/src/hooks/useRemiChat.ts`                           |
 
 
 ---
@@ -52,10 +52,10 @@
 
 | 项       | 说明                                                                                                                                                                                       |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 前端      | `prefers-reduced-motion` 下关闭气泡/打字点/语音条/麦克波动效；「Rem 在想…」条带 `rem-thinking-bubble` 轻呼吸动画                                                                                                     |
+| 前端      | `prefers-reduced-motion` 下关闭气泡/打字点/语音条/麦克波动效；「Remi 在想…」条带 `rem-thinking-bubble` 轻呼吸动画                                                                                                     |
 | Hook    | 移除未使用的 Legacy `MediaRecorder` 路径，麦克风仅全双工 PCM；导出 `stopVoice` 供需要时显式结束会话                                                                                                                   |
 | 脚本      | 根目录 `npm run typecheck` → `tsc --noEmit`                                                                                                                                                 |
-| **陪伴**  | **沉默搭话**：`REM_SILENCE_NUDGE_MS`（如 45000）开启后，用户久未发消息则串行触发 `runPipeline(..., { silenceNudge: true })`，文案由 `buildSilenceNudgeUserMessage()` 生成；不写 DB user 条、不跑慢脑；历史里 user 占位为「［你主动开口陪对方聊天］」 |
+| **陪伴**  | **沉默搭话**：`REMI_SILENCE_NUDGE_MS`（如 45000）开启后，用户久未发消息则串行触发 `runPipeline(..., { silenceNudge: true })`，文案由 `buildSilenceNudgeUserMessage()` 生成；不写 DB user 条、不跑慢脑；历史里 user 占位为「［你主动开口陪对方聊天］」 |
 | **关系感** | `synthesizeContext` 中 **【陪伴阶段提示】**：按熟悉度分三档（初识 / 加深 / 很熟）写说话方式                                                                                                                            |
 
 
@@ -79,7 +79,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Client (Next.js / Legacy HTML)                                        │
-│  useRemChat → WebSocket → PCM 16kHz / text                            │
+│  useRemiChat → WebSocket → PCM 16kHz / text                            │
 └───────────────────────────┬─────────────────────────────────────────────┘
                             │ WebSocket
                             ▼
@@ -284,7 +284,7 @@ for await (const token of streamTokens(messages, input.signal)) {
 1. **人设过于简单：** ✅ (已丰富)
   ```typescript
    // personality.ts — 仅 4 个特质词 → 已扩展为 8 个
-   REM_PERSONALITY_TRAITS = ["温柔", "稍微害羞", "关心用户", "说话自然"];
+   REMI_PERSONALITY_TRAITS = ["温柔", "稍微害羞", "关心用户", "说话自然"];
 
    // character_rules.ts — 仅 4 条规则 → 已扩展为 10 条
    CHARACTER_RULES = ["句子不要太长", "不要像客服", "语气自然", "会主动提问"];
@@ -658,7 +658,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Pro
 
 **Step 1 (🟢S)** — 思考状态动画：
 
-- 收到 `stt_final` 后显示 "Rem 在想..." 气泡
+- 收到 `stt_final` 后显示 "Remi 在想..." 气泡
 - 收到第一个 `chat_chunk` 后消失
 
 **Step 2 (🟢S)** — 本地消息缓存：
@@ -666,9 +666,9 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Pro
 - 使用 localStorage 保存最近 50 条消息
 - 页面加载时恢复
 
-**状态：** Step 2（localStorage）与 Step 1（「Rem 在想…」气泡，**S9**）均已落地。
+**状态：** Step 2（localStorage）与 Step 1（「Remi 在想…」气泡，**S9**）均已落地。
 
-**涉及文件：** `web/src/hooks/useRemChat.ts`
+**涉及文件：** `web/src/hooks/useRemiChat.ts`
 
 ---
 
@@ -687,7 +687,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Pro
 | S6  | `memory_agent.ts` 扩展正则规则集                            | `memory/memory_agent.ts`                                 | 20 min | ✅ 已完成 |
 | S7  | `SentenceChunker` 增加字数阈值强制输出                         | `utils/sentence_chunker.ts`                              | 10 min | ✅ 已完成 |
 | S8  | 丰富 `personality.ts` 和 `character_rules.ts` 内容        | `brain/personality.ts`, `brain/character_rules.ts`       | 15 min | ✅ 已完成 |
-| S9  | 前端增加 "思考中" 状态提示                                      | `web/src/hooks/useRemChat.ts`                            | 10 min | ✅     |
+| S9  | 前端增加 "思考中" 状态提示                                      | `web/src/hooks/useRemiChat.ts`                            | 10 min | ✅     |
 | S10 | TTS 短句缓存                                             | `voice/tts.ts`                                           | 15 min | ✅     |
 
 
@@ -704,10 +704,10 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Pro
 | M6  | Slow Brain 上下文在 prompt 中的位置和格式优化         | `brains/fast_brain.ts`, `brains/slow_brain_store.ts`        | 20 min | ✅      |
 | M7  | Edge TTS 连接复用                            | `voice/tts.ts`                                              | 45 min | ✅      |
 | M8  | 预测性回应（思考音/填充词）                           | `server/pipeline/runner.ts`（可选 env）                         | 40 min | ✅ 服务端* |
-| M9  | 前端消息本地持久化                                | `web/src/hooks/useRemChat.ts`                               | 20 min | ✅      |
+| M9  | 前端消息本地持久化                                | `web/src/hooks/useRemiChat.ts`                               | 20 min | ✅      |
 
 
- **M4**：已实现 `buildConversationStrategyHints`（规则化提示），未实现完整 `ConversationStrategy` 状态机。 **M8**：已实现服务端短「嗯」填充（需 `rem_thinking_filler=1`）；**S9**（前端「Rem 在想…」）已落地。
+ **M4**：已实现 `buildConversationStrategyHints`（规则化提示），未实现完整 `ConversationStrategy` 状态机。 **M8**：已实现服务端短「嗯」填充（需 `rem_thinking_filler=1`）；**S9**（前端「Remi 在想…」）已落地。
 
 ### 🔴 复杂任务 (架构级改动)
 

@@ -1024,7 +1024,7 @@ export class SlowBrainStore {
 
     return {
       userMessage:
-        `（系统情境：对方有一段时间没发消息了。请你作为 Rem，用一两句自然、温柔的中文主动开口，像在陪在身边一样；${toneDirective}${topicHint}不要一次问太多问题，不要显得像在催对方回复。）`,
+        `（系统情境：对方有一段时间没发消息了。请你作为 Remi，用一两句自然、温柔的中文主动开口，像在陪在身边一样；${toneDirective}${topicHint}不要一次问太多问题，不要显得像在催对方回复。）`,
       proactiveCandidate: proactiveCandidate?.text ?? undefined,
       proactiveCandidateKey: proactiveCandidate?.key ?? undefined,
       sharedMomentCandidate: sharedMomentCandidate ?? undefined,

@@ -31,8 +31,8 @@ function loadSessionWithPersistentMemory({
   entries = [],
 } = {}) {
   const restoreEnv = applyEnv({
-    REM_PERSISTENT_MEMORY_OVERLAY_ENABLED: overlayEnabled,
-    REM_PERSISTENT_MEMORY_PRELOAD_LIMIT: "12",
+    REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED: overlayEnabled,
+    REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT: "12",
   });
 
   const appStatePath = path.resolve(__dirname, "../../../infra/app_state.ts");

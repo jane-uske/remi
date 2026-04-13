@@ -1,8 +1,8 @@
-# Rem Companion AI
+# Remi Companion AI
 
 实时 AI 陪伴系统 —— 能聊天、有记忆、懂情绪、能说话、有形象。
 
-Rem 的终极目标不是做一个“功能更多的聊天机器人”，而是把她做成一个跨终端、持续在线、随时可陪伴、像活人一样存在的 AI 伴侣：
+Remi 的终极目标不是做一个“功能更多的聊天机器人”，而是把她做成一个跨终端、持续在线、随时可陪伴、像活人一样存在的 AI 伴侣：
 
 - 像真人对话：能听、能停顿、能接话、能被打断、能顺着语境自然回应
 - 像持续存在的人：有人格稳定性、有长期记忆、有关系感，越聊越像“她”
@@ -10,10 +10,10 @@ Rem 的终极目标不是做一个“功能更多的聊天机器人”，而是�
 - 像真实角色在场：最好有语音、表情、3D 形象、嘴型同步和状态反馈
 - 像产品而不是 demo：低延迟、稳定、可扩展，最后真的有人愿意天天打开
 
-所以 Rem 不是“更会拼接上下文的聊天机器人”。
-Rem 更接近“一个有实时交互感、人格连续性、跨终端存在感与陪伴感的数字生命雏形”。
+所以 Remi 不是“更会拼接上下文的聊天机器人”。
+Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感与陪伴感的数字生命雏形”。
 
-长期看，Rem 还需要具备明确的能力扩展面：
+长期看，Remi 还需要具备明确的能力扩展面：
 - 插件系统 / capability system
 - 直播平台接入
 - 游戏接入
@@ -119,7 +119,7 @@ npm run test --prefix web
 
 - 开启 `JWT_SECRET` 后，远程访问（如 `https://app-rem.remi.run`）必须带 token（query 或 `Authorization: Bearer`）。
 - 本机回环访问（`localhost` / `127.0.0.1`）允许无 token 进入，保留开发态调试入口。
-- 若同时配置了 `REM_ACCESS_PASSWORD` 与 `JWT_SECRET`：有效 JWT token 可直通访问，不再强依赖 access cookie 登录页。
+- 若同时配置了 `REMI_ACCESS_PASSWORD` 与 `JWT_SECRET`：有效 JWT token 可直通访问，不再强依赖 access cookie 登录页。
 - WebSocket 会自动复用页面 URL 中的 `token` 参数，降低“页面可开但 WS 401 断连”风险。
 - 前端聊天本地缓存按用户隔离：无 token 走默认缓存；带 token 时按 token 的 `id` 分桶，避免 `user_001` / `user_002` 共享同一份本地聊天历史。
 - 3D 模型静态资源路径 `/vrm/*` 已加入鉴权放行，避免 VRM 请求被 `401` 拦截。
@@ -147,16 +147,16 @@ npm run test --prefix web
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `REDIS_URL` | Redis 连接串 |
 | `JWT_SECRET` | JWT 签名密钥 |
-| `REM_MOBILE_DEV_ENABLED` | 是否允许移动端开发 key 鉴权（默认 `0`）。用于 iOS/TestFlight 内测兜底，不建议生产开启。 |
-| `REM_MOBILE_DEV_KEY` | 移动端开发 key（配合 `X-Rem-Mobile-Key` 请求头使用）。 |
+| `REMI_MOBILE_DEV_ENABLED` | 是否允许移动端开发 key 鉴权（默认 `0`）。用于 iOS/TestFlight 内测兜底，不建议生产开启。 |
+| `REMI_MOBILE_DEV_KEY` | 移动端开发 key（配合 `X-Remi-Mobile-Key` 请求头使用）。 |
 | `LOG_LEVEL` | 日志级别（默认 `info`） |
 | `PORT` | 服务端口（默认 `3000`） |
-| `REM_SILENCE_NUDGE_MS` | 用户无消息后多久由 Rem 主动搭话（毫秒）；`0` 或不设为关闭 |
-| `REM_SILENCE_NUDGE_MIN_TURNS` | 至少聊过几轮才允许沉默搭话（默认 `2`） |
-| `REM_SLOW_BRAIN_ENABLED` | 是否启用 slow brain 后台分析（默认 `1`）。设为 `0`/`false` 可关闭后台提炼，避免与 fast path 抢同一模型预算。 |
-| `REM_AVATAR_INTENT_ENABLED` | 是否启用 reply-based avatar intent 推断（默认 `1`）。设为 `0`/`false` 时不再发送 `avatar_intent`，但主回复/TTS/turn lifecycle 不变。 |
-| `REM_PERSISTENT_MEMORY_OVERLAY_ENABLED` | 是否启用持久记忆 overlay（默认 `1`）。数据库可用时，会话启动阶段预加载少量事实型记忆到本地副本；设为 `0`/`false` 则完全回到纯会话内 memory。 |
-| `REM_PERSISTENT_MEMORY_PRELOAD_LIMIT` | 持久记忆启动预加载上限（默认 `12`）。prompt 仍会继续受 `MAX_PROMPT_MEMORY_ENTRIES` 裁剪。 |
+| `REMI_SILENCE_NUDGE_MS` | 用户无消息后多久由 Remi 主动搭话（毫秒）；`0` 或不设为关闭 |
+| `REMI_SILENCE_NUDGE_MIN_TURNS` | 至少聊过几轮才允许沉默搭话（默认 `2`） |
+| `REMI_SLOW_BRAIN_ENABLED` | 是否启用 slow brain 后台分析（默认 `1`）。设为 `0`/`false` 可关闭后台提炼，避免与 fast path 抢同一模型预算。 |
+| `REMI_AVATAR_INTENT_ENABLED` | 是否启用 reply-based avatar intent 推断（默认 `1`）。设为 `0`/`false` 时不再发送 `avatar_intent`，但主回复/TTS/turn lifecycle 不变。 |
+| `REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED` | 是否启用持久记忆 overlay（默认 `1`）。数据库可用时，会话启动阶段预加载少量事实型记忆到本地副本；设为 `0`/`false` 则完全回到纯会话内 memory。 |
+| `REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT` | 持久记忆启动预加载上限（默认 `12`）。prompt 仍会继续受 `MAX_PROMPT_MEMORY_ENTRIES` 裁剪。 |
 | `STT_PARTIAL_PREDICTION_ENABLED` | 是否启用 partial transcript 预判（默认关闭）。设为 `1`/`true` 后才会触发额外 prediction 调用。 |
 | `STT_PREDICTION_PUSH_ENABLED` | 是否把 prediction 结果以 `stt_prediction` 推到前端（默认关闭）。只有 `STT_PARTIAL_PREDICTION_ENABLED` 已开启时才生效。 |
 | `STT_PREDICTION_DEBOUNCE_MS` | partial prediction 的防抖毫秒数（默认 `300`）。 |
@@ -165,7 +165,7 @@ npm run test --prefix web
 | `NEXT_PUBLIC_VRM_YAW` | VRM 绕 Y 轴旋转（弧度），模型背对镜头时可调。 |
 | `NEXT_PUBLIC_VRM_FRAMING` | `full`（默认）全身；`upper` 上半身特写。 |
 | `NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT` | 默认禁用 `VRMC_node_constraint`（避免手臂被约束拉回展示姿势）；设为 `0` 恢复。 |
-| `REM_NEXT_HOSTNAME` | 传给 Next 的主机名（勿含端口）；见 `.env.example`。 |
+| `REMI_NEXT_HOSTNAME` | 传给 Next 的主机名（勿含端口）；见 `.env.example`。 |
 
 前端排障与实现细节见 **`web/docs/FRONTEND_PITFALLS.md`**。
 独立 3D 验收页见 **`/demo`**。
@@ -173,7 +173,7 @@ npm run test --prefix web
 ## 项目目录
 
 ```
-rem-ai/
+remi/
 ├── server/
 │   ├── server.ts              # 服务入口，负责全局初始化和网关启动
 │   ├── gateway/               # HTTP + Next.js + WebSocket 网关（含 /health）
@@ -188,7 +188,7 @@ rem-ai/
 │   ├── slow_brain_store.ts    # SlowBrainStore（每连接实例）
 │   └── rem_session_context.ts # C1：每连接情绪 + 慢脑 + 历史 + 会话记忆
 ├── brain/
-│   ├── personality.ts         # Rem 人设定义
+│   ├── personality.ts         # Remi 人设定义
 │   ├── character_rules.ts     # 说话风格规则
 │   └── prompt_builder.ts      # Prompt 组装（人设 + 规则 + 情绪 + 记忆 + 历史）
 ├── llm/
@@ -238,8 +238,8 @@ rem-ai/
 ├── public/                    # 旧版原生 JS 前端
 ├── web/                       # Next.js 前端
 │   ├── docs/                  # 前端踩坑与排障（FRONTEND_PITFALLS.md）
-│   ├── src/components/        # RemChatApp、Rem3DAvatar、输入栏等
-│   ├── src/hooks/             # useRemChat（WebSocket）、useAudioBase64Queue
+│   ├── src/components/        # RemiChatApp、Remi3DAvatar、输入栏等
+│   ├── src/hooks/             # useRemiChat（WebSocket）、useAudioBase64Queue
 │   ├── src/lib/               # wsUrl、rem3d（VRM viewer）等
 │   └── src/types/             # 消息类型定义
 ├── Dockerfile                 # 多阶段构建
@@ -284,7 +284,7 @@ rem-ai/
 
 如果只用一句话概括当前项目状态：
 
-**Rem 已经从“能跑通的系统原型”进入“围绕活人感持续打磨的产品原型”阶段。**
+**Remi 已经从“能跑通的系统原型”进入“围绕活人感持续打磨的产品原型”阶段。**
 
 > 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。体验与工程向的增量优化（重试、历史 token、情绪惯性、本地消息、**Edge TTS 连接池**、whisper 一次重试等）见 [OPTIMIZATION.md](OPTIMIZATION.md) 顶部 **「已完成优化」** 与 **「尚未完成」**。
 

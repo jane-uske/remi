@@ -121,7 +121,7 @@ function loginHtml(message?: string): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rem Access</title>
+    <title>Remi Access</title>
     <style>
       body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#f5f5f5;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
       .card{width:min(100%,380px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:24px;box-shadow:0 16px 50px rgba(0,0,0,.35)}
@@ -133,7 +133,7 @@ function loginHtml(message?: string): string {
   </head>
   <body>
     <main class="card">
-      <h1>Rem 访问验证</h1>
+      <h1>Remi 访问验证</h1>
       <p>这个开发预览入口已加本地门禁。输入共享密码后才能继续访问。</p>
       ${error}
       <form method="post" action="${ACCESS_LOGIN_PATH}">
@@ -357,7 +357,7 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
         res.end(
           JSON.stringify({
             ok: true,
-            service: "rem-ai",
+            service: "remi",
             uptimeSec: Math.floor(process.uptime()),
           }),
         );
@@ -447,18 +447,18 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
 export function startServer(server: HttpServer): void {
   server.once("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      logger.error("[Rem AI] 端口已被占用，请结束占用该端口的进程或修改 .env 中的 PORT", {
+      logger.error("[Remi AI] 端口已被占用，请结束占用该端口的进程或修改 .env 中的 PORT", {
         port: PORT,
       });
     } else {
-      logger.error("[Rem AI] HTTP 监听失败", { err: err.message, code: err.code });
+      logger.error("[Remi AI] HTTP 监听失败", { err: err.message, code: err.code });
     }
     process.exit(1);
   });
   server.listen(PORT, () => {
-    logger.info(`[Rem AI] 服务已启动 — http://localhost:${PORT}`);
+    logger.info(`[Remi AI] 服务已启动 — http://localhost:${PORT}`);
     if (dev) {
-      logger.info(`[Rem AI] Next.js 开发模式`, { dir: webDir });
+      logger.info(`[Remi AI] Next.js 开发模式`, { dir: webDir });
     }
   });
 }

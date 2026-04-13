@@ -1,8 +1,8 @@
-# Rem AI — 系统架构
+# Remi AI — 系统架构
 
 ## 产品总纲与架构映射
 
-Rem 的终极目标，不是做一个更会聊天的 App。
+Remi 的终极目标，不是做一个更会聊天的 App。
 而是成为一个跨终端持续在线、具备人格连续性与长期记忆、能像真人一样自然交流并长期陪伴用户的 AI 存在。
 
 所以理解这份架构文档时，不要只看模块分层，还要看它们分别服务哪一层产品目标：
@@ -42,7 +42,7 @@ Rem 的终极目标，不是做一个更会聊天的 App。
 
 ## 长期扩展方向：插件 / Capability / Integration Boundary
 
-Rem 后期不只会存在于网页聊天界面。
+Remi 后期不只会存在于网页聊天界面。
 它需要能接入：
 - 直播平台
 - 游戏
@@ -79,7 +79,7 @@ Rem 后期不只会存在于网页聊天界面。
 │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌────────────────┐   │
 │  │ ChatWindow│ │ InputBar │ │ Avatar │ │VoiceIndicator  │   │
 │  └──────────┘ └──────────┘ └────────┘ └────────────────┘   │
-│       useRemChat (WebSocket)  ·  useAudioBase64Queue        │
+│       useRemiChat (WebSocket)  ·  useAudioBase64Queue        │
 │       pcmCapture (16kHz mono Int16)                         │
 └────────────────────┬────────────────────────────────────────┘
                      │ WebSocket (ws)
@@ -274,7 +274,7 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 
 ### 6. Prompt 构建 — `brain/`
 
-**Personality (`personality.ts`)** — Rem 的核心人设定义
+**Personality (`personality.ts`)** — Remi 的核心人设定义
 
 **Character Rules (`character_rules.ts`)** — 说话风格规则（简短、自然、会提问）
 
@@ -530,7 +530,7 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 
 | 组件 | 职责 |
 |------|------|
-| `RemChatApp` | 主布局：头部（连接状态 + 头像 + 语音指示器）+ 聊天窗 + 输入栏 |
+| `RemiChatApp` | 主布局：头部（连接状态 + 头像 + 语音指示器）+ 聊天窗 + 输入栏 |
 | `ChatWindow` | 消息列表 + 流式回复气泡 + 打字指示器，自动滚动 |
 | `MessageBubble` | 气泡样式（rem / user / error / sys 四种角色） |
 | `InputBar` | 文本输入 + 发送 + 麦克风切换（IME 兼容） |
@@ -539,7 +539,7 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 
 **核心 Hook：**
 
-`useRemChat` — 管理全部实时状态：
+`useRemiChat` — 管理全部实时状态：
 - WebSocket 连接/重连
 - 消息收发与流式渲染
 - 双工语音录制（pcmCapture → 16kHz Int16 → base64）

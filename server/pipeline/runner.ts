@@ -298,7 +298,7 @@ export async function runPipeline(
     }
 
     if (full) {
-      logger.info(`[Rem] ${full}${signal.aborted ? " (interrupted)" : ""}`, {
+      logger.info(`[Remi] ${full}${signal.aborted ? " (interrupted)" : ""}`, {
         emotion: replyEmotion,
         connId,
       });

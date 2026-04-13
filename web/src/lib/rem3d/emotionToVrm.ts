@@ -83,7 +83,7 @@ export function getEmotionExpressionWeights(emotion: string): VrmExpressionWeigh
 }
 
 /**
- * 将 Rem 情绪映射到 VRM 1.0 预设表情权重（组合）。
+ * 将 Remi 情绪映射到 VRM 1.0 预设表情权重（组合）。
  * 不同模型若缺少某预设，setValue 会无害跳过。
  */
 export function applyEmotionToVrm(vrm: VRM, emotion: string): void {

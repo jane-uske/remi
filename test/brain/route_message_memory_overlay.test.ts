@@ -189,8 +189,8 @@ describe("routeMessage with session memory overlay", () => {
   it("injects shared-moment memory and proactive/style hints without flooding the fast path", async () => {
     const restoreEnv = applyEnv({
       MAX_PROMPT_MEMORY_ENTRIES: "4",
-      REM_PROACTIVE_PROMPT_ENABLED: "1",
-      REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
+      REMI_PROACTIVE_PROMPT_ENABLED: "1",
+      REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
     });
     const ctx = new RemiSessionContext("memory-overlay-shared-moment");
     const { repo } = createPersistentRepo([
@@ -267,11 +267,11 @@ describe("routeMessage with session memory overlay", () => {
 
   it("does not repeat the same proactive or shared-moment cue on back-to-back turns", async () => {
     const restoreEnv = applyEnv({
-      REM_SLOW_BRAIN_ENABLED: "0",
-      REM_PROACTIVE_PROMPT_ENABLED: "1",
-      REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
-      REM_PROACTIVE_COOLDOWN_TURNS: "10",
-      REM_SHARED_MOMENT_COOLDOWN_TURNS: "10",
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_PROACTIVE_PROMPT_ENABLED: "1",
+      REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
+      REMI_PROACTIVE_COOLDOWN_TURNS: "10",
+      REMI_SHARED_MOMENT_COOLDOWN_TURNS: "10",
     });
     const ctx = new RemiSessionContext("memory-overlay-no-repeat");
     ctx.slowBrain.recordTurn();
@@ -313,9 +313,9 @@ describe("routeMessage with session memory overlay", () => {
 
   it("suppresses proactive callbacks when the user is asking a direct new question", async () => {
     const restoreEnv = applyEnv({
-      REM_SLOW_BRAIN_ENABLED: "0",
-      REM_PROACTIVE_PROMPT_ENABLED: "1",
-      REM_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_PROACTIVE_PROMPT_ENABLED: "1",
+      REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
     });
     const ctx = new RemiSessionContext("memory-overlay-direct-question");
     ctx.slowBrain.recordTurn();
@@ -354,7 +354,7 @@ describe("routeMessage with session memory overlay", () => {
   });
 
   it("does not persist fallback assistant reply into formal history", async () => {
-    const restoreEnv = applyEnv({ REM_SLOW_BRAIN_ENABLED: "1" });
+    const restoreEnv = applyEnv({ REMI_SLOW_BRAIN_ENABLED: "1" });
     const ctx = new RemiSessionContext("memory-overlay-fallback-guard");
     const { routeMessage, restore } = loadMockedRouteMessage(async function* () {
       yield "啊…出了点问题，等我缓缓再试试…";

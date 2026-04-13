@@ -24,8 +24,8 @@ async function checkHttp(url) {
 async function checkHomepage() {
   const res = await checkHttp(baseUrl + "/");
   const html = await res.text();
-  if (!html.includes("Rem")) {
-    fail("Homepage did not include expected Rem marker");
+  if (!html.includes("Remi")) {
+    fail("Homepage did not include expected Remi marker");
   }
 }
 

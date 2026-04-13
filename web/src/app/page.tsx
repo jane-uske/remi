@@ -1,5 +1,5 @@
-import { RemChatApp } from "@/components/RemChatApp";
+import { RemiChatApp } from "@/components/RemiChatApp";
 
 export default function Home() {
-  return <RemChatApp />;
+  return <RemiChatApp />;
 }

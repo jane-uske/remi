@@ -65,7 +65,7 @@ npm run prod:local:stop
 - `app` 默认仅绑定 `127.0.0.1:${PORT}`
 - 通过 Cloudflare Tunnel 或反向代理暴露 HTTPS
 - 必须启用 `JWT_SECRET`，否则用户身份会退化成开发态
-- 建议设置 `REM_ACCESS_PASSWORD` 作为额外门禁（即使已有 Access）
+- 建议设置 `REMI_ACCESS_PASSWORD` 作为额外门禁（即使已有 Access）
 
 ## 7. Not solved yet
 

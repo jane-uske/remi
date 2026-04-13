@@ -81,7 +81,7 @@ export function ChatWindow({
     const prev = prevStreamingRef.current;
     prevStreamingRef.current = next;
     if (!prev && next) {
-      setStreamStatus("Rem 正在回复…");
+      setStreamStatus("Remi 正在回复…");
     } else if (prev && !next) {
       setStreamStatus("");
     }

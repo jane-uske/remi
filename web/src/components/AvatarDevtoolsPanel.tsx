@@ -155,7 +155,7 @@ export function AvatarDevtoolsPanel({
   useEffect(() => {
     if (!draggable || typeof window === "undefined") return;
     try {
-      const raw = window.sessionStorage.getItem("rem-avatar-devtools-offset");
+      const raw = window.sessionStorage.getItem("remi-avatar-devtools-offset");
       if (!raw) return;
       const parsed = JSON.parse(raw) as { x?: number; y?: number };
       const nextX = typeof parsed.x === "number" && Number.isFinite(parsed.x) ? parsed.x : 0;
@@ -172,7 +172,7 @@ export function AvatarDevtoolsPanel({
   useEffect(() => {
     if (!draggable || typeof window === "undefined") return;
     try {
-      const raw = window.sessionStorage.getItem("rem-avatar-devtools-size");
+      const raw = window.sessionStorage.getItem("remi-avatar-devtools-size");
       if (!raw) return;
       const parsed = JSON.parse(raw) as { width?: number; height?: number };
       const width =
@@ -191,13 +191,13 @@ export function AvatarDevtoolsPanel({
 
   useEffect(() => {
     if (!draggable || typeof window === "undefined") return;
-    window.sessionStorage.setItem("rem-avatar-devtools-offset", JSON.stringify(offset));
+    window.sessionStorage.setItem("remi-avatar-devtools-offset", JSON.stringify(offset));
   }, [draggable, offset]);
 
   useEffect(() => {
     if (!draggable || typeof window === "undefined") return;
     window.sessionStorage.setItem(
-      "rem-avatar-devtools-size",
+      "remi-avatar-devtools-size",
       JSON.stringify(floatingSize),
     );
   }, [draggable, floatingSize]);

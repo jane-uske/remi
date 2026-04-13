@@ -6,12 +6,12 @@ import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { ChatWindow } from "@/components/ChatWindow";
 import { InputBar } from "@/components/InputBar";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
-import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemChat";
+import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
 import { getEmotionLabel } from "@/lib/emotionLabels";
-import type { RemState, RemiTurnState } from "@/types/avatar";
+import type { RemiState, RemiTurnState } from "@/types/avatar";
 
-const Rem3DAvatar = dynamic(
-  () => import("@/components/Rem3DAvatar").then((m) => m.Rem3DAvatar),
+const Remi3DAvatar = dynamic(
+  () => import("@/components/Remi3DAvatar").then((m) => m.Remi3DAvatar),
   {
     ssr: false,
     loading: () => (
@@ -25,7 +25,7 @@ const Rem3DAvatar = dynamic(
   },
 );
 
-function remConnectionStatusText(
+function remiConnectionStatusText(
   phase: RemiConnectionPhase,
   reconnectInSec: number | null,
 ): string {
@@ -45,7 +45,7 @@ function remConnectionStatusText(
   }
 }
 
-function remConnectionDotClass(
+function remiConnectionDotClass(
   phase: RemiConnectionPhase,
   reconnectInSec: number | null,
 ): string {
@@ -63,11 +63,11 @@ function remConnectionDotClass(
   }
 }
 
-function remStateFromTurnState(
+function remiStateFromTurnState(
   turnState: RemiTurnState,
   voiceActive: boolean,
   busy: boolean,
-): RemState {
+): RemiState {
   switch (turnState) {
     case "listening_active":
     case "listening_hold":
@@ -84,7 +84,7 @@ function remStateFromTurnState(
   }
 }
 
-export function RemChatApp() {
+export function RemiChatApp() {
   const {
     emotion,
     avatarFrame,
@@ -111,15 +111,15 @@ export function RemChatApp() {
     toggleMic,
   } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
-  const remState: RemState =
+  const remiState: RemiState =
     userSpeaking || recording
       ? "listening"
-      : remStateFromTurnState(turnState, voiceActive, typing || waiting);
+      : remiStateFromTurnState(turnState, voiceActive, typing || waiting);
 
   const inputDisabled = !connected || recording;
   const micDisabled = !connected || !hasMic;
 
-  const connectionStatusLabel = remConnectionStatusText(
+  const connectionStatusLabel = remiConnectionStatusText(
     connectionPhase,
     reconnectInSec,
   );
@@ -135,13 +135,13 @@ export function RemChatApp() {
   }, []);
 
   return (
-    <div className="rem-app-shell relative flex h-svh min-h-0 w-full flex-col overflow-hidden bg-transparent text-[var(--foreground)]">
+    <div className="remi-app-shell relative flex h-svh min-h-0 w-full flex-col overflow-hidden bg-transparent text-[var(--foreground)]">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-        <section className="rem-stage relative flex min-h-[30vh] min-w-0 flex-[1.15] flex-col lg:min-h-0 lg:flex-1">
+        <section className="remi-stage relative flex min-h-[30vh] min-w-0 flex-[1.15] flex-col lg:min-h-0 lg:flex-1">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-            <Rem3DAvatar
+            <Remi3DAvatar
               emotion={emotion}
-              remState={remState}
+              remiState={remiState}
               turnState={turnState}
               avatarIntent={avatarIntent}
               avatarFrame={avatarFrame}
@@ -158,7 +158,7 @@ export function RemChatApp() {
           </div>
         </section>
 
-        <aside className="rem-chat-panel rem-glass-edge flex min-h-0 w-full min-w-0 flex-1 flex-col border-t lg:w-[min(100%,clamp(320px,42vw,440px))] lg:max-w-[min(100%,440px)] lg:flex-none lg:border-l lg:border-t-0 lg:pt-14">
+        <aside className="remi-chat-panel remi-glass-edge flex min-h-0 w-full min-w-0 flex-1 flex-col border-t lg:w-[min(100%,clamp(320px,42vw,440px))] lg:max-w-[min(100%,440px)] lg:flex-none lg:border-l lg:border-t-0 lg:pt-14">
           <ChatWindow
             messages={messages}
             sttPartialText={sttPartialText}
@@ -187,7 +187,7 @@ export function RemChatApp() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-semibold tracking-tight text-[var(--foreground)]">
-              Rem
+              Remi
             </h1>
             <p className="text-[11px] text-[var(--remi-dim)]">
               AI 陪伴
@@ -204,7 +204,7 @@ export function RemChatApp() {
           aria-atomic="true"
         >
           <span
-            className={remConnectionDotClass(connectionPhase, reconnectInSec)}
+            className={remiConnectionDotClass(connectionPhase, reconnectInSec)}
             aria-hidden
           />
           <span className="truncate">{connectionStatusLabel}</span>

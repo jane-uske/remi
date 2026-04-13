@@ -104,10 +104,13 @@ async function bootstrap() {
 
   if (process.env.REDIS_URL) {
     try {
-      await initRedis();
-      redisInitialized = true;
-      setRedisReady(true);
-      logger.info("[Storage] Redis initialized");
+      redisInitialized = await initRedis();
+      setRedisReady(redisInitialized);
+      if (redisInitialized) {
+        logger.info("[Storage] Redis initialized");
+      } else {
+        logger.warn("[Storage] Redis init failed (continuing without)");
+      }
     } catch (err) {
       logger.warn("[Storage] Redis init failed (continuing without)", { error: err });
       redisInitialized = false;
@@ -161,7 +164,7 @@ async function bootstrap() {
   // 启动资源监控
   startResourceMonitoring();
 
-  logger.info("Rem AI 系统初始化完成");
+  logger.info("Remi AI 系统初始化完成");
 }
 
 async function cleanupAndExit(signal: "SIGINT" | "SIGTERM"): Promise<void> {
@@ -187,7 +190,7 @@ async function cleanupAndExit(signal: "SIGINT" | "SIGTERM"): Promise<void> {
 bootstrap().catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
   const stack = err instanceof Error ? err.stack : undefined;
-  logger.error("[Rem AI] 启动失败", { err: message, stack });
+  logger.error("[Remi AI] 启动失败", { err: message, stack });
 
   // 确保失败时也能正确清理
   if (monitorInterval) {

@@ -1,5 +1,5 @@
 /**
- * WebSocket URL for Rem backend（/ws）。
+ * WebSocket URL for Remi backend（/ws）。
  *
  * - 一体启动（根目录 `npm run dev`）：页面与 API 同端口，用 `ws://当前 host/ws` 即可。
  * - 仅前端（`npm run web:dev`）：Next 常在 **3001**，而后端仍在 **3000**，需指向 3000 或设置 `NEXT_PUBLIC_WS_URL`。

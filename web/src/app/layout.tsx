@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rem AI",
+  title: "Remi AI",
   description: "实时 AI 陪伴 — 对话、记忆与情绪",
 };
 

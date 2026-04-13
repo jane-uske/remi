@@ -24,7 +24,7 @@ describe("/health", () => {
 
       const payload = await res.json();
       assert.equal(payload.ok, true);
-      assert.equal(payload.service, "rem-ai");
+      assert.equal(payload.service, "remi");
       assert.equal(typeof payload.uptimeSec, "number");
       assert.equal(Number.isFinite(payload.uptimeSec), true);
     } finally {

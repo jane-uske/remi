@@ -1,7 +1,4 @@
-const { loadModule } = require("../utils/module_loader") as typeof import("../utils/module_loader");
-const { routeMessage } = loadModule<{
-  routeMessage: typeof import("../brains/brain_router").routeMessage;
-}>("../brains/brain_router");
+import { routeMessage } from "../brains/brain_router";
 import type { RouteMessageOptions } from "../brains/brain_router";
 import type { RemiSessionContext } from "../brains/remi_session_context";
 import type { Emotion } from "../emotion/emotion_state";

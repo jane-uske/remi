@@ -1,8 +1,8 @@
-# Rem 3D 说话线程接入指南
+# Remi 3D 说话线程接入指南
 
 ## 适用范围
 
-这份指南面向主线程集成，只说明如何把当前“3D 模型同步说话”模块接入现有 Rem 项目。
+这份指南面向主线程集成，只说明如何把当前“3D 模型同步说话”模块接入现有 Remi 项目。
 
 目标是最小改动接入，不碰主业务逻辑。
 
@@ -10,7 +10,7 @@
 
 ### 音频说话输入
 
-- [`web/src/hooks/useAudioBase64Queue.ts`](/Users/rare/Desktop/rem-ai/web/src/hooks/useAudioBase64Queue.ts)
+- [`web/src/hooks/useAudioBase64Queue.ts`](/Users/rare/Desktop/remi-ai/web/src/hooks/useAudioBase64Queue.ts)
 
 对外提供：
 
@@ -26,9 +26,9 @@
 
 ### 3D 角色说话驱动
 
-- [`web/src/lib/rem3d/vrmViewer.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/vrmViewer.ts)
-- [`web/src/lib/rem3d/speechMotion.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/speechMotion.ts)
-- [`web/src/lib/rem3d/emotionToVrm.ts`](/Users/rare/Desktop/rem-ai/web/src/lib/rem3d/emotionToVrm.ts)
+- [`web/src/lib/rem3d/vrmViewer.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/vrmViewer.ts)
+- [`web/src/lib/rem3d/speechMotion.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/speechMotion.ts)
+- [`web/src/lib/rem3d/emotionToVrm.ts`](/Users/rare/Desktop/remi-ai/web/src/lib/rem3d/emotionToVrm.ts)
 
 作用：
 
@@ -38,9 +38,9 @@
 
 ### 页面接入层
 
-- [`web/src/components/Rem3DAvatar.tsx`](/Users/rare/Desktop/rem-ai/web/src/components/Rem3DAvatar.tsx)
-- [`web/src/components/RemChatApp.tsx`](/Users/rare/Desktop/rem-ai/web/src/components/RemChatApp.tsx)
-- [`web/src/hooks/useRemChat.ts`](/Users/rare/Desktop/rem-ai/web/src/hooks/useRemChat.ts)
+- [`web/src/components/Remi3DAvatar.tsx`](/Users/rare/Desktop/remi-ai/web/src/components/Remi3DAvatar.tsx)
+- [`web/src/components/RemiChatApp.tsx`](/Users/rare/Desktop/remi-ai/web/src/components/RemiChatApp.tsx)
+- [`web/src/hooks/useRemiChat.ts`](/Users/rare/Desktop/remi-ai/web/src/hooks/useRemiChat.ts)
 
 作用：
 
@@ -52,7 +52,7 @@
 1. 保持 `useAudioBase64Queue()` 为唯一 TTS 播放入口  
 不要在别处直接维护第二套“是否正在说话”的状态。
 
-2. 在页面层继续把以下信息传给 `Rem3DAvatar`
+2. 在页面层继续把以下信息传给 `Remi3DAvatar`
 
 - `emotion`
 - `remState`

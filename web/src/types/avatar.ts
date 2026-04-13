@@ -13,11 +13,12 @@ import type {
   Viseme,
 } from "../../../avatar/types";
 
-export type RemState = "idle" | "listening" | "thinking" | "speaking";
+export type RemiState = "idle" | "listening" | "thinking" | "speaking";
+export type RemState = RemiState;
 
 export type AvatarEngine = "vrm";
 
-export type AvatarModelPreset = "rem" | "seed-san";
+export type AvatarModelPreset = "remi" | "seed-san";
 
 export type AvatarActionCommand = {
   action: string;

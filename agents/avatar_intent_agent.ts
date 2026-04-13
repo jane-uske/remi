@@ -1,4 +1,4 @@
-const { loadModule } = require("../utils/module_loader") as typeof import("../utils/module_loader");
+import { createLogger } from "../infra/logger";
 import type {
   AvatarIntent,
   AvatarIntentBeat,
@@ -6,27 +6,18 @@ import type {
   AvatarIntentGesture,
   Emotion,
 } from "../avatar/types";
-
-const { createLogger } = loadModule<{
-  createLogger: (module: string) => {
-    info: (...args: unknown[]) => void;
-    warn: (...args: unknown[]) => void;
-  };
-}>("../infra/logger");
-const { asEmotion, asGesture, asFacialAccent, clampBand, clampMs } = loadModule<{
-  asEmotion: (value: unknown, fallback: AvatarIntent["emotion"]) => AvatarIntent["emotion"];
-  asGesture: (value: unknown, fallback: AvatarIntent["gesture"]) => AvatarIntent["gesture"];
-  asFacialAccent: (
-    value: unknown,
-    fallback: AvatarIntent["facialAccent"],
-  ) => AvatarIntent["facialAccent"];
-  clampBand: (value: unknown, fallback: 0 | 1 | 2 | 3) => 0 | 1 | 2 | 3;
-  clampMs: (value: unknown, fallback: number, min: number, max: number) => number;
-}>("../avatar/utils");
+import {
+  asEmotion,
+  asFacialAccent,
+  asGesture,
+  clampBand,
+  clampMs,
+} from "../avatar/utils";
+import { complete as completeQwen } from "../llm/qwen_client";
 const logger = createLogger("avatar-intent-agent");
 
 const SYSTEM_PROMPT = [
-  "你是 Rem 的 avatar 编排器。",
+  "你是 Remi 的 avatar 编排器。",
   "任务：根据 assistant 已经生成好的回复文本，提取一个高层 avatar intent，以及最多 3 个后续 beats。",
   "只输出合法 JSON，不要 markdown，不要解释。",
   "禁止输出底层骨骼值、blendshape 数组、摄像机参数。",
@@ -200,7 +191,7 @@ export async function inferAvatarIntentFromReply(
   if (!trimmed) return fallbackIntent(replyText, emotion);
 
   try {
-    const raw = await loadQwenClient().complete(
+    const raw = await completeQwen(
       [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -226,20 +217,4 @@ export async function inferAvatarIntentFromReply(
     });
     return fallbackIntent(trimmed, emotion);
   }
-}
-
-function loadQwenClient(): {
-  complete: (
-    messages: Array<{ role: string; content: string }>,
-    maxTokens?: number,
-    signal?: AbortSignal,
-  ) => Promise<string>;
-} {
-  return loadModule<{
-    complete: (
-      messages: Array<{ role: string; content: string }>,
-      maxTokens?: number,
-      signal?: AbortSignal,
-    ) => Promise<string>;
-  }>("../llm/qwen_client");
 }

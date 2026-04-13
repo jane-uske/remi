@@ -119,7 +119,7 @@ function deriveProactiveIntent(
 }
 
 /**
- * 单条 WebSocket 连接上的 Rem 状态：情绪、慢脑、对话历史、会话内记忆（C1）。
+ * 单条 WebSocket 连接上的 Remi 状态：情绪、慢脑、对话历史、会话内记忆（C1）。
  */
 export class RemiSessionContext {
   userId = "dev-user";

@@ -128,8 +128,8 @@ function loadMockedRunner({ chatStream, inferAvatarIntentFromReply, synthesize }
 }
 
 describe("auxiliary llm budget gates", () => {
-  it("skips slow brain when REM_SLOW_BRAIN_ENABLED=0 but preserves the main reply path", async () => {
-    const restoreEnv = setEnvFlag("REM_SLOW_BRAIN_ENABLED", "0");
+  it("skips slow brain when REMI_SLOW_BRAIN_ENABLED=0 but preserves the main reply path", async () => {
+    const restoreEnv = setEnvFlag("REMI_SLOW_BRAIN_ENABLED", "0");
     const slowBrainCalls = [];
     const { routeMessage, restore } = loadMockedRouteMessage({
       fastBrainStream: async function* () {
@@ -159,8 +159,8 @@ describe("auxiliary llm budget gates", () => {
     }
   });
 
-  it("skips avatar intent when REM_AVATAR_INTENT_ENABLED=0 without affecting chat_end or TTS", async () => {
-    const restoreEnv = setEnvFlag("REM_AVATAR_INTENT_ENABLED", "0");
+  it("skips avatar intent when REMI_AVATAR_INTENT_ENABLED=0 without affecting chat_end or TTS", async () => {
+    const restoreEnv = setEnvFlag("REMI_AVATAR_INTENT_ENABLED", "0");
     const avatarIntentCalls = [];
     const { runPipeline, restore } = loadMockedRunner({
       chatStream: async function* () {

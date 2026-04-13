@@ -8,7 +8,7 @@ export type MessageBubbleProps = {
 };
 
 const base =
-  "rem-msg-bubble rem-msg-pop max-w-[min(92%,32rem)] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed tracking-tight min-[480px]:max-w-[min(85%,32rem)] min-[480px]:px-4 min-[480px]:py-3";
+  "remi-msg-bubble remi-msg-pop max-w-[min(92%,32rem)] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed tracking-tight min-[480px]:max-w-[min(85%,32rem)] min-[480px]:px-4 min-[480px]:py-3";
 
 const styles: Record<MessageRole, string> = {
   rem:
@@ -23,7 +23,7 @@ const styles: Record<MessageRole, string> = {
 };
 
 const speakerLine: Record<MessageRole, string> = {
-  rem: "Rem",
+  rem: "Remi",
   user: "你",
   partial: "你（识别中）",
   error: "Error",
