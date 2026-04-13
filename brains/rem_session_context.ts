@@ -5,6 +5,7 @@ import type { PersistentRelationshipStateV1 } from "../memory/relationship_state
 import { SessionMemoryOverlayRepository } from "../memory/session_memory_overlay";
 import { SlowBrainStore } from "./slow_brain_store";
 import { trimHistoryToTokenBudget } from "./history_budget";
+import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import type { DbMessage } from "../storage/types";
 import {
   createDefaultPersona,
@@ -182,7 +183,11 @@ export class RemSessionContext {
 
   hydrateHistoryFromDb(messages: DbMessage[]): void {
     const rawHistory: PromptMessage[] = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
+      .filter((m) => {
+        if (m.role === "user") return true;
+        if (m.role !== "assistant") return false;
+        return !isFallbackAssistantReply(m.content);
+      })
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
     const trimmed = trimHistoryToTokenBudget(rawHistory);

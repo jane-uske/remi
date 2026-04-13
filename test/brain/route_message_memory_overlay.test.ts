@@ -352,4 +352,26 @@ describe("routeMessage with session memory overlay", () => {
       restoreEnv();
     }
   });
+
+  it("does not persist fallback assistant reply into formal history", async () => {
+    const restoreEnv = applyEnv({ REM_SLOW_BRAIN_ENABLED: "1" });
+    const ctx = new RemSessionContext("memory-overlay-fallback-guard");
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* () {
+      yield "啊…出了点问题，等我缓缓再试试…";
+    });
+
+    try {
+      const chunks = [];
+      for await (const chunk of routeMessage(ctx, "111", "neutral")) {
+        chunks.push(chunk);
+      }
+
+      assert.deepEqual(chunks, ["啊…出了点问题，等我缓缓再试试…"]);
+      assert.equal(ctx.history.length, 1);
+      assert.deepEqual(ctx.history[0], { role: "user", content: "111" });
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
 });

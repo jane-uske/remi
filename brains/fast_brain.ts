@@ -8,6 +8,39 @@ import type { PersonaState } from "../persona";
 
 const logger = createLogger("fast_brain");
 
+function isAbortLikeError(err: unknown): boolean {
+  const error = err as { name?: string; message?: string };
+  const name = error?.name ?? "";
+  const message = (error?.message ?? "").toLowerCase();
+  return (
+    name === "AbortError" ||
+    name === "APIUserAbortError" ||
+    message.includes("abort")
+  );
+}
+
+function llmFailureFallback(err: unknown): string {
+  const error = err as {
+    code?: string;
+    status?: number;
+    message?: string;
+  };
+  const code = error?.code ?? "";
+  const status = error?.status;
+  const message = (error?.message ?? "").toLowerCase();
+
+  if (
+    status === 401 ||
+    code === "AuthenticationError" ||
+    message.includes("api key") ||
+    message.includes("authentication")
+  ) {
+    return "我这边的大脑连接凭据不对，暂时没法回复。把 LLM 的 key 配好后再试一次。";
+  }
+
+  return "啊…出了点问题，等我缓缓再试试…";
+}
+
 export interface FastBrainInput {
   userMessage: string;
   emotion: Emotion;
@@ -68,6 +101,10 @@ export async function* fastBrainStream(
       yield token;
     }
     if (!hasContent) {
+      if (input.signal?.aborted) {
+        logger.debug("LLM 空流结束（已中断）");
+        return;
+      }
       logger.warn("LLM 返回内容为空（thinking 已过滤）");
       const fallback = await complete(messages, 256, input.signal).catch((err) => {
         logger.warn("LLM 空流 fallback 失败", { error: (err as Error).message });
@@ -80,8 +117,16 @@ export async function* fastBrainStream(
       }
     }
   } catch (err) {
-    logger.warn("LLM 调用失败", { error: (err as Error).message });
-    yield "啊…出了点问题，等我缓缓再试试…";
+    if (input.signal?.aborted || isAbortLikeError(err)) {
+      logger.debug("LLM 调用已中断", { error: (err as Error).message });
+      return;
+    }
+    logger.warn("LLM 调用失败", {
+      error: (err as Error).message,
+      code: (err as { code?: string }).code,
+      status: (err as { status?: number }).status,
+    });
+    yield llmFailureFallback(err);
   }
 }
 

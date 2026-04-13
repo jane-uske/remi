@@ -14,6 +14,7 @@ import { createLogger } from "../../infra/logger";
 import { isDbReady } from "../../infra/app_state";
 import { getLatencyTracer } from "../../infra/latency_tracer";
 import { saveMessage } from "../../storage/repositories/message_repository";
+import { isFallbackAssistantReply } from "../../brains/assistant_reply_guard";
 import { send } from "../gateway";
 import type { InterruptionType } from "../../avatar/types";
 
@@ -265,8 +266,9 @@ export async function runPipeline(
       ctx.lastInterruptedReply = null;
     }
     ctx.currentAssistantDraft = null;
+    const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
 
-    if (isDbReady() && sessionId && full && !signal.aborted) {
+    if (isDbReady() && sessionId && full && !signal.aborted && shouldPersistAssistantReply) {
       try {
         await saveMessage(sessionId, "assistant", full);
       } catch (err) {
@@ -274,7 +276,7 @@ export async function runPipeline(
       }
     }
 
-    if (full && !signal.aborted) {
+    if (full && !signal.aborted && shouldPersistAssistantReply) {
       const actionFrames = avatar.processReply(full);
       for (const frame of actionFrames) {
         send(ws, { type: "avatar_frame", frame });

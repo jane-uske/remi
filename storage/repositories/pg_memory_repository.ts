@@ -9,6 +9,7 @@ import {
   updateMemoryEmbedding,
 } from "./memory_repository";
 import { createLogger } from "../../infra/logger";
+import { generateEmbedding } from "../../llm/embeddings";
 
 const logger = createLogger("pg-memory-repo");
 
@@ -39,7 +40,6 @@ export class PgMemoryRepository implements MemoryRepository {
 
   private async _storeEmbedding(id: string, text: string): Promise<void> {
     try {
-      const { generateEmbedding } = await import("../../llm/embeddings");
       const embedding = await generateEmbedding(text);
       if (embedding) {
         await updateMemoryEmbedding(id, embedding);
@@ -60,7 +60,6 @@ export class PgMemoryRepository implements MemoryRepository {
    */
   async findSimilar(queryText: string, topK: number): Promise<MemoryEntry[]> {
     try {
-      const { generateEmbedding } = await import("../../llm/embeddings");
       const embedding = await generateEmbedding(queryText);
       if (!embedding) return [];
       const rows = await findSimilarMemories(this._userId, embedding, topK);
