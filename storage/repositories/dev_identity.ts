@@ -5,13 +5,17 @@ export function getDevUserId(): string {
   return normalizeToStorageUserId(process.env.DEV_USER_ID?.trim());
 }
 
-export async function ensureDevUser(): Promise<string> {
-  const userId = getDevUserId();
+export async function ensureStorageUser(userId: string): Promise<string> {
   await query(
     `INSERT INTO users (id)
      VALUES ($1)
      ON CONFLICT (id) DO NOTHING`,
-    [userId],
+    [normalizeToStorageUserId(userId)],
   );
-  return userId;
+  return normalizeToStorageUserId(userId);
+}
+
+export async function ensureDevUser(): Promise<string> {
+  const userId = getDevUserId();
+  return ensureStorageUser(userId);
 }

@@ -12,6 +12,7 @@ export type ChatMessage = {
   id: string;
   role: MessageRole;
   text: string;
+  createdAt?: string;
 };
 
 export type RemiChatEmotion = Emotion;

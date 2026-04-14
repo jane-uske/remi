@@ -1,18 +1,25 @@
 import { Pool, type QueryResult } from 'pg';
+import { resolveConnectionString } from './connection_resolver';
 
 let pool: Pool | null = null;
 
 export async function initDatabase(config?: {
   connectionString?: string;
 }): Promise<void> {
-  const connectionString =
+  const rawConnectionString =
     config?.connectionString ?? process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!rawConnectionString) {
     const err = new Error('DATABASE_URL is not set');
     console.log('[Storage] initDatabase failed:', err.message);
     throw err;
   }
   try {
+    const connectionString = await resolveConnectionString(rawConnectionString, {
+      serviceHost: "postgres",
+      fallbackHost: "127.0.0.1",
+      fallbackPort: 5432,
+      fallbackLabel: "PostgreSQL",
+    });
     pool = new Pool({ connectionString });
     await pool.query('SELECT 1');
     console.log('[Storage] PostgreSQL pool initialized');

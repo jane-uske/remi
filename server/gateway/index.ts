@@ -17,6 +17,8 @@ import type { ServerMessage } from "./types";
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
 const ACCESS_LOGIN_PATH = "/__access/login";
+const MOBILE_DEV_KEY_HEADER = "x-remi-mobile-key";
+const LEGACY_MOBILE_DEV_KEY_HEADER = "x-rem-mobile-key";
 
 /** 与 `listen`、传给 Next 的 `port` 一致；可通过环境变量覆盖（见 README `PORT`） */
 export const PORT = (() => {
@@ -220,6 +222,7 @@ function denyWithoutAccessCookie(req: IncomingMessage, res: http.ServerResponse)
   if (isLocalLoopbackRequest(req)) return false;
   const pathname = requestPathname(req);
   if (pathname === "/health" || pathname === ACCESS_LOGIN_PATH) return false;
+  if (hasValidMobileDevKey(req)) return false;
   if (hasValidAuthToken(req)) return false;
   if (hasValidAccessCookie(req)) return false;
 
@@ -248,6 +251,30 @@ function getClientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
+function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === "") return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return true;
+  if (normalized === "0" || normalized === "false") return false;
+  return fallback;
+}
+
+function mobileDevAuthEnabled(): boolean {
+  return parseBooleanFlag(process.env.REMI_MOBILE_DEV_ENABLED, false);
+}
+
+function getMobileDevKey(): string | null {
+  const raw = process.env.REMI_MOBILE_DEV_KEY?.trim();
+  return raw ? raw : null;
+}
+
+function readHeaderValue(req: IncomingMessage, headerName: string): string | null {
+  const raw = req.headers[headerName.toLowerCase()];
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+  return null;
+}
+
 function extractAuthToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return null;
@@ -266,6 +293,25 @@ function hasValidAuthToken(req: IncomingMessage): boolean {
   const token = extractWsToken(req);
   if (!token) return false;
   return !!verifyToken(token);
+}
+
+function hasValidMobileDevKey(req: IncomingMessage): boolean {
+  if (!mobileDevAuthEnabled()) return false;
+  const expected = getMobileDevKey();
+  if (!expected) return false;
+  const provided = (
+    readHeaderValue(req, MOBILE_DEV_KEY_HEADER) ??
+    readHeaderValue(req, LEGACY_MOBILE_DEV_KEY_HEADER)
+  )?.trim();
+  if (!provided) return false;
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(providedBuf, expectedBuf);
+}
+
+function hasValidWsAuth(req: IncomingMessage): boolean {
+  return hasValidAuthToken(req) || hasValidMobileDevKey(req);
 }
 
 function isLoopbackAddress(address: string | undefined): boolean {
@@ -407,10 +453,12 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       return;
     }
 
+    const mobileKeyAccepted = hasValidMobileDevKey(req);
+
     if (hasSharedPasswordGate() && !hasValidAccessCookie(req)) {
       if (isLocalLoopbackRequest(req)) {
         // local browser debug path: do not force access-cookie gate on loopback
-      } else if (!hasValidAuthToken(req)) {
+      } else if (!hasValidWsAuth(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
@@ -419,12 +467,14 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
 
     if (useAuth) {
       const token = extractWsToken(req);
-      if (!token && !isLocalLoopbackRequest(req)) {
+      if (!token && !mobileKeyAccepted && !isLocalLoopbackRequest(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
       }
-      const payload = token ? wsAuthenticateOnce(token) : { id: "dev" };
+      const payload = token
+        ? wsAuthenticateOnce(token)
+        : (mobileKeyAccepted ? { id: "mobile-dev" } : { id: "dev" });
       if (!payload) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();

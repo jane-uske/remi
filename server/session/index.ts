@@ -9,10 +9,13 @@ import { AvatarController } from "../../avatar/avatar_controller";
 import { createLogger } from "../../infra/logger";
 import { isDbReady } from "../../infra/app_state";
 import { getLatencyTracer, removeLatencyTracer } from "../../infra/latency_tracer";
-import { ensureDevUser } from "../../storage/repositories/dev_identity";
+import { ensureStorageUser } from "../../storage/repositories/dev_identity";
 import { getPgMemoryRepository } from "../../storage/repositories/pg_memory_repository";
 import { createSession as createDbSession, endSession } from "../../storage/repositories/session_repository";
-import { getRecentUserMessages } from "../../storage/repositories/message_repository";
+import {
+  getUserMessagesPage,
+  type UserMessageHistoryCursor,
+} from "../../storage/repositories/message_repository";
 import { RemiSessionContext } from "../../brains/remi_session_context";
 import { runPipeline } from "../pipeline";
 import { send, getWsRateLimiter } from "../gateway";
@@ -56,6 +59,7 @@ import {
 } from "./turn_taking";
 import { buildTurnTimingSnapshot } from "./turn_timing";
 import { buildCarryForwardHint, classifyInterruption } from "./interruption";
+import { resolveRequestUserId } from "../../infra/user_identity";
 
 const logger = createLogger("session");
 const AUDIO_BIN_MAGIC_V1 = Buffer.from([0x52, 0x41]); // "RA" (legacy)
@@ -64,6 +68,7 @@ const AUDIO_BIN_VERSION = 1;
 const AUDIO_BIN_HEADER_BYTES_V1 = 8;
 const AUDIO_BIN_HEADER_BYTES_V2 = 16;
 const AUDIO_BIN_CODEC_PCM16_MONO = 1;
+const HISTORY_PAGE_SIZE = 15;
 
 /** Ring buffer duration (ms) kept before speech_start — inject into STT so minSpeech ramp-up does not clip sentence beginnings. */
 function preRollMaxBytes(sampleRate: number): number {
@@ -132,6 +137,11 @@ type PartialShapeAggregates = {
   partialGrowthTrend: PartialGrowthTrend;
   semanticCompletionStreak: number;
   smallDeltaStreak: number;
+};
+
+type HistoryCursorPayload = {
+  id: string;
+  createdAt: string;
 };
 
 type PredictionGate = {
@@ -355,6 +365,7 @@ export class ConnectionSession {
   readonly vad: VadDetector;
   readonly interrupt: InterruptController;
   readonly avatar: AvatarController;
+  readonly storageUserId: string;
 
   sessionId: string | null = null;
   pipelineChain: Promise<void> = Promise.resolve();
@@ -444,7 +455,7 @@ export class ConnectionSession {
   private suppressedNoiseCooldownUntil = 0;
   private lastSuppressedNoiseLogAt = 0;
 
-  constructor(ws: WebSocket) {
+  constructor(ws: WebSocket, req: IncomingMessage) {
     this.connId = randomUUID();
     this.brain = new RemiSessionContext(this.connId);
     this.ws = ws;
@@ -452,24 +463,78 @@ export class ConnectionSession {
     this.vad = new VadDetector();
     this.interrupt = new InterruptController();
     this.avatar = new AvatarController();
+    this.storageUserId = resolveRequestUserId(req);
 
     this.setupVadEvents();
     this.setupMessageHandlers();
     this.setupCloseHandlers();
   }
 
+  private serializeHistoryCursor(cursor: UserMessageHistoryCursor | null): HistoryCursorPayload | null {
+    if (!cursor) return null;
+    return {
+      id: cursor.id,
+      createdAt: cursor.created_at.toISOString(),
+    };
+  }
+
+  private parseHistoryCursor(raw: unknown): UserMessageHistoryCursor | null {
+    if (!raw || typeof raw !== "object") return null;
+    const id = typeof (raw as HistoryCursorPayload).id === "string" ? (raw as HistoryCursorPayload).id.trim() : "";
+    const createdAtRaw =
+      typeof (raw as HistoryCursorPayload).createdAt === "string"
+        ? (raw as HistoryCursorPayload).createdAt.trim()
+        : "";
+    if (!id || !createdAtRaw) return null;
+    const createdAt = new Date(createdAtRaw);
+    if (Number.isNaN(createdAt.getTime())) return null;
+    return {
+      id,
+      created_at: createdAt,
+    };
+  }
+
+  private async sendHistoryPage(
+    mode: "replace" | "prepend",
+    cursor?: UserMessageHistoryCursor | null,
+  ): Promise<void> {
+    if (!isDbReady()) return;
+    const page = await getUserMessagesPage(this.storageUserId, HISTORY_PAGE_SIZE, cursor);
+    send(this.ws, {
+      type: "history_page",
+      mode,
+      messages: page.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.created_at.toISOString(),
+      })),
+      hasMore: page.hasMore,
+      nextCursor: this.serializeHistoryCursor(page.nextCursor),
+    });
+    if (page.messages.length > 0) {
+      logger.debug("[Memory] history page sent", {
+        connId: this.connId,
+        userId: this.storageUserId,
+        mode,
+        messageCount: page.messages.length,
+        hasMore: page.hasMore,
+      });
+    }
+  }
+
   async initializeAsync(): Promise<void> {
-    logger.info("[Remi] 新客户端已连接", { connId: this.connId });
+    logger.info("[Remi] 新客户端已连接", { connId: this.connId, userId: this.storageUserId });
 
     if (isDbReady()) {
       try {
-        const devUserId = await ensureDevUser();
-        this.brain.setUserId(devUserId);
-        const sess = await createDbSession(devUserId);
+        const userId = await ensureStorageUser(this.storageUserId);
+        this.brain.setUserId(userId);
+        const sess = await createDbSession(userId);
         this.sessionId = sess.id;
-        logger.info("[Storage] Session created", { sessionId: this.sessionId });
+        logger.info("[Storage] Session created", { sessionId: this.sessionId, userId });
 
-        const persistentRepo = getPgMemoryRepository(devUserId);
+        const persistentRepo = getPgMemoryRepository(userId);
         if (relationshipStateEnabled()) {
           this.brain.attachPersistentRelationshipRepo(persistentRepo);
           const persistedState = await loadPersistentRelationshipState(persistentRepo);
@@ -496,14 +561,16 @@ export class ConnectionSession {
         }
 
         try {
-          const recentMessages = await getRecentUserMessages(devUserId, 10);
-          if (recentMessages.length > 0) {
-            this.brain.hydrateHistoryFromDb(recentMessages);
+          const recentPage = await getUserMessagesPage(userId, HISTORY_PAGE_SIZE);
+          if (recentPage.messages.length > 0) {
+            this.brain.hydrateHistoryFromDb(recentPage.messages);
             logger.debug("[Memory] conversation history restored", {
               connId: this.connId,
-              messageCount: recentMessages.length,
+              userId,
+              messageCount: recentPage.messages.length,
             });
           }
+          await this.sendHistoryPage("replace");
         } catch (err) {
           logger.warn("[Storage] Failed to restore conversation history", { error: err });
         }
@@ -1908,6 +1975,16 @@ export class ConnectionSession {
       }
 
       switch (data.type) {
+        case "history_more":
+          void this.sendHistoryPage("prepend", this.parseHistoryCursor(data.cursor)).catch((err) => {
+            logger.warn("[Storage] Failed to load older history", {
+              error: err,
+              connId: this.connId,
+              userId: this.storageUserId,
+            });
+            send(this.ws, { type: "error", content: "加载历史记录失败，请稍后重试" });
+          });
+          break;
         case "dev_apply_preset":
           if (!devPresetCommandsEnabled()) {
             send(this.ws, { type: "error", content: "开发预设命令已禁用" });
@@ -2592,8 +2669,8 @@ export class ConnectionSession {
   }
 }
 
-export function createSession(ws: WebSocket, _req: IncomingMessage): ConnectionSession {
-  const session = new ConnectionSession(ws);
+export function createSession(ws: WebSocket, req: IncomingMessage): ConnectionSession {
+  const session = new ConnectionSession(ws, req);
   session.initializeAsync().catch((err) => {
     logger.error("[Session] initializeAsync failed", { error: err, connId: session.connId });
   });

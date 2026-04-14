@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { ChatWindow } from "@/components/ChatWindow";
 import { InputBar } from "@/components/InputBar";
+import { PresetControlPanel } from "@/components/PresetControlPanel";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
 import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
 import { getEmotionLabel } from "@/lib/emotionLabels";
@@ -93,6 +94,10 @@ export function RemiChatApp() {
     connectionPhase,
     reconnectInSec,
     messages,
+    historyHasMore,
+    historyLoadingMore,
+    historyMutation,
+    historyMutationNonce,
     turnState,
     sttPartialText,
     streamingText,
@@ -107,7 +112,13 @@ export function RemiChatApp() {
     voiceActive,
     lipSignalRef,
     hasMic,
+    isDefaultDevUser,
+    currentUserId,
+    wsTargetLabel,
     sendText,
+    loadMoreHistory,
+    applyDevPreset,
+    resetDevState,
     toggleMic,
   } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
@@ -159,8 +170,20 @@ export function RemiChatApp() {
         </section>
 
         <aside className="remi-chat-panel remi-glass-edge flex min-h-0 w-full min-w-0 flex-1 flex-col border-t lg:w-[min(100%,clamp(320px,42vw,440px))] lg:max-w-[min(100%,440px)] lg:flex-none lg:border-l lg:border-t-0 lg:pt-14">
+          {isDefaultDevUser ? (
+            <PresetControlPanel
+              connected={connected}
+              onApply={applyDevPreset}
+              onReset={resetDevState}
+            />
+          ) : null}
           <ChatWindow
             messages={messages}
+            hasMoreHistory={historyHasMore}
+            loadingMoreHistory={historyLoadingMore}
+            onLoadMore={loadMoreHistory}
+            listMutation={historyMutation}
+            listMutationNonce={historyMutationNonce}
             sttPartialText={sttPartialText}
             streamingText={streamingText}
             listeningHint={listeningHint}
@@ -196,6 +219,19 @@ export function RemiChatApp() {
                 · {getEmotionLabel(emotion)}
               </span>
             </p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--remi-dim)]">
+              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                {isDefaultDevUser ? "default-user" : "token-user"}
+              </span>
+              <span className="max-w-[min(48vw,18rem)] truncate rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                uid: {currentUserId}
+              </span>
+              {wsTargetLabel ? (
+                <span className="max-w-[min(52vw,20rem)] truncate rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                  ws: {wsTargetLabel}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
         <div

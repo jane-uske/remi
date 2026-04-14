@@ -1,14 +1,21 @@
 import Redis from 'ioredis';
+import { resolveConnectionString } from './connection_resolver';
 
 let client: Redis | null = null;
 
 export async function initRedis(url?: string): Promise<boolean> {
-  const redisUrl = url ?? process.env.REDIS_URL;
-  if (!redisUrl) {
+  const rawRedisUrl = url ?? process.env.REDIS_URL;
+  if (!rawRedisUrl) {
     const err = new Error('REDIS_URL is not set');
     console.log('[Storage] initRedis failed:', err.message);
     return false;
   }
+  const redisUrl = await resolveConnectionString(rawRedisUrl, {
+    serviceHost: "redis",
+    fallbackHost: "127.0.0.1",
+    fallbackPort: 6379,
+    fallbackLabel: "Redis",
+  });
   const nextClient = new Redis(redisUrl, {
     lazyConnect: true,
     enableOfflineQueue: false,

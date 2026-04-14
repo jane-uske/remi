@@ -85,12 +85,21 @@ const WS_CONNECT_TIMEOUT_MS = 12_000;
 export type RemiConnectionPhase = "connecting" | "open" | "closed";
 
 const MESSAGE_STORAGE_KEY = "remi-chat-messages-v1";
-const MESSAGE_STORAGE_MAX = 50;
+const LEGACY_MESSAGE_STORAGE_KEY = "rem-chat-messages-v1";
+const MESSAGE_STORAGE_MAX = 200;
+const INITIAL_HISTORY_DISPLAY_LIMIT = 15;
 const USER_SPEAKING_END_DEBOUNCE_MS = 260;
 const STT_FALLBACK_PREFIX = "录音中";
 const STT_USER_MERGE_WINDOW_MS = 2200;
 const MIC_TX_LOG_INTERVAL_MS = 900;
 const CHAT_END_PLAYBACK_GRACE_MS = 220;
+
+type HistoryCursor = {
+  id: string;
+  createdAt: string;
+};
+
+type HistoryListMutation = "idle" | "replace" | "prepend" | "append";
 
 function isListeningFallbackText(text: string): boolean {
   return text.startsWith(STT_FALLBACK_PREFIX);
@@ -114,6 +123,8 @@ function mergeTranscriptTexts(prev: string, next: string): string | null {
   if (na.startsWith(nb)) return a;
   return null;
 }
+
+const DEFAULT_DEV_USER_ID = "00000000-0000-4000-8000-000000000001";
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
@@ -140,23 +151,71 @@ function resolveMessageStorageKey(): string {
   return `${MESSAGE_STORAGE_KEY}:${userId}`;
 }
 
+function resolveIsDefaultDevUser(): boolean {
+  if (typeof window === "undefined") return true;
+  const token = new URLSearchParams(window.location.search).get("token");
+  if (!token) return true;
+  const payload = decodeJwtPayload(token);
+  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
+  if (!userId) return true;
+  return userId === DEFAULT_DEV_USER_ID;
+}
+
+function resolveCurrentUserId(): string {
+  if (typeof window === "undefined") return DEFAULT_DEV_USER_ID;
+  const token = new URLSearchParams(window.location.search).get("token");
+  if (!token) return DEFAULT_DEV_USER_ID;
+  const payload = decodeJwtPayload(token);
+  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
+  return userId || DEFAULT_DEV_USER_ID;
+}
+
+function resolveWsTargetLabel(): string {
+  if (typeof window === "undefined") return "";
+  const wsUrl = getRemWsUrl();
+  if (!wsUrl) return "";
+  try {
+    const url = new URL(wsUrl);
+    return `${url.host}${url.pathname}`;
+  } catch {
+    return wsUrl;
+  }
+}
+
+function resolveLegacyMessageStorageKey(storageKey: string): string {
+  if (!storageKey.startsWith(MESSAGE_STORAGE_KEY)) return LEGACY_MESSAGE_STORAGE_KEY;
+  return LEGACY_MESSAGE_STORAGE_KEY + storageKey.slice(MESSAGE_STORAGE_KEY.length);
+}
+
+function sanitizePersistedMessages(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (m): m is ChatMessage =>
+        m != null &&
+        typeof m === "object" &&
+        typeof (m as ChatMessage).id === "string" &&
+        typeof (m as ChatMessage).text === "string" &&
+        typeof (m as ChatMessage).role === "string",
+    )
+    .slice(-MESSAGE_STORAGE_MAX);
+}
+
 function loadPersistedMessages(storageKey: string): ChatMessage[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (m): m is ChatMessage =>
-          m != null &&
-          typeof m === "object" &&
-          typeof (m as ChatMessage).id === "string" &&
-          typeof (m as ChatMessage).text === "string" &&
-          typeof (m as ChatMessage).role === "string",
-      )
-      .slice(-MESSAGE_STORAGE_MAX);
+    const primaryRaw = localStorage.getItem(storageKey);
+    if (primaryRaw) {
+      return sanitizePersistedMessages(JSON.parse(primaryRaw) as unknown);
+    }
+    const legacyKey = resolveLegacyMessageStorageKey(storageKey);
+    const legacyRaw = localStorage.getItem(legacyKey);
+    if (!legacyRaw) return [];
+    const messages = sanitizePersistedMessages(JSON.parse(legacyRaw) as unknown);
+    if (messages.length > 0) {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    }
+    return messages;
   } catch {
     return [];
   }
@@ -171,8 +230,13 @@ export function useRemiChat() {
   /** 仅用于在重连倒计时期间驱动按秒刷新（deadline 派生秒数） */
   const [, bumpReconnectTick] = useState(0);
   const [connLabel, setConnLabel] = useState("连接中…");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [historyMessages, setHistoryMessages] = useState<ChatMessage[]>([]);
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const [messagesHydrated, setMessagesHydrated] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyMutationNonce, setHistoryMutationNonce] = useState(0);
+  const [historyMutation, setHistoryMutation] = useState<HistoryListMutation>("idle");
   const [streamingText, setStreamingText] = useState("");
   const [sttPartialText, setSttPartialText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -193,6 +257,13 @@ export function useRemiChat() {
   const [duplex, setDuplex] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
   const messageStorageKey = useMemo(() => resolveMessageStorageKey(), []);
+  const isDefaultDevUser = useMemo(() => resolveIsDefaultDevUser(), []);
+  const currentUserId = useMemo(() => resolveCurrentUserId(), []);
+  const wsTargetLabel = useMemo(() => resolveWsTargetLabel(), []);
+  const messages = useMemo(
+    () => [...historyMessages, ...liveMessages],
+    [historyMessages, liveMessages],
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const waitingRef = useRef(false);
@@ -244,6 +315,10 @@ export function useRemiChat() {
   /** 连接超时主动 close 时，onclose 不再刷「已断开」系统提示（避免与超时错误重复） */
   const suppressDisconnectSysMsgRef = useRef(false);
   const avatarBeatTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const persistedMessagesRef = useRef<ChatMessage[]>([]);
+  const historyCursorRef = useRef<HistoryCursor | null>(null);
+  const historyLoadingMoreRef = useRef(false);
+  const historySourceRef = useRef<"fallback" | "server">("fallback");
 
   const commitTurnState = useCallback(
     (
@@ -352,6 +427,16 @@ export function useRemiChat() {
     avatarBeatTimersRef.current = [];
   }, []);
 
+  const markHistoryMutation = useCallback((kind: HistoryListMutation) => {
+    setHistoryMutation(kind);
+    setHistoryMutationNonce((n) => n + 1);
+  }, []);
+
+  const appendLiveMessage = useCallback((message: ChatMessage) => {
+    markHistoryMutation("append");
+    setLiveMessages((current) => [...current, message]);
+  }, [markHistoryMutation]);
+
   const handleMicCaptureFault = useCallback(
     (detail: { reason: string; state?: string; message?: string }) => {
       const now = Date.now();
@@ -382,12 +467,13 @@ export function useRemiChat() {
       clearUserSpeakingEndTimer();
       setUserSpeaking(false);
       setInputPlaceholder("说点什么…");
-      setMessages((m) => [
-        ...m,
-        { id: uid(), role: "error", text: "音频设备异常，请重新开启麦克风" },
-      ]);
+      appendLiveMessage({
+        id: uid(),
+        role: "error",
+        text: "音频设备异常，请重新开启麦克风",
+      });
     },
-    [clearGenerationState, clearUserSpeakingEndTimer],
+    [appendLiveMessage, clearGenerationState, clearUserSpeakingEndTimer],
   );
 
   const triggerIntentGestureAction = useCallback((intent: AvatarIntent | null) => {
@@ -430,7 +516,7 @@ export function useRemiChat() {
     const trimmed = content.trim();
     if (!trimmed) return;
     const now = Date.now();
-    setMessages((prev) => {
+    setLiveMessages((prev) => {
       const last = prev[prev.length - 1];
       if (
         last?.role === "user" &&
@@ -443,10 +529,11 @@ export function useRemiChat() {
           return next;
         }
       }
-      return [...prev, { id: uid(), role: "user", text: trimmed }];
+      return [...prev, { id: uid(), role: "user", text: trimmed, createdAt: new Date(now).toISOString() }];
     });
+    markHistoryMutation("append");
     lastUserTranscriptAtRef.current = now;
-  }, []);
+  }, [markHistoryMutation]);
 
   const blockGeneration = useCallback((id: number) => {
     const blocked = blockedGenerationsRef.current;
@@ -731,14 +818,11 @@ export function useRemiChat() {
       setRecording(false);
       recordingRef.current = false;
       setInputPlaceholder("说点什么…");
-      setMessages((m) => [
-        ...m,
-        { id: uid(), role: "error", text: "无法访问麦克风" },
-      ]);
+      appendLiveMessage({ id: uid(), role: "error", text: "无法访问麦克风" });
     } finally {
       startingDuplexRef.current = false;
     }
-  }, [clearPendingChatEnd, clearQueue, handleMicCaptureFault, unlockPlayback]);
+  }, [appendLiveMessage, clearPendingChatEnd, clearQueue, handleMicCaptureFault, unlockPlayback]);
 
   const stopVoiceSession = useCallback((options?: { preserveAutoResume?: boolean }) => {
     const ws = wsRef.current;
@@ -803,14 +887,11 @@ export function useRemiChat() {
       pushAvatarDevtoolsLog("system", "ws unavailable", {
         reason: "empty-url",
       });
-      setMessages((m) => [
-        ...m,
-        {
-          id: uid(),
-          role: "error",
-          text: "WebSocket 地址为空（仅应在浏览器环境连接）",
-        },
-      ]);
+      appendLiveMessage({
+        id: uid(),
+        role: "error",
+        text: "WebSocket 地址为空（仅应在浏览器环境连接）",
+      });
       return;
     }
 
@@ -823,15 +904,12 @@ export function useRemiChat() {
       if (ws.readyState === WebSocket.CONNECTING) {
         suppressDisconnectSysMsgRef.current = true;
         setConnLabel("连接超时");
-        setMessages((m) => [
-          ...m,
-          {
-            id: uid(),
-            role: "error",
-            text:
-              "连接服务器超时。请确认已在仓库根目录运行「npm run dev」（默认端口 3000），或设置 NEXT_PUBLIC_WS_URL=ws://你的后端:端口/ws",
-          },
-        ]);
+        appendLiveMessage({
+          id: uid(),
+          role: "error",
+          text:
+            "连接服务器超时。请确认已在仓库根目录运行「npm run dev」（默认端口 3000），或设置 NEXT_PUBLIC_WS_URL=ws://你的后端:端口/ws",
+        });
         ws.close();
       }
     }, WS_CONNECT_TIMEOUT_MS);
@@ -845,10 +923,7 @@ export function useRemiChat() {
       pushAvatarDevtoolsLog("system", "ws open", { url });
       if (!hasAnnouncedConnectedRef.current) {
         hasAnnouncedConnectedRef.current = true;
-        setMessages((m) => [
-          ...m,
-          { id: uid(), role: "sys", text: "已连接，和 Remi 聊聊吧" },
-        ]);
+        appendLiveMessage({ id: uid(), role: "sys", text: "已连接，和 Remi 聊聊吧" });
       }
       if (
         resumeDuplexAfterReconnectRef.current &&
@@ -905,6 +980,61 @@ export function useRemiChat() {
           }
           break;
 
+        case "history_page": {
+          const mode = data.mode === "prepend" ? "prepend" : "replace";
+          const rawMessages = Array.isArray(data.messages) ? data.messages : [];
+          const pageMessages: ChatMessage[] = rawMessages
+            .map((message): ChatMessage | null => {
+              if (!message || typeof message !== "object") return null;
+              const id = typeof message.id === "string" ? message.id : "";
+              const role = message.role === "assistant" ? "rem" : message.role === "user" ? "user" : null;
+              const text = typeof message.content === "string" ? message.content : "";
+              const createdAt = typeof message.createdAt === "string" ? message.createdAt : undefined;
+              if (!id || !role || !text) return null;
+              return { id, role, text, createdAt };
+            })
+            .filter((message): message is ChatMessage => message !== null);
+
+          const rawNextCursor =
+            data.nextCursor && typeof data.nextCursor === "object"
+              ? (data.nextCursor as Record<string, unknown>)
+              : null;
+          const nextCursor = rawNextCursor
+            ? {
+                id: typeof rawNextCursor.id === "string" ? rawNextCursor.id : "",
+                createdAt:
+                  typeof rawNextCursor.createdAt === "string" ? rawNextCursor.createdAt : "",
+              }
+            : null;
+
+          const shouldAdoptServerHistory =
+            mode === "prepend" || pageMessages.length > 0 || historyMessages.length === 0;
+
+          if (shouldAdoptServerHistory) {
+            historySourceRef.current = "server";
+            historyCursorRef.current =
+              nextCursor && nextCursor.id && nextCursor.createdAt ? nextCursor : null;
+            setHistoryHasMore(Boolean(data.hasMore));
+          }
+          historyLoadingMoreRef.current = false;
+          setHistoryLoadingMore(false);
+
+          if (mode === "replace") {
+            if (shouldAdoptServerHistory) {
+              setHistoryMessages(pageMessages);
+              markHistoryMutation("replace");
+            }
+          } else if (pageMessages.length > 0) {
+            setHistoryMessages((current) => {
+              const seenIds = new Set(current.map((message) => message.id));
+              const older = pageMessages.filter((message) => !seenIds.has(message.id));
+              return older.length > 0 ? [...older, ...current] : current;
+            });
+            markHistoryMutation("prepend");
+          }
+          break;
+        }
+
         case "chat_chunk":
           if (!allowServerGeneration("chat_chunk", data.generationId)) break;
           if (!streamingBufRef.current) {
@@ -929,7 +1059,12 @@ export function useRemiChat() {
           setSttPartialText("");
           setInputPlaceholder("说点什么…");
           if (text) {
-            setMessages((m) => [...m, { id: uid(), role: "rem", text }]);
+            appendLiveMessage({
+              id: uid(),
+              role: "rem",
+              text,
+              createdAt: new Date().toISOString(),
+            });
           }
           const endGenerationId = parseGenerationId(data.generationId);
           if (endGenerationId != null && activeGenerationRef.current === endGenerationId) {
@@ -1202,6 +1337,8 @@ export function useRemiChat() {
         }
 
         case "error": {
+          historyLoadingMoreRef.current = false;
+          setHistoryLoadingMore(false);
           clearPendingChatEnd();
           clearUserSpeakingEndTimer();
           setUserSpeaking(false);
@@ -1211,10 +1348,11 @@ export function useRemiChat() {
           waitingRef.current = false;
           setWaiting(false);
           setInputPlaceholder("说点什么…");
-          setMessages((m) => [
-            ...m,
-            { id: uid(), role: "error", text: String(data.content ?? "错误") },
-          ]);
+          appendLiveMessage({
+            id: uid(),
+            role: "error",
+            text: String(data.content ?? "错误"),
+          });
           break;
         }
 
@@ -1236,9 +1374,18 @@ export function useRemiChat() {
           interruptionTypeRef.current = null;
           setInterruptionType(null);
           commitTurnState("confirmed_end", "confirmed_end", { kind: "system" });
-          setMessages([]);
+          historySourceRef.current = "fallback";
+          historyCursorRef.current = null;
+          historyLoadingMoreRef.current = false;
+          setHistoryLoadingMore(false);
+          setHistoryHasMore(false);
+          persistedMessagesRef.current = [];
+          setHistoryMessages([]);
+          setLiveMessages([]);
+          markHistoryMutation("replace");
           try {
             localStorage.removeItem(messageStorageKey);
+            localStorage.removeItem(resolveLegacyMessageStorageKey(messageStorageKey));
           } catch {
             /* noop */
           }
@@ -1260,6 +1407,8 @@ export function useRemiChat() {
       setConnectionPhase("closed");
       setReconnectDeadline(Date.now() + REM_WS_RECONNECT_DELAY_MS);
       setConnLabel("已断开");
+      historyLoadingMoreRef.current = false;
+      setHistoryLoadingMore(false);
       waitingRef.current = false;
       setWaiting(false);
       clearGenerationState();
@@ -1279,7 +1428,8 @@ export function useRemiChat() {
         reconnectInMs: REM_WS_RECONNECT_DELAY_MS,
       });
       if (!quiet) {
-        setMessages((m) => {
+        markHistoryMutation("append");
+        setLiveMessages((m) => {
           const last = m[m.length - 1];
           if (last?.role === "sys" && last.text === "连接已断开，3 秒后重连…") {
             return m;
@@ -1317,21 +1467,36 @@ export function useRemiChat() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const persisted = loadPersistedMessages(messageStorageKey);
-    setMessages((current) => (current.length === 0 ? persisted : [...persisted, ...current]));
+    persistedMessagesRef.current = persisted;
+    const initialHistory = persisted.slice(-INITIAL_HISTORY_DISPLAY_LIMIT);
+    historySourceRef.current = "fallback";
+    historyCursorRef.current = null;
+    historyLoadingMoreRef.current = false;
+    setHistoryLoadingMore(false);
+    setHistoryHasMore(persisted.length > initialHistory.length);
+    setHistoryMessages(initialHistory);
+    setLiveMessages([]);
+    markHistoryMutation("replace");
     setMessagesHydrated(true);
-  }, [messageStorageKey]);
+  }, [markHistoryMutation, messageStorageKey]);
 
   useEffect(() => {
     if (!messagesHydrated || typeof window === "undefined") return;
-    const persist = messages
-      .filter((m) => m.role === "user" || m.role === "rem")
+    const visibleLive = liveMessages.filter((m) => m.role === "user" || m.role === "rem");
+    const baseHistory =
+      historySourceRef.current === "fallback"
+        ? persistedMessagesRef.current
+        : historyMessages.filter((m) => m.role === "user" || m.role === "rem");
+    const persist = [...baseHistory, ...visibleLive]
+      .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
       .slice(-MESSAGE_STORAGE_MAX);
+    persistedMessagesRef.current = persist;
     try {
       localStorage.setItem(messageStorageKey, JSON.stringify(persist));
     } catch {
       /* quota or private mode */
     }
-  }, [messages, messagesHydrated, messageStorageKey]);
+  }, [historyMessages, liveMessages, messagesHydrated, messageStorageKey]);
 
   /* ── Text chat ── */
 
@@ -1363,7 +1528,12 @@ export function useRemiChat() {
         generationId: interruptedGeneration,
         kind: "system",
       });
-      setMessages((m) => [...m, { id: uid(), role: "user", text: trimmed }]);
+      appendLiveMessage({
+        id: uid(),
+        role: "user",
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+      });
       pushAvatarDevtoolsLog("system", "chat send", {
         interruptedGeneration,
         contentLength: trimmed.length,
@@ -1374,8 +1544,36 @@ export function useRemiChat() {
       setTyping(true);
       resetStreaming();
     },
-    [blockGeneration, clearAvatarIntentSchedule, clearPendingChatEnd, clearQueue, commitTurnState, resetStreaming, unlockPlayback],
+    [appendLiveMessage, blockGeneration, clearAvatarIntentSchedule, clearPendingChatEnd, clearQueue, commitTurnState, resetStreaming, unlockPlayback],
   );
+
+  const loadMoreHistory = useCallback(() => {
+    if (historyLoadingMoreRef.current) return;
+    if (historySourceRef.current === "server") {
+      if (!historyHasMore || !historyCursorRef.current) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      historyLoadingMoreRef.current = true;
+      setHistoryLoadingMore(true);
+      ws.send(JSON.stringify({ type: "history_more", cursor: historyCursorRef.current }));
+      return;
+    }
+
+    const persisted = persistedMessagesRef.current;
+    if (persisted.length <= historyMessages.length) {
+      setHistoryHasMore(false);
+      return;
+    }
+    historyLoadingMoreRef.current = true;
+    setHistoryLoadingMore(true);
+    const nextCount = Math.min(persisted.length, historyMessages.length + INITIAL_HISTORY_DISPLAY_LIMIT);
+    const nextHistory = persisted.slice(-nextCount);
+    setHistoryMessages(nextHistory);
+    setHistoryHasMore(persisted.length > nextCount);
+    setHistoryLoadingMore(false);
+    historyLoadingMoreRef.current = false;
+    markHistoryMutation("prepend");
+  }, [historyHasMore, historyMessages.length, markHistoryMutation]);
 
   const applyDevPreset = useCallback(
     (options: {
@@ -1418,6 +1616,10 @@ export function useRemiChat() {
     reconnectInSec,
     connLabel,
     messages,
+    historyHasMore,
+    historyLoadingMore,
+    historyMutation,
+    historyMutationNonce,
     streamingText,
     sttPartialText,
     typing,
@@ -1435,7 +1637,11 @@ export function useRemiChat() {
     /** 统一口型信号，后续可接 viseme。 */
     lipSignalRef,
     hasMic,
+    isDefaultDevUser,
+    currentUserId,
+    wsTargetLabel,
     sendText,
+    loadMoreHistory,
     applyDevPreset,
     resetDevState,
     toggleMic,

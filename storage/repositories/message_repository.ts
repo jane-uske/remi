@@ -1,6 +1,17 @@
 import { query } from '../database';
 import type { DbMessage } from '../types';
 
+export type UserMessageHistoryCursor = {
+  created_at: Date;
+  id: string;
+};
+
+export type UserMessageHistoryPage = {
+  messages: DbMessage[];
+  hasMore: boolean;
+  nextCursor: UserMessageHistoryCursor | null;
+};
+
 function mapRow(row: Record<string, unknown>): DbMessage {
   const role = row.role as string;
   if (role !== 'user' && role !== 'assistant') {
@@ -52,6 +63,44 @@ export async function getRecentUserMessages(
   return res.rows
     .map((r) => mapRow(r as Record<string, unknown>))
     .reverse();
+}
+
+export async function getUserMessagesPage(
+  userId: string,
+  limit: number = 15,
+  cursor?: UserMessageHistoryCursor | null
+): Promise<UserMessageHistoryPage> {
+  const pageSize = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 15;
+  const queryLimit = pageSize + 1;
+  const res = await query(
+    `SELECT m.id, m.session_id, m.role, m.content, m.created_at
+     FROM messages m
+     JOIN sessions s ON s.id = m.session_id
+     WHERE s.user_id = $1
+       AND (
+         $2::timestamptz IS NULL
+         OR (m.created_at, m.id) < ($2::timestamptz, $3::uuid)
+       )
+     ORDER BY m.created_at DESC, m.id DESC
+     LIMIT $4`,
+    [userId, cursor?.created_at ?? null, cursor?.id ?? null, queryLimit]
+  );
+
+  const rows = res.rows.map((r) => mapRow(r as Record<string, unknown>));
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  const nextCursorRow = hasMore ? pageRows[pageRows.length - 1] ?? null : null;
+
+  return {
+    messages: [...pageRows].reverse(),
+    hasMore,
+    nextCursor: nextCursorRow
+      ? {
+          created_at: nextCursorRow.created_at,
+          id: nextCursorRow.id,
+        }
+      : null,
+  };
 }
 
 export async function getSessionMessages(

@@ -7,6 +7,11 @@ import { MessageBubble } from "@/components/MessageBubble";
 
 export type ChatWindowProps = {
   messages: ChatMessage[];
+  hasMoreHistory: boolean;
+  loadingMoreHistory: boolean;
+  onLoadMore: () => void;
+  listMutation: "idle" | "replace" | "prepend" | "append";
+  listMutationNonce: number;
   sttPartialText: string;
   streamingText: string;
   listeningHint: boolean;
@@ -37,6 +42,11 @@ function getTurnStateLabel(turnState: RemiTurnState): string | null {
 
 export function ChatWindow({
   messages,
+  hasMoreHistory,
+  loadingMoreHistory,
+  onLoadMore,
+  listMutation,
+  listMutationNonce,
   sttPartialText,
   streamingText,
   listeningHint,
@@ -48,6 +58,8 @@ export function ChatWindow({
   const prevMessagesLenRef = useRef(messages.length);
   const shouldStickRef = useRef(true);
   const didInitialScrollRef = useRef(false);
+  const pendingPrependHeightRef = useRef<number | null>(null);
+  const lastHandledMutationRef = useRef(0);
   const [streamStatus, setStreamStatus] = useState("");
 
   useLayoutEffect(() => {
@@ -58,6 +70,30 @@ export function ChatWindow({
     didInitialScrollRef.current = true;
   }, [messages.length]);
 
+  useLayoutEffect(() => {
+    if (listMutationNonce === 0 || listMutationNonce === lastHandledMutationRef.current) return;
+    lastHandledMutationRef.current = listMutationNonce;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+
+    if (listMutation === "prepend") {
+      const previousHeight = pendingPrependHeightRef.current;
+      if (previousHeight != null) {
+        const delta = scroller.scrollHeight - previousHeight;
+        scroller.scrollTop += delta;
+      }
+      pendingPrependHeightRef.current = null;
+      return;
+    }
+
+    if (listMutation === "replace") {
+      scroller.scrollTop = scroller.scrollHeight;
+      didInitialScrollRef.current = true;
+      pendingPrependHeightRef.current = null;
+      return;
+    }
+  }, [listMutation, listMutationNonce]);
+
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
@@ -65,6 +101,18 @@ export function ChatWindow({
       scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
     shouldStickRef.current = distanceToBottom < 72;
   });
+
+  const handleScroll = () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const distanceToBottom =
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    shouldStickRef.current = distanceToBottom < 72;
+    if (!hasMoreHistory || loadingMoreHistory) return;
+    if (scroller.scrollTop > 48) return;
+    pendingPrependHeightRef.current = scroller.scrollHeight;
+    onLoadMore();
+  };
 
   useEffect(() => {
     if (!shouldStickRef.current) return;
@@ -110,8 +158,16 @@ export function ChatWindow({
         aria-live="off"
         aria-busy={responseBusy}
         tabIndex={0}
+        onScroll={handleScroll}
         className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 outline-none min-[480px]:px-4 min-[480px]:py-4 sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
+        {loadingMoreHistory ? (
+          <div className="flex justify-center px-1 pb-1">
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--remi-dim)] backdrop-blur-md">
+              正在加载更早的记录…
+            </div>
+          </div>
+        ) : null}
         {statusLabel ? (
           <div className="flex justify-start px-1 pb-1">
             <div

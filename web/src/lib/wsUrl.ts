@@ -20,6 +20,34 @@ function browserWsProtocol(): "ws" | "wss" {
   return window.location.protocol === "https:" ? "wss" : "ws";
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "[::1]"
+  );
+}
+
+function rewriteLoopbackEnvWsUrl(rawUrl: string): string {
+  if (typeof window === "undefined") return rawUrl;
+  try {
+    const envUrl = new URL(rawUrl);
+    const pageHost = window.location.hostname;
+    if (!pageHost || isLoopbackHost(pageHost)) return rawUrl;
+    if (!isLoopbackHost(envUrl.hostname)) return rawUrl;
+
+    const pageUrl = new URL(window.location.href);
+    envUrl.protocol = browserWsProtocol();
+    envUrl.hostname = pageUrl.hostname;
+    envUrl.port = pageUrl.port;
+    return envUrl.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function appendTokenFromPage(wsUrl: string): string {
   if (typeof window === "undefined") return wsUrl;
   const token = new URLSearchParams(window.location.search).get("token");
@@ -38,7 +66,8 @@ function appendTokenFromPage(wsUrl: string): string {
 export function getRemWsUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
-    return appendTokenFromPage(normalizeEnvWsUrl(fromEnv));
+    const normalized = normalizeEnvWsUrl(fromEnv);
+    return appendTokenFromPage(rewriteLoopbackEnvWsUrl(normalized));
   }
   if (typeof window === "undefined") return "";
 

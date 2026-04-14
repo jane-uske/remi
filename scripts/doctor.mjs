@@ -72,9 +72,13 @@ print("TTS", ttsLines);
 
 const dbPortOpen = await checkPort(5432);
 const redisPortOpen = await checkPort(6379);
+const dbUrl = (process.env.DATABASE_URL || "").trim();
+const redisUrl = (process.env.REDIS_URL || "").trim();
 print("Dependencies", [
-  `DATABASE_URL set: ${process.env.DATABASE_URL?.trim() ? "yes" : "no"}`,
-  `REDIS_URL set: ${process.env.REDIS_URL?.trim() ? "yes" : "no"}`,
+  `DATABASE_URL set: ${dbUrl ? "yes" : "no"}`,
+  `REDIS_URL set: ${redisUrl ? "yes" : "no"}`,
+  `DATABASE_URL host: ${dbUrl ? (() => { try { return new URL(dbUrl).hostname; } catch { return "(invalid)"; } })() : "(missing)"}`,
+  `REDIS_URL host: ${redisUrl ? (() => { try { return new URL(redisUrl).hostname; } catch { return "(invalid)"; } })() : "(missing)"}`,
   `localhost:5432 reachable: ${dbPortOpen ? "yes" : "no"}`,
   `localhost:6379 reachable: ${redisPortOpen ? "yes" : "no"}`,
 ]);
