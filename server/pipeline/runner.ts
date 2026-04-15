@@ -17,6 +17,7 @@ import { saveMessage } from "../../storage/repositories/message_repository";
 import { isFallbackAssistantReply } from "../../brains/assistant_reply_guard";
 import { send } from "../gateway";
 import type { InterruptionType } from "../../avatar/types";
+import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 
 const logger = createLogger("pipeline");
 
@@ -41,9 +42,12 @@ export type RunPipelineOptions = {
   silenceNudge?: boolean;
   /** partial transcript 预判命中时复用提前生成的回复，未命中则留空走正常路径。 */
   pregeneratedReply?: string;
+  /** 与预生成回复配套的结构化解释结果。 */
+  structuredAnalysis?: TurnAnalysisBundle | null;
   /** 打断承接提示，帮助本轮回复接住上一轮被打断的语义。 */
   carryForwardHint?: string;
   interruptionType?: InterruptionType;
+  inputSource?: "text" | "voice";
 };
 
 export async function runPipeline(
@@ -188,25 +192,37 @@ export async function runPipeline(
     let firstTokenReceived = false;
     let firstSentenceSent = false;
 
-    latencyTracer.mark("llm_request_start", traceId);
+    const routeOptions = options?.silenceNudge
+      ? { systemTriggered: true, traceId }
+      : options?.pregeneratedReply
+        ? {
+            pregeneratedReply: options.pregeneratedReply,
+            structuredAnalysis: options.structuredAnalysis,
+            carryForwardHint: options.carryForwardHint,
+            inputSource: options.inputSource,
+            traceId,
+          }
+        : options?.carryForwardHint
+          ? {
+              carryForwardHint: options.carryForwardHint,
+              inputSource: options.inputSource,
+              traceId,
+            }
+          : options?.inputSource
+            ? {
+                inputSource: options.inputSource,
+                traceId,
+              }
+            : {
+                traceId,
+              };
 
     for await (const token of chatStream(
       ctx,
       text,
       replyEmotion,
       signal,
-      options?.silenceNudge
-        ? { systemTriggered: true }
-        : options?.pregeneratedReply
-          ? {
-              pregeneratedReply: options.pregeneratedReply,
-              carryForwardHint: options.carryForwardHint,
-            }
-          : options?.carryForwardHint
-            ? {
-                carryForwardHint: options.carryForwardHint,
-              }
-          : undefined,
+      routeOptions,
     )) {
       if (signal.aborted) break;
 

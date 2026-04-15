@@ -1,7 +1,8 @@
 const assert = require("assert").strict;
+const path = require("path");
 
 function clearEpisodeRepositoryModule() {
-  const modulePath = require.resolve("../../storage/repositories/episode_repository");
+  const modulePath = path.resolve(__dirname, "../../storage/repositories/episode_repository.ts");
   delete require.cache[modulePath];
 }
 
@@ -48,7 +49,7 @@ describe("episode_repository", () => {
   });
 
   it("insertEpisode passes the expected SQL params", async () => {
-    const { insertEpisode } = require("../../storage/repositories/episode_repository");
+    const { insertEpisode } = require("../../storage/repositories/episode_repository.ts");
 
     const row = await insertEpisode({
       userId: "user-1",
@@ -83,7 +84,7 @@ describe("episode_repository", () => {
   });
 
   it("findSimilarEpisodes uses cosine distance ordering", async () => {
-    const { findSimilarEpisodes } = require("../../storage/repositories/episode_repository");
+    const { findSimilarEpisodes } = require("../../storage/repositories/episode_repository.ts");
 
     await findSimilarEpisodes("user-1", [0.2, 0.4], 3);
 
@@ -92,7 +93,7 @@ describe("episode_repository", () => {
   });
 
   it("updateEpisode only updates provided fields", async () => {
-    const { updateEpisode } = require("../../storage/repositories/episode_repository");
+    const { updateEpisode } = require("../../storage/repositories/episode_repository.ts");
 
     await updateEpisode("episode-1", {
       summary: "新的 summary",
@@ -113,7 +114,7 @@ describe("episode_repository", () => {
   });
 
   it("getUnresolvedEpisodes filters on unresolved episodes", async () => {
-    const { getUnresolvedEpisodes } = require("../../storage/repositories/episode_repository");
+    const { getUnresolvedEpisodes } = require("../../storage/repositories/episode_repository.ts");
 
     await getUnresolvedEpisodes("user-1");
 
