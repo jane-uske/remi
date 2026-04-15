@@ -24,3 +24,5 @@ test-websocket.js
 *.safetensors
 *.gguf
 *.vrm
+*.xcuserstate
+xcuserdata/
