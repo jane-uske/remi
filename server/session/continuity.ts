@@ -26,13 +26,13 @@ export interface SessionContinuityRuntime {
   interrupt: InterruptController;
   avatar: AvatarController;
   sessionId: string | null;
-  pipelineChain: Promise<void>;
+  getPipelineChain(): Promise<void>;
   setPipelineChain(next: Promise<void>): void;
-  silenceNudgeTimer: ReturnType<typeof setTimeout> | null;
+  getSilenceNudgeTimer(): ReturnType<typeof setTimeout> | null;
   setSilenceNudgeTimer(timer: ReturnType<typeof setTimeout> | null): void;
-  lastInteractionAt: number;
+  getLastInteractionAt(): number;
   setLastInteractionAt(timestamp: number): void;
-  recentInteractionCount: number;
+  getRecentInteractionCount(): number;
   setRecentInteractionCount(count: number): void;
   continuousConversationThreshold: number;
   continuousConversationTimeoutMs: number;
@@ -47,8 +47,8 @@ export interface SessionContinuityRuntime {
 export function isContinuousConversation(runtime: SessionContinuityRuntime): boolean {
   const now = Date.now();
   return (
-    runtime.recentInteractionCount >= runtime.continuousConversationThreshold &&
-    now - runtime.lastInteractionAt < runtime.continuousConversationTimeoutMs
+    runtime.getRecentInteractionCount() >= runtime.continuousConversationThreshold &&
+    now - runtime.getLastInteractionAt() < runtime.continuousConversationTimeoutMs
   );
 }
 
@@ -64,8 +64,9 @@ export function touchSessionUserActivity(
   runtime: SessionContinuityRuntime,
   userMessage?: string,
 ): void {
-  if (runtime.silenceNudgeTimer) {
-    clearTimeout(runtime.silenceNudgeTimer);
+  const timer = runtime.getSilenceNudgeTimer();
+  if (timer) {
+    clearTimeout(timer);
     runtime.setSilenceNudgeTimer(null);
   }
 
@@ -78,7 +79,7 @@ export function touchSessionUserActivity(
   runtime.setLastInteractionAt(Date.now());
   runtime.setRecentInteractionCount(
     Math.min(
-      runtime.recentInteractionCount + 1,
+      runtime.getRecentInteractionCount() + 1,
       runtime.continuousConversationThreshold,
     ),
   );
@@ -128,7 +129,7 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
   }
 
   logger.info("[陪伴] 沉默搭话", { connId: runtime.connId });
-  const nextChain = runtime.pipelineChain
+  const nextChain = runtime.getPipelineChain()
     .then(async () => {
       const legacyPlan = runtime.brain.slowBrain.buildSilenceNudgePlan();
       if (!legacyPlan) {

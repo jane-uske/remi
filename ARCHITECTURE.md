@@ -101,8 +101,9 @@ Remi 后期不只会存在于网页聊天界面。
 │  RemSessionContext: emotion + slow brain + history + memory │
 │  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐  │
 │  │ STT Stream   │ │ VAD Detector │ │ InterruptCtrl     │  │
-│  │ Vad Events   │ │ Msg Router   │ │ AvatarController  │  │
-│  └──────┬───────┘ └──────┬───────┘ └─────────┬─────────┘  │
+│  │ bootstrap/*  │ │ message_router│ │ AvatarController │  │
+│  │ continuity/* │ │ duplex_audio  │ │ turn_state/*     │  │
+│  └──────┬───────┘ └──────┬────────┘ └─────────┬─────────┘  │
 └─────────┼────────────────────┼────────────────────┼────────────┘
           │                    │                    │
           └────────────────────┼────────────────────┘
@@ -178,11 +179,15 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 
 | 职责 | 实现 |
 |------|------|
-| ConnectionSession 类 | 封装每个连接的状态和逻辑；含 `brain: RemSessionContext`（情绪、慢脑、历史、会话内记忆） |
-| 状态管理 | STT/VAD/Interrupt/Avatar 实例、pipelineChain、speechBuffer |
-| 消息路由 | 按 type 分发消息 |
-| VAD 事件处理 | speech_start/speech_end 事件 |
-| 会话生命周期 | 连接创建、DB session、连接关闭 |
+| ConnectionSession 类 | 仍是每个连接的主 orchestrator；含 `brain: RemiSessionContext`、turn state、duplex state、prediction state |
+| `bootstrap.ts` / `history.ts` / `lifecycle.ts` | 负责 async bootstrap、history 分页发送、close/cleanup 边界 |
+| `message_router.ts` | 按 type 分发 WS 消息，并解析 RAUD/legacy PCM binary frame |
+| `continuity.ts` / `developer.ts` | 负责 silence nudge、relationship continuity 持久化、dev preset/reset helpers |
+| `voice_submit.ts` / `turn_state_protocol.ts` / `duplex_audio.ts` | 负责 voice final 提交、turn_state 协议发布、duplex raw-buffer/no-vad helper |
+
+当前判断：
+- `server/session/index.ts` 仍然是高风险热点，但已经不再同时承载 bootstrap/history/cleanup/turn_state protocol/dev preset 这些外围层。
+- 真正的实时复杂度仍然主要在 VAD event flow、prediction、duplex state machine、turn-taking 决策。
 
 ### 3. Pipeline — `server/pipeline/`
 
@@ -672,4 +677,4 @@ server/
 | 每连接对话状态 | `RemSessionContext`：情绪 / 历史 / 慢脑 / session memory overlay（**C1 ✅**） | relationship state 需接入 session init 恢复；相关召回需替换当前 `getAll()` live retrieval |
 | 部署 | Dockerfile + Docker Compose 已完成 | 生产环境验证 + CI/CD |
 
-**文档：** 已完成与待办的工程项清单见根目录 [OPTIMIZATION.md](OPTIMIZATION.md)（含 M1–M9、S9/S10、C1–C5 状态）。
+**文档：** 已完成与待办的工程项清单见 [docs/archive/OPTIMIZATION.md](docs/archive/OPTIMIZATION.md)（含 M1–M9、S9/S10、C1–C5 状态）。

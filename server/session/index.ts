@@ -1435,19 +1435,19 @@ export class ConnectionSession {
       interrupt: this.interrupt,
       avatar: this.avatar,
       sessionId: this.sessionId,
-      pipelineChain: this.pipelineChain,
+      getPipelineChain: () => this.pipelineChain,
       setPipelineChain: (next: Promise<void>) => {
         this.pipelineChain = next;
       },
-      silenceNudgeTimer: this.silenceNudgeTimer,
+      getSilenceNudgeTimer: () => this.silenceNudgeTimer,
       setSilenceNudgeTimer: (timer: ReturnType<typeof setTimeout> | null) => {
         this.silenceNudgeTimer = timer;
       },
-      lastInteractionAt: this.lastInteractionAt,
+      getLastInteractionAt: () => this.lastInteractionAt,
       setLastInteractionAt: (timestamp: number) => {
         this.lastInteractionAt = timestamp;
       },
-      recentInteractionCount: this.recentInteractionCount,
+      getRecentInteractionCount: () => this.recentInteractionCount,
       setRecentInteractionCount: (count: number) => {
         this.recentInteractionCount = count;
       },
