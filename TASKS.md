@@ -183,6 +183,9 @@
 - [x] 前端聊天本地缓存改为按 token 用户分桶，避免不同用户共享同一份本地历史
 - [x] `/vrm/*` 资源加入鉴权放行，修复 3D VRM 401 导致的加载失败
 - [x] 语音 `stt_final` 已补一层轻量热词级局部同音纠偏：仅作用于 voice final transcript，固定词表驱动、默认关闭、词表失败时 fail-open；当前价值是压住项目名 / 人名 / 术语这类高频错词，避免继续污染 reply / memory / slow brain，但这还不是开放域 STT 消歧
+- [x] 已补一个真实 TTS 踩坑结论：本地 `Kokoro-ONNX` 在当前 M5 开发机上虽然能跑，但试听结果证明“语速偏慢、语调单调、情绪弱”，不适合作为 Remi 默认声线方向；现阶段不再继续投入本地重模型换声方案
+- [x] 已发现并修复一个 `edge` TTS shortlist 验证 bug：短句 TTS 内存缓存曾只按 `provider + emotion + text` 命中，未把 `voice / rate / pitch` 纳入 key，导致“切不同 Edge 声线却听起来完全一样”的假象；后续做换声验证时，必须先确认缓存维度包含声线参数
+- [x] 已确认当前 `edge` consumer WebSocket 路线在高频批量切 voice 时稳定性一般；因此后续声线试听应优先走小批量、串行验证，不要再一次性批量 sweep 很多 voice
 
 关键提交：
 - `4ab7237` embedding 失效修复

@@ -69,6 +69,35 @@ function ttsShortCacheKey(
   return `${provider}\0${emotion ?? "neutral"}\0${normalizedText}`;
 }
 
+function ttsCacheVariant(
+  provider: TtsProvider,
+  emotion: Emotion | undefined,
+): string {
+  if (provider === "edge") {
+    const voice = process.env.tts_voice || "zh-CN-XiaoyiNeural";
+    const lang = process.env.tts_lang || "zh-CN";
+    const resolved = emotion ?? "neutral";
+    const rate =
+      resolved === "neutral"
+        ? process.env.tts_rate || "default"
+        : getEmotionVoiceParams(resolved).rate;
+    const pitch =
+      resolved === "neutral"
+        ? process.env.tts_pitch || "default"
+        : getEmotionVoiceParams(resolved).pitch;
+    return `${voice}\0${lang}\0${rate}\0${pitch}`;
+  }
+
+  if (provider === "openai") {
+    const model = process.env.tts_model || "tts-1";
+    const voice = process.env.tts_voice || "alloy";
+    const speed = getEmotionVoiceParams(emotion ?? "neutral").speed;
+    return `${model}\0${voice}\0${speed}`;
+  }
+
+  return getPiperModel() || "piper-default";
+}
+
 function getTtsShortCache(key: string): Buffer | null {
   const buf = ttsShortAudioCache.get(key);
   if (!buf) return null;
@@ -900,7 +929,7 @@ export async function textToSpeech(
 
   const shortKey =
     ttsText.length > 0 && ttsText.length <= TTS_CACHE_MAX_CHARS
-      ? ttsShortCacheKey(provider, ttsText, emotion)
+      ? `${ttsShortCacheKey(provider, ttsText, emotion)}\0${ttsCacheVariant(provider, emotion)}`
       : null;
   if (shortKey) {
     const hit = getTtsShortCache(shortKey);
@@ -936,7 +965,10 @@ export async function textToSpeech(
   if (shortKey) {
     setTtsShortCache(shortKey, buf);
     if (actualProvider !== provider) {
-      setTtsShortCache(ttsShortCacheKey(actualProvider, ttsText, emotion), buf);
+      setTtsShortCache(
+        `${ttsShortCacheKey(actualProvider, ttsText, emotion)}\0${ttsCacheVariant(actualProvider, emotion)}`,
+        buf,
+      );
     }
   }
   return buf;
