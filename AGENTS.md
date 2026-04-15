@@ -122,6 +122,67 @@ Remi 的终极目标，是成为一个跨终端持续在线、具备人格连续
 
 ---
 
+## 分析入口约定
+
+为了避免不同 agent 各自猜入口，凡是“读日常日志”或“分析语音延迟 / duplex / turn-taking”，默认按下面顺序做：
+
+### 1. 日常日志 / 运行问题 / 初步 triage
+
+如果用户是在说：
+- 看看最近日志
+- 分析当前运行问题
+- 查服务为什么不稳定
+- 做日志 triage
+
+第一入口必须是：
+- 运行 `npm run logs:data-entry`
+- 再读 [docs/LOG_DATA_ANALYSIS_ENTRY.md](docs/LOG_DATA_ANALYSIS_ENTRY.md)
+
+这一步的目标是统一：
+- 优先看哪些日志文件
+- 先盯哪些高信号标签
+- 当前应该从哪些源码入口反查
+
+不要一上来就翻 archive，不要只盯一条报错就下结论。
+
+### 2. 语音延迟 / duplex / turn-taking 专项
+
+如果用户是在说：
+- 分析当前语音延迟
+- 看 duplex 哪里慢
+- 看 turn-taking 误判
+- 查 p50/p95、误判样本、语音链路阶段耗时
+
+第一入口必须是：
+- 运行 `npm run duplex:data-entry`
+- 再读 [docs/DUPLEX_DATA_ANALYSIS_ENTRY.md](docs/DUPLEX_DATA_ANALYSIS_ENTRY.md)
+
+这一步的目标是统一：
+- 先看哪 3 个场景
+- 看哪些 report 字段
+- 从哪些日志标签取真实浏览器证据
+- synthetic 报告和真实浏览器实采之间的边界
+
+### 3. 两者同时涉及时
+
+如果问题同时涉及“日常日志 + 语音延迟”：
+1. 先跑 `npm run logs:data-entry`
+2. 再跑 `npm run duplex:data-entry`
+
+先用日常日志入口做第一轮 triage，再用 duplex 入口做语音专项归因。
+
+### 4. 结论边界
+
+任何 agent 都不要混淆下面两件事：
+- synthetic soak / regression evidence
+- 真实浏览器 duplex validation
+
+如果 `duplex:data-entry` 指向的数据仍主要是 synthetic report，必须明确写：
+- 这能证明回归口径或工具链成立
+- 不能直接证明真实浏览器语音体验已经验收通过
+
+---
+
 ## 核心架构原则
 
 ### 1. Fast brain 与 slow brain 必须边界清晰
