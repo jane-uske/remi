@@ -73,6 +73,48 @@ describe("duplex ws+pcm regression", () => {
     }
   });
 
+  it("falls back to stop-time STT when audio arrived but VAD never fired", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "我在按住说话。" });
+    try {
+      session.vad.feed = () => {};
+
+      emitDuplexStart(ws, 16_000);
+      emitFrames(ws, repeatFrames(makeSineFrame(0.065), 14));
+      emitDuplexStop(ws);
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      const messages = ws.parsedMessages();
+      const sttFinal = messages.find((msg) => msg && msg.type === "stt_final");
+      const assistantEntering = messages.find((msg) => msg && msg.type === "turn_state" && msg.state === "assistant_entering");
+
+      assert.ok(sttFinal, `messages=${JSON.stringify(messages)}`);
+      assert.ok(assistantEntering, `messages=${JSON.stringify(messages)}`);
+      assert.equal(sttFinal.content, "我在按住说话。");
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not force no-vad fallback on silence-only input", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "这句不该出来" });
+    try {
+      session.vad.feed = () => {};
+
+      emitDuplexStart(ws, 16_000);
+      emitFrames(ws, repeatFrames(makeSilenceFrame(), 18));
+      emitDuplexStop(ws);
+
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
+      const types = messageTypes(ws);
+      assert.equal(types.includes("assistant_entering"), false, `messages=${JSON.stringify(ws.parsedMessages())}`);
+      assert.equal(types.includes("stt_final"), false, `messages=${JSON.stringify(ws.parsedMessages())}`);
+    } finally {
+      restore();
+    }
+  });
+
   it("tolerates mixed noise but still does not promote to assistant_entering", async () => {
     const { ws, restore } = loadSessionHarness({ transcript: "词曲 李宗盛" });
     try {
