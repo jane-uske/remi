@@ -10,8 +10,14 @@ final class RemiVoicePlayer: NSObject, AVAudioPlayerDelegate {
 
     var onPlaybackStart: ((Int?) -> Void)?
 
+    private let audioSession: RemiAudioSessionCoordinator
     private var queue: [Clip] = []
     private var currentPlayer: AVAudioPlayer?
+
+    init(audioSession: RemiAudioSessionCoordinator) {
+        self.audioSession = audioSession
+        super.init()
+    }
 
     var isPlaying: Bool {
         currentPlayer?.isPlaying == true
@@ -27,16 +33,19 @@ final class RemiVoicePlayer: NSObject, AVAudioPlayerDelegate {
         currentPlayer?.stop()
         currentPlayer = nil
         queue.removeAll()
+        audioSession.endPlayback()
     }
 
     private func playNextIfNeeded() {
-        guard currentPlayer == nil, !queue.isEmpty else { return }
+        guard currentPlayer == nil else { return }
+        guard !queue.isEmpty else {
+            audioSession.endPlayback()
+            return
+        }
         let clip = queue.removeFirst()
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio)
-        try? session.setActive(true, options: [])
 
         do {
+            try audioSession.beginPlayback()
             let player = try AVAudioPlayer(data: clip.audioData)
             player.delegate = self
             player.prepareToPlay()
@@ -45,17 +54,26 @@ final class RemiVoicePlayer: NSObject, AVAudioPlayerDelegate {
             player.play()
         } catch {
             currentPlayer = nil
+            if queue.isEmpty {
+                audioSession.endPlayback()
+            }
             playNextIfNeeded()
         }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         currentPlayer = nil
+        if queue.isEmpty {
+            audioSession.endPlayback()
+        }
         playNextIfNeeded()
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         currentPlayer = nil
+        if queue.isEmpty {
+            audioSession.endPlayback()
+        }
         playNextIfNeeded()
     }
 }

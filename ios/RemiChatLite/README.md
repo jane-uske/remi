@@ -4,11 +4,14 @@ A minimal SwiftUI iOS chat client for Remi backend.
 
 ## Scope
 
-- Text-only chat
+- Text chat
 - WebSocket streaming (`chat_chunk`/`chat_end`)
 - Auto reconnect
 - Local message cache (isolated by JWT user id when token exists)
 - Auth header fallback: JWT first, mobile dev key second
+- Push-to-talk voice input
+- Experimental full-duplex voice toggle on iOS frontend
+- Full-screen duplex demo scene for future voice-mode / 3D Rem integration
 
 ## Quick Start (Xcode)
 
@@ -49,6 +52,10 @@ For JWT mode:
 
 - This is an inner-test build target, not production hardening.
 - v1 should remove dev-key and switch to JWT-only.
+- Push-to-talk and duplex are now separate iOS entry buttons.
+- Duplex button now opens a dedicated full-screen voice demo shell instead of staying inline in chat.
+- Leaving the duplex demo shell now tears down the local duplex lane and stops any queued local TTS playback.
+- Duplex voice is still experimental. The frontend now keeps mic capture and TTS on a shared `AVAudioSession`, but real-device validation is still required before treating it as usable.
 - Runbook: `checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md`
 - Shared schemes intentionally do not commit JWT or dev-key values.
 - Cache regression script example:

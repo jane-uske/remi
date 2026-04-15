@@ -1,11 +1,11 @@
 # RemiChatLite v0 TestFlight Checklist
 
-当前范围：本清单只覆盖 iOS v0 文本基础闭环，不把按住说话语音能力算进本轮 done。
+当前范围：本清单只覆盖 iOS v0 文本基础闭环，不把实验性 duplex 语音能力算进本轮 done。
 
 已知阻塞：
-- 按住说话入口已存在，但最新真机反馈是“无转文字、无回复反应”
+- iOS 前端已切到实验性 duplex voice toggle，但还没有真机验收通过
 - 因此当前 TestFlight 目标仍是先验证文本、连接、鉴权、缓存隔离和重连
-- 语音按住说话问题应单独跟踪，不要在本清单里误判为“顺手一起验掉”
+- 语音问题应单独跟踪，不要在本清单里误判为“顺手一起验掉”
 
 ## A. 环境准备（发布前）
 
@@ -29,10 +29,10 @@
 
 ## C. 多用户隔离（同设备切换）
 
-- [ ] 用 `user1` token 聊天 5 轮并退出
-- [ ] 切换 `user2` token 再聊天 5 轮
-- [ ] 回切 `user1` 时只看到 `user1` 历史，不出现 `user2` 文本
-- [ ] 回切 `user2` 时同理
+- [ ] 用 `user_001` token 聊天 5 轮并退出
+- [ ] 切换 `user_002` token 再聊天 5 轮
+- [ ] 回切 `user_001` 时只看到 `user_001` 历史，不出现 `user_002` 文本
+- [ ] 回切 `user_002` 时同理
 
 ## D. TestFlight 内测发布
 
@@ -49,6 +49,6 @@
 
 ## F. 暂不纳入本轮 Done
 
-- [ ] 按住说话后出现实时/最终转写
-- [ ] 按住说话后触发 assistant 回复或 TTS
+- [ ] duplex voice toggle 下出现实时/最终转写
+- [ ] duplex voice toggle 下触发 assistant 回复或 TTS
 - [ ] iOS 语音链路稳定性验收

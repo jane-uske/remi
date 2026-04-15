@@ -2,9 +2,18 @@ import Combine
 import Foundation
 import SwiftUI
 
+private enum VoiceCaptureMode {
+    case duplex
+    case pushToTalk
+}
+
 @MainActor
 final class RemiChatStore: ObservableObject {
     private static let transcriptMergeWindowMs: Int64 = 2200
+    private static let duplexIdleCaption = "Full-duplex on. Speak anytime."
+    private static let duplexConnectingCaption = "Connecting voice..."
+    private static let pushToTalkListeningCaption = "Listening... release to send"
+    private static let pushToTalkResultTimeoutNs: UInt64 = 4_500_000_000
 
     @Published private(set) var messages: [ChatMessage] = []
     @Published private(set) var connectionPhase: ConnectionPhase = .closed
@@ -13,9 +22,14 @@ final class RemiChatStore: ObservableObject {
     @Published private(set) var historyLoadingMore = false
     @Published private(set) var isShowingCachedHistory = false
     @Published private(set) var hasSyncedServerHistory = false
+    @Published private(set) var duplexEnabled = false
     @Published private(set) var voiceRecording = false
+    @Published private(set) var pushToTalkRecording = false
+    @Published private(set) var pushToTalkAwaitingResult = false
     @Published private(set) var voiceStatusCaption = ""
     @Published private(set) var voiceTranscriptPreview = ""
+    @Published private(set) var isAwaitingAssistantResponse = false
+    @Published private(set) var autoScrollToBottomVersion = 0
     @Published var draft: String = ""
 
     private var socket: URLSessionWebSocketTask?
@@ -23,17 +37,23 @@ final class RemiChatStore: ObservableObject {
     private var reconnectTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var voiceStartTask: Task<Void, Never>?
+    private var voiceResultTimeoutTask: Task<Void, Never>?
     private var currentGenerationId: Int?
     private var streamingMessageIdByGeneration: [Int: String] = [:]
     private var historyCursor: HistoryCursor?
     private var historySource: HistorySource = .cache
     private var pendingChatPayloads: [[String: Any]] = []
-    private let voiceCapture = RemiVoiceCapture()
-    private let voicePlayer = RemiVoicePlayer()
+    private let audioSession = RemiAudioSessionCoordinator()
+    private let voiceCapture: RemiVoiceCapture
+    private let voicePlayer: RemiVoicePlayer
+    private var pendingVoiceStartMode: VoiceCaptureMode?
+    private var activeVoiceMode: VoiceCaptureMode?
     private var lastUserTranscriptAtMs: Int64 = 0
     private var lastMeaningfulVoicePartial = ""
 
     init() {
+        voiceCapture = RemiVoiceCapture(audioSession: audioSession)
+        voicePlayer = RemiVoicePlayer(audioSession: audioSession)
         voicePlayer.onPlaybackStart = { [weak self] generationId in
             self?.sendPlaybackStart(generationId: generationId)
         }
@@ -51,10 +71,11 @@ final class RemiChatStore: ObservableObject {
         reconnectTask = nil
         keepAliveTask?.cancel()
         keepAliveTask = nil
-        voiceStartTask?.cancel()
-        voiceStartTask = nil
-        stopPushToTalk(sendDuplexStop: false)
+        cancelPushToTalkResultTimeout()
+        stopPushToTalk(sendDuplexStop: false, clearStatus: true)
+        stopDuplex(sendDuplexStop: false, keepDesiredState: false)
         resetVoiceStatus()
+        clearAssistantResponseWait()
         voicePlayer.stopAll()
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
@@ -66,6 +87,7 @@ final class RemiChatStore: ObservableObject {
         guard !content.isEmpty else { return }
         draft = ""
         appendMessage(ChatMessage(role: .user, text: content))
+        markAwaitingAssistantResponse()
 
         let payload: [String: Any] = [
             "type": "chat",
@@ -75,6 +97,7 @@ final class RemiChatStore: ObservableObject {
     }
 
     func beginPushToTalk() {
+        guard !duplexEnabled, !pushToTalkAwaitingResult else { return }
         guard !voiceRecording, voiceStartTask == nil else { return }
         guard connectionPhase == .open, socket != nil else {
             appendMessage(ChatMessage(role: .sys, text: "Connection is not ready for voice yet. Give it a second and try again."))
@@ -85,9 +108,12 @@ final class RemiChatStore: ObservableObject {
         }
 
         voicePlayer.stopAll()
+        clearAssistantResponseWait()
+        cancelPushToTalkResultTimeout()
         lastMeaningfulVoicePartial = ""
         voiceTranscriptPreview = ""
-        updateVoiceListeningCaption()
+        voiceStatusCaption = Self.pushToTalkListeningCaption
+        pendingVoiceStartMode = .pushToTalk
 
         voiceStartTask = Task { [weak self] in
             guard let self else { return }
@@ -98,19 +124,34 @@ final class RemiChatStore: ObservableObject {
                     }
                 }
                 if Task.isCancelled {
+                    self.pendingVoiceStartMode = nil
                     self.voiceCapture.stop()
                     self.resetVoiceStatus()
                     self.voiceStartTask = nil
                     return
                 }
+                guard self.pendingVoiceStartMode == .pushToTalk, !self.duplexEnabled else {
+                    self.pendingVoiceStartMode = nil
+                    self.voiceCapture.stop()
+                    self.resetVoiceStatus()
+                    self.voiceStartTask = nil
+                    return
+                }
+                self.pendingVoiceStartMode = nil
+                self.activeVoiceMode = .pushToTalk
+                self.pushToTalkRecording = true
                 self.voiceRecording = true
                 self.voiceStartTask = nil
+                self.voiceStatusCaption = Self.pushToTalkListeningCaption
                 self.sendJSON([
                     "type": "duplex_start",
                     "sampleRate": sampleRate,
                 ])
             } catch {
                 self.voiceStartTask = nil
+                self.pendingVoiceStartMode = nil
+                self.activeVoiceMode = nil
+                self.pushToTalkRecording = false
                 self.voiceRecording = false
                 self.resetVoiceStatus()
                 self.appendMessage(ChatMessage(role: .error, text: error.localizedDescription))
@@ -119,16 +160,182 @@ final class RemiChatStore: ObservableObject {
     }
 
     func endPushToTalk() {
-        if let voiceStartTask {
-            voiceStartTask.cancel()
-            self.voiceStartTask = nil
-            resetVoiceStatus()
+        guard !duplexEnabled else { return }
+
+        if voiceStartTask != nil, pendingVoiceStartMode == .pushToTalk {
+            stopPushToTalk(sendDuplexStop: false, clearStatus: true)
             return
         }
-        guard voiceRecording else { return }
-        stopPushToTalk(sendDuplexStop: true)
+
+        guard activeVoiceMode == .pushToTalk, pushToTalkRecording else { return }
+        stopPushToTalk(sendDuplexStop: true, clearStatus: false)
         voiceStatusCaption = "Transcribing..."
         voiceTranscriptPreview = lastMeaningfulVoicePartial
+        armPushToTalkResultTimeout()
+    }
+
+    func enterDuplexMode() {
+        guard !duplexEnabled else { return }
+        guard !pushToTalkRecording, !pushToTalkAwaitingResult, pendingVoiceStartMode != .pushToTalk else { return }
+        duplexEnabled = true
+        beginDuplexIfPossible()
+    }
+
+    func exitDuplexMode() {
+        guard duplexEnabled || pendingVoiceStartMode == .duplex || activeVoiceMode == .duplex else { return }
+        voicePlayer.stopAll()
+        stopDuplex(sendDuplexStop: true, keepDesiredState: false)
+    }
+
+    func toggleDuplex() {
+        if duplexEnabled {
+            exitDuplexMode()
+            return
+        }
+
+        enterDuplexMode()
+    }
+
+    private func beginDuplexIfPossible() {
+        guard duplexEnabled, !voiceRecording, voiceStartTask == nil, !pushToTalkAwaitingResult else { return }
+        guard connectionPhase == .open, socket != nil else {
+            voiceStatusCaption = Self.duplexConnectingCaption
+            voiceTranscriptPreview = ""
+            if connectionPhase != .connecting {
+                connect()
+            }
+            return
+        }
+
+        voicePlayer.stopAll()
+        clearAssistantResponseWait()
+        lastMeaningfulVoicePartial = ""
+        voiceTranscriptPreview = ""
+        voiceStatusCaption = Self.duplexConnectingCaption
+        pendingVoiceStartMode = .duplex
+
+        voiceStartTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sampleRate = try await self.voiceCapture.start { [weak self] pcm, frameSampleRate in
+                    Task { @MainActor [weak self] in
+                        self?.sendPcmFrame(pcm, sampleRate: frameSampleRate)
+                    }
+                }
+                if Task.isCancelled {
+                    self.pendingVoiceStartMode = nil
+                    self.voiceCapture.stop()
+                    self.resetVoiceStatus()
+                    self.voiceStartTask = nil
+                    return
+                }
+                guard self.pendingVoiceStartMode == .duplex, self.duplexEnabled else {
+                    self.pendingVoiceStartMode = nil
+                    self.voiceCapture.stop()
+                    self.resetVoiceStatus()
+                    self.voiceStartTask = nil
+                    return
+                }
+                self.pendingVoiceStartMode = nil
+                self.activeVoiceMode = .duplex
+                self.voiceRecording = true
+                self.voiceStartTask = nil
+                self.voiceStatusCaption = Self.duplexIdleCaption
+                self.sendJSON([
+                    "type": "duplex_start",
+                    "sampleRate": sampleRate,
+                ])
+            } catch {
+                self.voiceStartTask = nil
+                self.pendingVoiceStartMode = nil
+                self.activeVoiceMode = nil
+                self.voiceRecording = false
+                self.duplexEnabled = false
+                self.resetVoiceStatus()
+                self.appendMessage(ChatMessage(role: .error, text: error.localizedDescription))
+            }
+        }
+    }
+
+    private func stopPushToTalk(sendDuplexStop: Bool, clearStatus: Bool) {
+        if voiceStartTask != nil, pendingVoiceStartMode == .pushToTalk {
+            voiceStartTask?.cancel()
+            voiceStartTask = nil
+            pendingVoiceStartMode = nil
+            activeVoiceMode = nil
+            pushToTalkRecording = false
+            voiceRecording = false
+            if clearStatus {
+                resetVoiceStatus()
+            }
+            return
+        }
+
+        guard activeVoiceMode == .pushToTalk || pushToTalkRecording else {
+            if clearStatus, !duplexEnabled {
+                resetVoiceStatus()
+            }
+            return
+        }
+
+        voiceCapture.stop()
+        activeVoiceMode = nil
+        pushToTalkRecording = false
+        voiceRecording = false
+        if sendDuplexStop, socket != nil {
+            sendJSON(["type": "duplex_stop"])
+        }
+        if clearStatus {
+            resetVoiceStatus()
+        }
+    }
+
+    private func stopDuplex(sendDuplexStop: Bool, keepDesiredState: Bool) {
+        if !keepDesiredState {
+            duplexEnabled = false
+        }
+
+        if voiceStartTask != nil, pendingVoiceStartMode == .duplex {
+            voiceStartTask?.cancel()
+            voiceStartTask = nil
+            pendingVoiceStartMode = nil
+            activeVoiceMode = nil
+            voiceRecording = false
+            if keepDesiredState {
+                voiceStatusCaption = Self.duplexConnectingCaption
+                voiceTranscriptPreview = ""
+                lastMeaningfulVoicePartial = ""
+            } else {
+                resetVoiceStatus()
+            }
+            return
+        }
+
+        guard activeVoiceMode == .duplex else {
+            if keepDesiredState {
+                voiceStatusCaption = Self.duplexConnectingCaption
+                voiceTranscriptPreview = ""
+                lastMeaningfulVoicePartial = ""
+            } else {
+                resetVoiceStatus()
+            }
+            return
+        }
+
+        voiceCapture.stop()
+        activeVoiceMode = nil
+        voiceRecording = false
+        if sendDuplexStop, socket != nil {
+            sendJSON(["type": "duplex_stop"])
+        }
+
+        if keepDesiredState {
+            voiceStatusCaption = Self.duplexConnectingCaption
+            voiceTranscriptPreview = ""
+            lastMeaningfulVoicePartial = ""
+        } else {
+            resetVoiceStatus()
+        }
     }
 
     func loadMoreHistory() {
@@ -210,6 +417,7 @@ final class RemiChatStore: ObservableObject {
         if connectionPhase != .open {
             connectionPhase = .open
             flushPendingChatPayloads()
+            beginDuplexIfPossible()
         }
         guard let data = text.data(using: .utf8),
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -221,10 +429,12 @@ final class RemiChatStore: ObservableObject {
         case "chat_chunk":
             let chunk = payload["content"] as? String ?? ""
             guard !chunk.isEmpty else { return }
+            clearAssistantResponseWait()
             let generationId = intValue(payload["generationId"])
             appendAssistantChunk(chunk, generationId: generationId)
 
         case "chat_end":
+            clearAssistantResponseWait()
             let generationId = intValue(payload["generationId"])
             let fullContent = payload["content"] as? String
             finalizeAssistantMessage(generationId: generationId, fullContent: fullContent)
@@ -236,30 +446,58 @@ final class RemiChatStore: ObservableObject {
 
         case "voice":
             if let audio = payload["audio"] as? String {
+                clearAssistantResponseWait()
                 voicePlayer.enqueue(base64Audio: audio, generationId: intValue(payload["generationId"]))
+            }
+
+        case "vad_start":
+            if duplexEnabled {
+                voiceStatusCaption = "Listening..."
+            }
+
+        case "vad_end":
+            if duplexEnabled {
+                voiceStatusCaption = "Heard you..."
             }
 
         case "stt_partial":
             let partial = (payload["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !partial.isEmpty else { return }
             if let elapsed = parseRecordingElapsed(partial) {
-                updateVoiceListeningCaption(elapsed: elapsed)
+                if pushToTalkRecording {
+                    updateVoiceListeningCaption(elapsed: elapsed)
+                }
             } else {
                 let normalized = normalizeVoicePreview(partial)
                 lastMeaningfulVoicePartial = normalized
                 voiceTranscriptPreview = normalized
-                if voiceRecording {
-                    voiceStatusCaption = "Listening... release to send"
+                if duplexEnabled {
+                    voiceStatusCaption = "Listening..."
+                } else if pushToTalkRecording {
+                    voiceStatusCaption = Self.pushToTalkListeningCaption
                 }
             }
 
         case "stt_final":
             let transcript = (payload["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            resetVoiceStatus()
+            cancelPushToTalkResultTimeout()
+            if duplexEnabled {
+                lastMeaningfulVoicePartial = ""
+                voiceTranscriptPreview = ""
+                voiceStatusCaption = Self.duplexIdleCaption
+            } else {
+                resetVoiceStatus()
+            }
             appendUserTranscript(transcript)
+            if !transcript.isEmpty {
+                markAwaitingAssistantResponse()
+            }
 
         case "interrupt":
             voicePlayer.stopAll()
+            if duplexEnabled {
+                voiceStatusCaption = Self.duplexIdleCaption
+            }
 
         case "history_page":
             consumeHistoryPage(payload)
@@ -267,7 +505,17 @@ final class RemiChatStore: ObservableObject {
         case "error":
             let content = payload["content"] as? String ?? "Server error"
             historyLoadingMore = false
-            resetVoiceStatus()
+            cancelPushToTalkResultTimeout()
+            if duplexEnabled {
+                voiceTranscriptPreview = ""
+                lastMeaningfulVoicePartial = ""
+                voiceStatusCaption = connectionPhase == .open
+                    ? Self.duplexIdleCaption
+                    : Self.duplexConnectingCaption
+            } else {
+                resetVoiceStatus()
+            }
+            clearAssistantResponseWait()
             appendMessage(ChatMessage(role: .error, text: content))
 
         default:
@@ -314,19 +562,12 @@ final class RemiChatStore: ObservableObject {
                             if self.connectionPhase != .open {
                                 self.connectionPhase = .open
                                 self.flushPendingChatPayloads()
+                                self.beginDuplexIfPossible()
                             }
                         }
                     }
                 }
             }
-        }
-    }
-
-    private func stopPushToTalk(sendDuplexStop: Bool) {
-        voiceCapture.stop()
-        voiceRecording = false
-        if sendDuplexStop, socket != nil {
-            sendJSON(["type": "duplex_stop"])
         }
     }
 
@@ -372,6 +613,7 @@ final class RemiChatStore: ObservableObject {
             messages = deduplicatedMessages(from: pageMessages)
             trimMessages()
             persistMessages()
+            requestAutoScrollToBottom()
         case .prepend:
             guard !pageMessages.isEmpty else { return }
             messages = prependOlderMessages(pageMessages, into: messages)
@@ -398,6 +640,7 @@ final class RemiChatStore: ObservableObject {
             trimMessages()
             streamingMessageIdByGeneration[generationId] = message.id
             persistMessages()
+            requestAutoScrollToBottom()
             return
         }
 
@@ -407,6 +650,7 @@ final class RemiChatStore: ObservableObject {
             let message = ChatMessage(role: .remi, text: chunk)
             messages.append(message)
             trimMessages()
+            requestAutoScrollToBottom()
         }
         persistMessages()
     }
@@ -480,10 +724,15 @@ final class RemiChatStore: ObservableObject {
             return
         }
         connectionPhase = .closed
-        voiceStartTask?.cancel()
-        voiceStartTask = nil
-        stopPushToTalk(sendDuplexStop: false)
-        resetVoiceStatus()
+        cancelPushToTalkResultTimeout()
+        stopPushToTalk(sendDuplexStop: false, clearStatus: !duplexEnabled)
+        stopDuplex(sendDuplexStop: false, keepDesiredState: duplexEnabled)
+        if duplexEnabled {
+            voiceStatusCaption = Self.duplexConnectingCaption
+        } else {
+            resetVoiceStatus()
+        }
+        clearAssistantResponseWait()
         voicePlayer.stopAll()
         appendMessage(ChatMessage(role: .sys, text: connectionFailureMessage(for: error)))
         keepAliveTask?.cancel()
@@ -516,19 +765,58 @@ final class RemiChatStore: ObservableObject {
         messages.append(message)
         trimMessages()
         persistMessages()
+        requestAutoScrollToBottom()
+    }
+
+    private func markAwaitingAssistantResponse() {
+        isAwaitingAssistantResponse = true
+    }
+
+    private func clearAssistantResponseWait() {
+        isAwaitingAssistantResponse = false
     }
 
     private func resetVoiceStatus() {
+        cancelPushToTalkResultTimeout()
         voiceStatusCaption = ""
         voiceTranscriptPreview = ""
         lastMeaningfulVoicePartial = ""
+    }
+
+    private func armPushToTalkResultTimeout() {
+        cancelPushToTalkResultTimeout()
+        pushToTalkAwaitingResult = true
+        voiceResultTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.pushToTalkResultTimeoutNs)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.handlePushToTalkResultTimeout()
+            }
+        }
+    }
+
+    private func cancelPushToTalkResultTimeout() {
+        voiceResultTimeoutTask?.cancel()
+        voiceResultTimeoutTask = nil
+        pushToTalkAwaitingResult = false
+    }
+
+    private func handlePushToTalkResultTimeout() {
+        guard pushToTalkAwaitingResult else { return }
+        pushToTalkAwaitingResult = false
+        voiceResultTimeoutTask = nil
+        if voiceTranscriptPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            voiceTranscriptPreview = lastMeaningfulVoicePartial
+        }
+        voiceStatusCaption = "No transcript came back. Hold to try again."
+        appendMessage(ChatMessage(role: .error, text: "Voice input timed out before a transcript arrived. Hold to try again."))
     }
 
     private func updateVoiceListeningCaption(elapsed: String? = nil) {
         if let elapsed, !elapsed.isEmpty {
             voiceStatusCaption = "Listening... \(elapsed)"
         } else {
-            voiceStatusCaption = "Listening... release to send"
+            voiceStatusCaption = Self.pushToTalkListeningCaption
         }
     }
 
@@ -558,6 +846,7 @@ final class RemiChatStore: ObservableObject {
             messages[index].text = merged
         } else {
             messages.append(ChatMessage(role: .user, text: trimmed, createdAtMs: now))
+            requestAutoScrollToBottom()
         }
 
         lastUserTranscriptAtMs = now
@@ -621,6 +910,10 @@ final class RemiChatStore: ObservableObject {
         let uniqueOlderMessages = olderMessages.filter { !seenIds.contains($0.id) }
         guard !uniqueOlderMessages.isEmpty else { return currentMessages }
         return uniqueOlderMessages + currentMessages
+    }
+
+    private func requestAutoScrollToBottom() {
+        autoScrollToBottomVersion &+= 1
     }
 
     private func intValue(_ value: Any?) -> Int? {

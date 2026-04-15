@@ -2,6 +2,67 @@ import AVFoundation
 import Foundation
 
 @MainActor
+final class RemiAudioSessionCoordinator {
+    private let session = AVAudioSession.sharedInstance()
+    private var captureActive = false
+    private var playbackActive = false
+
+    func beginCapture() throws {
+        let previousCaptureState = captureActive
+        captureActive = true
+        do {
+            try applyCurrentRoute()
+        } catch {
+            captureActive = previousCaptureState
+            throw error
+        }
+    }
+
+    func endCapture() {
+        captureActive = false
+        applyCurrentRouteSafely()
+    }
+
+    func beginPlayback() throws {
+        let previousPlaybackState = playbackActive
+        playbackActive = true
+        do {
+            try applyCurrentRoute()
+        } catch {
+            playbackActive = previousPlaybackState
+            throw error
+        }
+    }
+
+    func endPlayback() {
+        playbackActive = false
+        applyCurrentRouteSafely()
+    }
+
+    private func applyCurrentRoute() throws {
+        if captureActive {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setPreferredSampleRate(16_000)
+            try session.setPreferredIOBufferDuration(0.02)
+            try session.setActive(true, options: [])
+            return
+        }
+
+        if playbackActive {
+            try session.setCategory(.playback, mode: .spokenAudio, options: [])
+            try session.setActive(true, options: [])
+            return
+        }
+
+        try session.setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    private func applyCurrentRouteSafely() {
+        try? applyCurrentRoute()
+    }
+}
+
+@MainActor
 final class RemiVoiceCapture {
     enum CaptureError: LocalizedError {
         case permissionDenied
@@ -21,8 +82,13 @@ final class RemiVoiceCapture {
     }
 
     private let engine = AVAudioEngine()
+    private let audioSession: RemiAudioSessionCoordinator
     private var onFrame: ((Data, Int) -> Void)?
     private(set) var isRecording = false
+
+    init(audioSession: RemiAudioSessionCoordinator) {
+        self.audioSession = audioSession
+    }
 
     func start(onFrame: @escaping (Data, Int) -> Void) async throws -> Int {
         let granted = await requestPermission()
@@ -30,12 +96,8 @@ final class RemiVoiceCapture {
             throw CaptureError.permissionDenied
         }
 
-        let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setPreferredSampleRate(16_000)
-            try session.setPreferredIOBufferDuration(0.02)
-            try session.setActive(true, options: [])
+            try audioSession.beginCapture()
         } catch {
             throw CaptureError.audioSessionUnavailable(error.localizedDescription)
         }
@@ -58,6 +120,7 @@ final class RemiVoiceCapture {
         } catch {
             inputNode.removeTap(onBus: 0)
             self.onFrame = nil
+            audioSession.endCapture()
             throw CaptureError.engineStartFailed(error.localizedDescription)
         }
 
@@ -71,7 +134,7 @@ final class RemiVoiceCapture {
         engine.stop()
         onFrame = nil
         isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        audioSession.endCapture()
     }
 
     private func requestPermission() async -> Bool {
