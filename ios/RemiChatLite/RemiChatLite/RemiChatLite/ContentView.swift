@@ -391,6 +391,7 @@ struct ChatView: View {
                 Text(message.text)
                     .font(.system(size: 16, weight: .regular, design: .rounded))
                     .foregroundStyle(textColor(for: message.role))
+                    .textSelection(.enabled)
             }
                 .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
 
@@ -647,6 +648,7 @@ private struct BubbleCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     @State private var isPressed = false
+    @State private var releaseTask: Task<Void, Never>?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -684,8 +686,20 @@ private struct BubbleCard<Content: View>: View {
             .contentShape(shape)
             .animation(.spring(response: 0.26, dampingFraction: 0.62), value: isPressed)
             .onLongPressGesture(minimumDuration: 0, maximumDistance: 36, pressing: { pressing in
-                isPressed = pressing
+                releaseTask?.cancel()
+                if pressing {
+                    isPressed = true
+                } else {
+                    releaseTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 90_000_000)
+                        guard !Task.isCancelled else { return }
+                        isPressed = false
+                    }
+                }
             }, perform: {})
+            .onDisappear {
+                releaseTask?.cancel()
+            }
     }
 
     private var fillOpacity: Double {

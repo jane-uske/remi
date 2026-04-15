@@ -210,7 +210,7 @@
 
 - [ ] **I-001** iOS v0（文本）5 人内测闭环
   - 目标：完成 TestFlight 分发、5 人可稳定聊天、断线恢复、无跨用户历史串号
-  - 当前状态：`ios/RemiChatLite` 文本基线已完成；Xcode 模板工程已接入文本聊天 UI、WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离；已补 `IOS_V0_TESTFLIGHT_CHECKLIST`；已通过本地缓存 user1/user2 桶隔离回归脚本。最新真机反馈显示除“按住说话语音链路”外，其余主链路基本打通；当前按住说话仍无转文字、无回复反应，因此不计入本任务验收范围
+  - 当前状态：`ios/RemiChatLite` 文本基线已完成；Xcode 模板工程已接入文本聊天 UI、WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离；已补 `IOS_V0_TESTFLIGHT_CHECKLIST`；已通过本地缓存 `user_001` / `user_002` 桶隔离回归脚本。最近一轮 iOS 文本侧又补了可感知性收口：assistant 回复前 loading 占位、顶部自动加载老历史且 prepend 不再强滚到底/明显丢锚、聊天 bubble 改成液态玻璃并保留 iOS 原生文本菜单。这些改动提升的是文本体验和可验收性，不代表 iOS 语音链路已经通过；当前按住说话仍无转文字、无回复反应，因此不计入本任务验收范围
   - 验收标准：5 人试用通过、无 P0 崩溃、无串号反馈
 - [ ] **I-002** iOS 按住说话语音链路收口
   - 目标：让 `ios/RemiChatLite` 的按住说话至少达到“松手后稳定拿到 `stt_final`，并触发回复/TTS”的单路径可用
