@@ -21,14 +21,23 @@ function stableUuidFromString(input: string): string {
   return `${timeLow}-${timeMid}-${timeHighAndVersion}-${clockSeq}${clockSeqLow}-${node}`.toLowerCase();
 }
 
+function readHeaderValue(req: Pick<IncomingMessage, "headers"> | null | undefined, name: string): string | null {
+  const headers = req?.headers;
+  if (!headers || typeof headers !== "object") return null;
+  const raw = headers[name.toLowerCase()];
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+  return null;
+}
+
 function extractBearerToken(req: IncomingMessage): string | null {
-  const header = req.headers.authorization;
+  const header = readHeaderValue(req, "authorization");
   if (!header?.startsWith("Bearer ")) return null;
   return header.slice(7).trim() || null;
 }
 
 function extractQueryToken(req: IncomingMessage): string | null {
-  const raw = req.url;
+  const raw = typeof req?.url === "string" ? req.url : "";
   if (!raw) return null;
   try {
     const url = new URL(raw, "http://localhost");

@@ -5,9 +5,21 @@ function getEmbeddingConfig(): {
   baseURL: string;
   model: string;
 } {
-  const baseURL = process.env.REMI_EMBEDDING_BASE_URL?.trim();
-  const apiKey = process.env.REMI_EMBEDDING_API_KEY?.trim();
-  const model = process.env.REMI_EMBEDDING_MODEL?.trim() || "nomic-embed-text";
+  const baseURL =
+    process.env.REMI_EMBEDDING_BASE_URL?.trim() ||
+    process.env.REM_EMBEDDING_BASE_URL?.trim() ||
+    process.env.EMBEDDING_BASE_URL?.trim() ||
+    process.env.base_url?.trim();
+  const apiKey =
+    process.env.REMI_EMBEDDING_API_KEY?.trim() ||
+    process.env.REM_EMBEDDING_API_KEY?.trim() ||
+    process.env.EMBEDDING_API_KEY?.trim() ||
+    process.env.key?.trim();
+  const model =
+    process.env.REMI_EMBEDDING_MODEL?.trim() ||
+    process.env.REM_EMBEDDING_MODEL?.trim() ||
+    process.env.EMBEDDING_MODEL?.trim() ||
+    "nomic-embed-text";
 
   if (!baseURL) {
     throw new Error(

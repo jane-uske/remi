@@ -272,6 +272,13 @@ function readHeaderValue(req: IncomingMessage, headerName: string): string | nul
   const raw = req.headers[headerName.toLowerCase()];
   if (typeof raw === "string") return raw;
   if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+  const target = headerName.toLowerCase();
+  for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+    if (req.rawHeaders[i]?.trim().toLowerCase() === target) {
+      const value = req.rawHeaders[i + 1];
+      return typeof value === "string" ? value : null;
+    }
+  }
   return null;
 }
 
@@ -368,6 +375,7 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
   });
   const handle = nextApp.getRequestHandler();
   await nextApp.prepare();
+  const nextUpgrade = dev ? nextApp.getUpgradeHandler() : null;
 
   const useAuth = !!process.env.JWT_SECRET;
 
@@ -448,6 +456,14 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
 
   server.on("upgrade", (req, socket, head) => {
     const pathname = requestPathname(req);
+    if (pathname.startsWith("/_next/")) {
+      if (!nextUpgrade) {
+        socket.destroy();
+        return;
+      }
+      void nextUpgrade(req, socket, head).catch(() => socket.destroy());
+      return;
+    }
     if (pathname !== "/ws") {
       socket.destroy();
       return;

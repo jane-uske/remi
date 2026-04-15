@@ -14,12 +14,18 @@ import { shutdownWhisperServer, warmWhisperServer } from "../voice/stt_stream";
 import { warmupEdgeTtsConnections } from "../voice/tts";
 import { createGateway, startServer, PORT } from "./gateway";
 import { createSession } from "./session";
+import {
+  collectMemorySnapshot,
+  evaluateMemoryAlert,
+  resolveResourceMonitorConfig,
+  shouldEmitMemoryAlert,
+  type MemoryAlertState,
+} from "./resource_monitor";
 
 const logger = createLogger("server");
 
 // 资源监控配置
 const MONITOR_INTERVAL = 30_000; // 每30秒检查一次
-const MEMORY_WARNING_THRESHOLD = 0.8; // 内存使用率80%警告
 const CONNECTIONS_WARNING_THRESHOLD = 20; // 20个连接警告
 
 let dbInitialized = false;
@@ -27,37 +33,74 @@ let redisInitialized = false;
 let sessionCount = 0;
 let monitorInterval: NodeJS.Timeout | null = null;
 let decayTimer: ReturnType<typeof startDecayTimer> | null = null;
+let lastMemoryAlertState: MemoryAlertState | null = null;
 
 // 资源监控函数
 function startResourceMonitoring(): void {
   logger.info("资源监控已启动");
+  const monitorConfig = resolveResourceMonitorConfig();
 
   monitorInterval = setInterval(() => {
-    // 内存使用监控
-    const memUsage = process.memoryUsage();
-    const memUsagePercent = (memUsage.heapUsed / memUsage.heapTotal) * 100;
+    const snapshot = collectMemorySnapshot();
+    const alert = evaluateMemoryAlert(snapshot, monitorConfig);
+    const now = Date.now();
 
     // 会话数监控
     logger.debug("资源使用统计", {
       memory: {
-        heapUsed: `${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`,
-        heapTotal: `${(memUsage.heapTotal / 1024 / 1024).toFixed(2)} MB`,
-        external: `${(memUsage.external / 1024 / 1024).toFixed(2)} MB`,
-        usagePercent: `${memUsagePercent.toFixed(1)}%`,
+        rss: `${snapshot.rssMb.toFixed(1)} MB`,
+        heapUsed: `${snapshot.heapUsedMb.toFixed(1)} MB`,
+        heapTotal: `${snapshot.heapTotalMb.toFixed(1)} MB`,
+        heapLimit: `${snapshot.heapLimitMb.toFixed(1)} MB`,
+        external: `${snapshot.externalMb.toFixed(1)} MB`,
+        arrayBuffers: `${snapshot.arrayBuffersMb.toFixed(1)} MB`,
+        heapFillPercent: `${(snapshot.heapFillRatio * 100).toFixed(1)}%`,
+        heapLimitPercent: `${(snapshot.heapLimitRatio * 100).toFixed(1)}%`,
+        rssPercentOfSystem: `${(snapshot.rssSystemRatio * 100).toFixed(1)}%`,
+        systemFree: `${snapshot.systemFreeMb.toFixed(1)} MB`,
+        systemTotal: `${snapshot.systemTotalMb.toFixed(1)} MB`,
       },
       sessions: sessionCount,
       timestamp: new Date().toISOString(),
     });
 
-    // 内存使用警告
-    if (memUsage.heapUsed / memUsage.heapTotal > MEMORY_WARNING_THRESHOLD) {
-      logger.warn("内存使用警告", {
-        message: `内存使用率已达到 ${memUsagePercent.toFixed(1)}%，接近限制`,
-        memory: {
-          heapUsed: `${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`,
-          heapTotal: `${(memUsage.heapTotal / 1024 / 1024).toFixed(2)} MB`,
-        },
-      });
+    if (shouldEmitMemoryAlert(lastMemoryAlertState, alert, now, monitorConfig.alertCooldownMs)) {
+      if (alert.level === "normal") {
+        logger.info("内存告警恢复", {
+          previousLevel: lastMemoryAlertState?.level ?? "unknown",
+          memory: {
+            rss: `${snapshot.rssMb.toFixed(1)} MB`,
+            heapUsed: `${snapshot.heapUsedMb.toFixed(1)} MB`,
+            heapLimit: `${snapshot.heapLimitMb.toFixed(1)} MB`,
+            heapLimitPercent: `${(snapshot.heapLimitRatio * 100).toFixed(1)}%`,
+          },
+        });
+      } else {
+        logger.warn("内存使用警告", {
+          level: alert.level,
+          reasons: alert.reasons,
+          message: `进程内存达到 ${alert.level} 阈值`,
+          memory: {
+            rss: `${snapshot.rssMb.toFixed(1)} MB`,
+            heapUsed: `${snapshot.heapUsedMb.toFixed(1)} MB`,
+            heapLimit: `${snapshot.heapLimitMb.toFixed(1)} MB`,
+            heapFillPercent: `${(snapshot.heapFillRatio * 100).toFixed(1)}%`,
+            heapLimitPercent: `${(snapshot.heapLimitRatio * 100).toFixed(1)}%`,
+            systemFree: `${snapshot.systemFreeMb.toFixed(1)} MB`,
+          },
+        });
+      }
+      lastMemoryAlertState = {
+        level: alert.level,
+        signature: `${alert.level}:${alert.reasons.join("|")}`,
+        lastLoggedAt: now,
+      };
+    } else if (lastMemoryAlertState) {
+      lastMemoryAlertState = {
+        ...lastMemoryAlertState,
+        level: alert.level,
+        signature: `${alert.level}:${alert.reasons.join("|")}`,
+      };
     }
 
     // 会话数警告
