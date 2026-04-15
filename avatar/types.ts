@@ -146,6 +146,21 @@ export type RemiServerMessage =
       emotion: Emotion;
     }
   | {
+      type: "history_page";
+      mode: "replace" | "prepend";
+      messages: Array<{
+        id: string;
+        role: "user" | "assistant";
+        content: string;
+        createdAt: string;
+      }>;
+      hasMore: boolean;
+      nextCursor: {
+        id: string;
+        createdAt: string;
+      } | null;
+    }
+  | {
       type: "chat_chunk";
       content: string;
       generationId: number;

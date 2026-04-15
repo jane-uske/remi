@@ -7,10 +7,16 @@ import type {
   AvatarIntentSource,
   RemiTurnState,
 } from "@/types/avatar";
-import { asEmotion, clampBand, clampMs } from "../../../../avatar/utils";
+import { asEmotion, clampMs } from "../../../../avatar/utils";
 
 function clampHoldMs(value: number): number {
   return clampMs(value, 700, 180, 2400);
+}
+
+function normalizeGestureIntensity(value: unknown): 0 | 1 | 2 | 3 {
+  if (value === 0 || value === 1 || value === 2 || value === 3) return value;
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(3, Math.round(value))) as 0 | 1 | 2 | 3;
 }
 
 function emotionToAccent(
@@ -101,7 +107,7 @@ export function deriveAvatarIntent(input: {
     energy = (energy - 1) as 0 | 1 | 2 | 3;
   }
 
-  const gestureIntensity = clampBand(
+  const gestureIntensity = normalizeGestureIntensity(
     input.action?.intensity ??
       (gesture === "happy_hop" ? 2.8
       : gesture === "shrink_in" ? 1.8

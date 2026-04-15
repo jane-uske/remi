@@ -26,7 +26,7 @@
   /* 侧栏聊天区：偏透明，叠在背景图上 */
   --remi-panel: rgba(255, 255, 255, 0.04);
   --remi-bubble-rem: rgba(255, 255, 255, 0.08);
-  --remi-page-bg-image: url("/remi-ui-bg.svg");
+  --remi-page-bg-image: url("/rem-ui-bg.svg");
   --remi-page-overlay: linear-gradient(
     165deg,
     rgba(4, 8, 14, 0.75) 0%,
