@@ -58,6 +58,10 @@ function loadMockedRunner({ chatStream, inferAvatarIntentFromReply, synthesize }
 
   const appState = require(appStatePath);
   const previousDbReady = appState.isDbReady();
+
+  require(conversationAgentPath);
+  require(avatarIntentPath);
+
   const previousConversationAgent = require.cache[conversationAgentPath];
   const previousAvatarIntent = require.cache[avatarIntentPath];
   const previousTts = require.cache[ttsPath];
@@ -101,25 +105,21 @@ function loadMockedRunner({ chatStream, inferAvatarIntentFromReply, synthesize }
   return {
     runPipeline,
     restore() {
+      delete require.cache[conversationAgentPath];
+      delete require.cache[avatarIntentPath];
+      delete require.cache[ttsPath];
+      delete require.cache[ttsStreamPath];
       if (previousConversationAgent) {
         require.cache[conversationAgentPath] = previousConversationAgent;
-      } else {
-        delete require.cache[conversationAgentPath];
       }
       if (previousAvatarIntent) {
         require.cache[avatarIntentPath] = previousAvatarIntent;
-      } else {
-        delete require.cache[avatarIntentPath];
       }
       if (previousTts) {
         require.cache[ttsPath] = previousTts;
-      } else {
-        delete require.cache[ttsPath];
       }
       if (previousTtsStream) {
         require.cache[ttsStreamPath] = previousTtsStream;
-      } else {
-        delete require.cache[ttsStreamPath];
       }
       appState.setDbReady(previousDbReady);
       delete require.cache[runnerPath];

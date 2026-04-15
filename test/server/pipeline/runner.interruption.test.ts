@@ -27,6 +27,11 @@ function loadMockedRunner({ chatStream, saveMessage }) {
 
   const appState = require(appStatePath);
 
+  // Prime real modules so restore() can always put back full cache entries (not stubs only).
+  require(conversationAgentPath);
+  require(messageRepositoryPath);
+  require(avatarIntentPath);
+
   const originalConversationAgentModule = require.cache[conversationAgentPath];
   const originalMessageRepositoryModule = require.cache[messageRepositoryPath];
   const originalAvatarIntentModule = require.cache[avatarIntentPath];
@@ -58,20 +63,17 @@ function loadMockedRunner({ chatStream, saveMessage }) {
   return {
     runPipeline,
     restore() {
+      delete require.cache[conversationAgentPath];
+      delete require.cache[messageRepositoryPath];
+      delete require.cache[avatarIntentPath];
       if (originalConversationAgentModule) {
         require.cache[conversationAgentPath] = originalConversationAgentModule;
-      } else {
-        delete require.cache[conversationAgentPath];
       }
       if (originalMessageRepositoryModule) {
         require.cache[messageRepositoryPath] = originalMessageRepositoryModule;
-      } else {
-        delete require.cache[messageRepositoryPath];
       }
       if (originalAvatarIntentModule) {
         require.cache[avatarIntentPath] = originalAvatarIntentModule;
-      } else {
-        delete require.cache[avatarIntentPath];
       }
       appState.setDbReady(previousDbReady);
       delete require.cache[runnerPath];

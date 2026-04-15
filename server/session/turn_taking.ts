@@ -587,7 +587,16 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
 
     return {
       state: stableMs !== null && stableMs >= input.confirmedStableMs ? "CONFIRMED_END" : "LIKELY_END",
-      gapMs: Math.max(input.minGapMs, input.baseGapMs - input.releaseMs),
+      gapMs:
+        stableMs !== null && stableMs >= input.confirmedStableMs
+          ? Math.max(input.minGapMs, input.baseGapMs - input.releaseMs)
+          : Math.max(
+              input.minGapMs,
+              input.baseGapMs -
+                (input.baseGapMs >= 200
+                  ? Math.floor(input.releaseMs / 2)
+                  : input.releaseMs),
+            ),
       previewText,
       reasons,
       usedFallback: false,

@@ -28,7 +28,7 @@
     "prod:local:check": "./scripts/check-local-prod.sh",
     "prod:local:reset-demo-users": "node scripts/reset-demo-users.mjs",
     "build": "npm run build --prefix web && tsc",
-    "test": "mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
+    "test": "mocha --exit --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "start": "NODE_ENV=production node dist/server/server.js",
     "web:dev": "npm run dev --prefix web",

@@ -33,6 +33,7 @@ function restoreEnvPatches(previous: Record<string, string | undefined>): void {
 }
 
 function loadSessionHarness(options: HarnessOptions = {}) {
+  const repoRoot = path.resolve(__dirname, "../..");
   const previousEnv = applyEnvPatches();
   const appState = require(path.resolve(__dirname, "../../infra/app_state.ts"));
   const previousDbReady = appState.isDbReady();
@@ -42,7 +43,18 @@ function loadSessionHarness(options: HarnessOptions = {}) {
   appState.setRedisReady(false);
   appState.setMemoryMode("in-memory");
 
-  const runner = require(path.resolve(__dirname, "../../server/pipeline/runner.ts"));
+  const runnerPath = path.resolve(__dirname, "../../server/pipeline/runner.ts");
+  const pipelineIndexPath = path.join(repoRoot, "server/pipeline/index.ts");
+  const avatarIntentPath = path.join(repoRoot, "agents/avatar_intent_agent.ts");
+  const conversationAgentPath = path.join(repoRoot, "agents/conversation_agent.ts");
+  // Other tests stub pipeline deps then `require(runner)`; reload runner + agents so
+  // `inferAvatarIntentFromReply` resolves to real modules after stub teardown.
+  delete require.cache[pipelineIndexPath];
+  delete require.cache[runnerPath];
+  delete require.cache[avatarIntentPath];
+  delete require.cache[conversationAgentPath];
+
+  const runner = require(runnerPath);
   const originalRunPipeline = runner.runPipeline;
   const pipelineCalls: Array<{ text: string; options: any }> = [];
   runner.runPipeline = async (
@@ -59,8 +71,8 @@ function loadSessionHarness(options: HarnessOptions = {}) {
     pipelineCalls.push({ text, options: runOptions });
   };
 
-  const sessionPath = path.resolve(__dirname, "../../server/session/index.ts");
-  delete require.cache[require.resolve(sessionPath)];
+  const sessionPath = path.join(repoRoot, "server/session/index.ts");
+  delete require.cache[sessionPath];
   const { createSession } = require(sessionPath);
 
   const ws = new FakeWebSocket();
@@ -77,6 +89,11 @@ function loadSessionHarness(options: HarnessOptions = {}) {
 
   const restore = () => {
     runner.runPipeline = originalRunPipeline;
+    delete require.cache[pipelineIndexPath];
+    delete require.cache[runnerPath];
+    delete require.cache[avatarIntentPath];
+    delete require.cache[conversationAgentPath];
+    delete require.cache[sessionPath];
     appState.setDbReady(previousDbReady);
     appState.setRedisReady(previousRedisReady);
     appState.setMemoryMode(previousMemoryMode);
