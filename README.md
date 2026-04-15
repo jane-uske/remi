@@ -37,6 +37,34 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 
 短版执行说明见 [CURRENT_FOCUS.md](./CURRENT_FOCUS.md)。
 
+## Canonical Docs
+
+启动或新 agent 接手时，只把下面这些当事实源：
+
+- [AGENTS.md](./AGENTS.md) — 北极星、改动边界、汇报要求
+- [CURRENT_FOCUS.md](./CURRENT_FOCUS.md) — 当前主线程与交付判断
+- [TASKS.md](./TASKS.md) — 当前执行板与并行任务
+- [TEST_MAP.md](./TEST_MAP.md) — 改目录后先跑什么测试
+- [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) — 完整产品语境
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — 系统结构总览
+- [PIPELINE.md](./PIPELINE.md) — 实时链路与状态流转
+- [MEMORY_V2_DESIGN.md](./MEMORY_V2_DESIGN.md) — Memory V2 设计
+- [VOICE_ROADMAP.md](./VOICE_ROADMAP.md) — 语音路线图
+
+其他历史、运维、评测和参考文档已下沉到 `docs/`：
+
+- `docs/archive/` — 历史入口、阶段性优化记录
+- `docs/ops/` — 远程开发 / 本机生产化操作手册
+- `docs/evals/` — 手工测试与对话样例
+- `docs/reference/` — 参考设计文档
+
+高风险目录内额外补了 `MODULE.md`，用于说明职责、禁区、热点文件和必跑测试：
+
+- `server/session/MODULE.md`
+- `brains/MODULE.md`
+- `memory/MODULE.md`
+- `web/src/hooks/MODULE.md`
+
 ## 核心功能
 
 - **自然语言对话** — 双脑架构（Fast Brain 低延迟流式回复 + Slow Brain 后台深度分析），支持多轮上下文
@@ -78,23 +106,23 @@ npm install
 npm install --prefix web
 
 # 若需本地数据库/Redis（推荐仅把这两个放 Docker）
-./scripts/start-dev-stack.sh
+npm run dev:infra
 
 # 配置环境变量
 cp .env.example .env   # 然后编辑 .env 填入 API Key 等
 
-# 启动后端（端口 3000，推荐原生模式）
-npm run dev:native
+# 启动应用（同一进程内托管后端 + Next 前端，端口 3000）
+npm run dev
 
-# 启动前端（另一个终端）
-npm run web:dev
+# 仅在需要单独调 Next 前端时，再开独立前端进程
+npm run dev:web:standalone
 
 # 仅类型检查（不写 dist）
 npm run typecheck
 ```
 
-浏览器远程开发与办公网实时预览见 **`REMOTE_DEV.md`**。
-本机常驻小规模生产化部署（2-3 用户试用）见 **`LOCAL_PROD_DEPLOY.md`**。
+浏览器远程开发与办公网实时预览见 **`docs/ops/REMOTE_DEV.md`**。
+本机常驻小规模生产化部署（2-3 用户试用）见 **`docs/ops/LOCAL_PROD_DEPLOY.md`**。
 如果 Next 开发态缓存异常，可先执行 **`npm run dev:web:clean`** 再重启服务。
 
 ### 本地验证
@@ -123,6 +151,7 @@ npm run test --prefix web
 - WebSocket 会自动复用页面 URL 中的 `token` 参数，降低“页面可开但 WS 401 断连”风险。
 - 前端聊天本地缓存按用户隔离：无 token 走默认缓存；带 token 时按 token 的 `id` 分桶，避免 `user_001` / `user_002` 共享同一份本地聊天历史。
 - 3D 模型静态资源路径 `/vrm/*` 已加入鉴权放行，避免 VRM 请求被 `401` 拦截。
+- `DATABASE_URL` / `REDIS_URL` 如果仍写着 Docker 服务名 `postgres` / `redis`，本机原生启动会自动回退到 `127.0.0.1` 再尝试连接；Docker 内仍按服务名解析。
 
 ### 实时语义约定
 
@@ -160,7 +189,7 @@ npm run test --prefix web
 | `STT_PARTIAL_PREDICTION_ENABLED` | 是否启用 partial transcript 预判（默认关闭）。设为 `1`/`true` 后才会触发额外 prediction 调用。 |
 | `STT_PREDICTION_PUSH_ENABLED` | 是否把 prediction 结果以 `stt_prediction` 推到前端（默认关闭）。只有 `STT_PARTIAL_PREDICTION_ENABLED` 已开启时才生效。 |
 | `STT_PREDICTION_DEBOUNCE_MS` | partial prediction 的防抖毫秒数（默认 `300`）。 |
-| `NEXT_PUBLIC_VRM_URL` | （前端）自定义 VRM 路径；不设则使用 `web/public/vrm/` 下默认模型。根目录 `npm run web:dev` 时 `next.config` 会读取**仓库根** `.env`。 |
+| `NEXT_PUBLIC_VRM_URL` | （前端）自定义 VRM 路径；不设则使用 `web/public/vrm/` 下默认模型。根目录 `npm run dev:web:standalone` 时 `next.config` 会读取**仓库根** `.env`。 |
 | `NEXT_PUBLIC_WS_URL` | WebSocket 地址，须含 `ws://` 或 `wss://`（勿写 `localhost:3000/ws` 无前缀）。 |
 | `NEXT_PUBLIC_VRM_YAW` | VRM 绕 Y 轴旋转（弧度），模型背对镜头时可调。 |
 | `NEXT_PUBLIC_VRM_FRAMING` | `full`（默认）全身；`upper` 上半身特写。 |
@@ -248,8 +277,8 @@ remi/
 ├── tsconfig.json
 ├── ARCHITECTURE.md
 ├── PIPELINE.md
-├── OPTIMIZATION.md   # 架构分析、优化清单与完成状态
-└── TASKS.md
+├── TASKS.md
+└── docs/                    # archive / ops / evals / reference
 ```
 
 ## 开发进度
@@ -286,7 +315,7 @@ remi/
 
 **Remi 已经从“能跑通的系统原型”进入“围绕活人感持续打磨的产品原型”阶段。**
 
-> 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。体验与工程向的增量优化（重试、历史 token、情绪惯性、本地消息、**Edge TTS 连接池**、whisper 一次重试等）见 [OPTIMIZATION.md](OPTIMIZATION.md) 顶部 **「已完成优化」** 与 **「尚未完成」**。
+> 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。历史优化记录与阶段性工程日志已归档到 [docs/archive/OPTIMIZATION.md](docs/archive/OPTIMIZATION.md)。
 
 ## 当前已收口的体验/观测点
 

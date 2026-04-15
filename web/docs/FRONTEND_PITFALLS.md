@@ -36,7 +36,7 @@ Next 的 `hostname` **只能是主机名**，不能写 `localhost:3000` 或整�
 
 ## 3. WebSocket（`useRemiChat` / `wsUrl.ts`）
 
-- 仅跑 `npm run web:dev` 时，Next 常在 **3001**，后端在 **3000**；代码对 3001/3002 默认连 `ws://hostname:3000/ws`，或显式设置 `NEXT_PUBLIC_WS_URL`。
+- 仅跑 `npm run dev:web:standalone` 时，Next 常在 **3001**，后端在 **3000**；代码对 3001/3002 默认连 `ws://hostname:3000/ws`，或显式设置 `NEXT_PUBLIC_WS_URL`。
 - 环境变量里的 WS 地址需 **`normalizeEnvWsUrl`**，避免 `host:port/ws` 被当成相对路径。
 
 ## 4. RemiChatApp 布局与顶栏

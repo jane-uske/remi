@@ -4,17 +4,17 @@
 
 ## 先读什么
 
-1. [AGENTS.md](AGENTS.md)
+1. [AGENTS.md](../../AGENTS.md)
    - 北极星
    - 当前主线程
    - 代码改动边界
-2. [CURRENT_FOCUS.md](CURRENT_FOCUS.md)
+2. [CURRENT_FOCUS.md](../../CURRENT_FOCUS.md)
    - 当前正在推进的任务
    - 当前什么不该优先做
-3. [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+3. [PROJECT_CONTEXT.md](../../PROJECT_CONTEXT.md)
    - 完整产品语境
    - 为什么 Remi 不是普通聊天机器人
-4. [ARCHITECTURE.md](ARCHITECTURE.md) / [PIPELINE.md](PIPELINE.md)
+4. [ARCHITECTURE.md](../../ARCHITECTURE.md) / [PIPELINE.md](../../PIPELINE.md)
    - 系统结构与实时链路
 
 ## 你需要先知道的事

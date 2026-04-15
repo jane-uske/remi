@@ -59,16 +59,16 @@
 | JWT、限流、日志、Docker            | ✅ 已完成 | 可增强 HTTP 限流                              |
 
 
-前端迭代细项与 Phase A–D 见 `**docs/VIBE_PLAN.md`**；工程向优化清单见 `**docs/OPTIMIZATION.md`**。
+前端迭代细项与 Phase A–D 见 `**docs/VIBE_PLAN.md`**；工程向优化清单见 `**docs/archive/OPTIMIZATION.md`**。
 
 ---
 
 ## 5. 前端与一体部署要点
 
 - **一体启动**：仓库根目录 `npm run dev` → 网关同时托管 API 与 Next（默认端口见 `PORT`，常为 3000）。  
-- **仅前端**：`npm run web:dev`，WebSocket 常需 `NEXT_PUBLIC_WS_URL=ws://127.0.0.1:3000/ws` 或依赖 `wsUrl.ts` 对 3001/3002 的默认指向。  
+- **仅前端**：`npm run dev:web:standalone`，WebSocket 常需 `NEXT_PUBLIC_WS_URL=ws://127.0.0.1:3000/ws` 或依赖 `wsUrl.ts` 对 3001/3002 的默认指向。  
 - **环境变量**：根目录 `.env` 中 `NEXT_PUBLIC_`* 由 `web/next.config.ts` 的 `loadEnvConfig` 注入前端构建。  
-- **踩坑合集**：`**docs/FRONTEND_PITFALLS.md`**（畸形 URL、VRM 手臂与 node constraint、顶栏与画布等）。
+- **踩坑合集**：`**web/docs/FRONTEND_PITFALLS.md`**（畸形 URL、VRM 手臂与 node constraint、顶栏与画布等）。
 
 ---
 

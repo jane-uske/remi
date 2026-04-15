@@ -14,9 +14,11 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port 3000 is already in use. Stop the existing process or change PORT in .env."
+PORT_TO_USE="${PORT:-3000}"
+
+if lsof -nP -iTCP:"$PORT_TO_USE" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port $PORT_TO_USE is already in use. Stop the existing process or change PORT in .env."
   exit 1
 fi
 
-exec npm run dev:once
+exec ts-node server/server.ts

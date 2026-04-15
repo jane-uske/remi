@@ -51,19 +51,19 @@ npm install --prefix web
 默认只启动存储：
 
 ```bash
-./scripts/start-dev-stack.sh
+npm run dev:infra
 ```
 
 原生启动应用：
 
 ```bash
-npm run dev:native
+npm run dev
 ```
 
 如果需要单独前端开发模式，再开一个终端：
 
 ```bash
-npm run web:dev
+npm run dev:web:standalone
 ```
 
 如果页面出现开发态缓存异常或浏览器拿到旧 HMR 状态，可先清掉 Next 缓存再重启：
@@ -81,13 +81,13 @@ npm run dev:term
 同时启动浏览器 IDE：
 
 ```bash
-./scripts/start-dev-stack.sh --ide
+npm run dev:infra:ide
 ```
 
 如果你仍然想把应用放进容器里跑，只在调试时临时使用：
 
 ```bash
-./scripts/start-dev-stack.sh --app
+npm run dev:up
 ```
 
 如果你已经在 Cloudflare Dashboard 创建好 named tunnel，并拿到了 token：
@@ -99,7 +99,7 @@ npm run dev:term
 停止：
 
 ```bash
-./scripts/stop-dev-stack.sh
+npm run dev:down
 ```
 
 ## Cloudflare 建议配置
@@ -153,8 +153,8 @@ npm run tunnel:start
 ## 每次开工的最小流程
 
 ```bash
-./scripts/start-dev-stack.sh
-npm run dev:native
+npm run dev:infra
+npm run dev
 npm run dev:check
 ```
 
