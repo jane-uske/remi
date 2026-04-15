@@ -128,6 +128,68 @@ Remi 后期不应该只停留在“一个会说话的前端客户端”。
 
 ---
 
+## 自研策略：什么该自己做，什么不该
+
+Remi 不适合走“所有东西都亲力亲为、全部自研”的路线。
+更合适的路线是：
+
+- 核心体验自研
+- 底层能力借力
+- 外部接入做边界，不做硬耦合
+
+### 值得自己做的
+
+这些部分直接决定 Remi 是否更像“同一个持续存在的人”：
+
+- turn-taking / interruption / streaming behavior
+- fast brain / slow brain 分工
+- 人格、语气、关系连续性的 prompt / policy 语义
+- episode memory、unresolved state、proactive planning
+- identity、session continuity、跨端接续语义
+
+这些不是通用聊天产品的现成能力，而是 Remi 的主价值。
+
+### 不值得重度自研的
+
+这些部分更适合做 adapter，而不是往下深挖成另一套底层平台：
+
+- 基础模型与推理引擎
+- STT / TTS 引擎本身
+- 数据库、缓存、向量索引底座
+- 第三方平台 SDK、设备协议、接线层
+
+这里真正需要自己掌控的是：
+- provider 选择
+- fallback 语义
+- 失败时的用户体验
+- 能力边界和可替换性
+
+而不是重新造一遍底层能力。
+
+### 当前已经出现的偏移风险
+
+现在最需要警惕的，不是“自研太少”，而是“自研面开始变宽”：
+
+1. Web 与 iOS 都在长自己的会话状态机
+   - 浏览器端 `useRemiChat`
+   - iOS 端 `RemiChatStore`
+   - 如果两端继续各自吸收 transport / voice / playback / turn state 复杂度，跨端一致性会越来越难维护
+
+2. capability boundary 还没真正落成
+   - 文档方向是对的
+   - 但代码里仍有点状 capability 直接进入核心路由的倾向
+
+3. 语音层容易滑向“平台自研”
+   - 当前 `voice/*` 继续加 provider / fallback / warmup / pool 是合理的
+   - 但再往下做，就会开始和 Remi 的核心目标脱节
+
+结论不是“这些实现都错了”。
+结论是：
+- 它们可以作为当前阶段的过渡实现
+- 但不应该成为长期扩张方向
+
+---
+
 ## 产品判断标准
 
 Remi 不应该让人感觉像：
@@ -205,6 +267,9 @@ Remi 应该更像：
    - 说明人格记忆层还没完全进入更强的稳定形态
 5. 跨终端存在层还主要停留在产品方向层
    - 还不是今天的主线程，但已经是架构决策必须考虑的前提
+6. 客户端复杂度正在累积到错误层
+   - 当前 Web / iOS 都在吸收越来越多 transport + playback + voice state 逻辑
+   - 如果不及时收敛，会变成“多端各自实现一套 Remi”
 
 ---
 
@@ -242,6 +307,8 @@ Remi 不应该靠“什么都做”来赢。
 - 接了多少平台
 - agent feature 有多宽
 - “什么都能接”的平台型叙事
+- provider 数量有多少
+- 底层语音 / 模型基础设施自研到多深
 
 它应该重点竞争：
 - conversational timing

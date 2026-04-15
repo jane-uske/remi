@@ -13,6 +13,7 @@ import {
   savePersistentRelationshipState,
 } from "../memory/relationship_state";
 import { reviewReplyTone } from "../brain/tone_policy";
+import { tryHandleDirectCapabilities } from "../brain/direct_capabilities";
 import {
   analyzeTurn,
   shouldAnalyzeTurn,
@@ -240,6 +241,41 @@ async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void>
   }
 }
 
+function finalizeDirectReply(input: {
+  ctx: RemiSessionContext;
+  userMessage: string;
+  reply: string;
+  emotion: Emotion;
+  signal?: AbortSignal;
+  systemTriggered?: boolean;
+}): "handled" | "aborted" {
+  const { ctx, userMessage, reply, emotion, signal } = input;
+  if (signal?.aborted) {
+    if (!input.systemTriggered && reply.trim()) {
+      ctx.lastInterruptedReply = reply;
+    }
+    ctx.updateLiveState(emotion);
+    if (!input.systemTriggered) {
+      ctx.markInterrupted();
+    }
+    return "aborted";
+  }
+
+  const historyUserContent = input.systemTriggered
+    ? "［你主动开口陪对方聊天］"
+    : userMessage;
+  ctx.history.push({ role: "user", content: historyUserContent });
+  ctx.history.push({ role: "assistant", content: reply });
+  while (ctx.history.length > MAX_HISTORY) {
+    ctx.history.shift();
+  }
+
+  ctx.updateLiveState(emotion, userMessage, reply);
+  ctx.slowBrain.recordUserTurnActivity(userMessage);
+  ctx.slowBrain.setLastEmotion(emotion);
+  return "handled";
+}
+
 /**
  * Brain Router: dispatches user input to both brains.
  *
@@ -273,6 +309,28 @@ export async function* routeMessage(
     return;
   }
 
+  const inputSource = opts?.inputSource ?? "text";
+  const directCapabilityResult = await tryHandleDirectCapabilities({
+    userMessage,
+    emotion,
+    ctx,
+    signal,
+    systemTriggered: Boolean(opts?.systemTriggered),
+    inputSource,
+  });
+  if (directCapabilityResult.handled) {
+    yield directCapabilityResult.reply;
+    finalizeDirectReply({
+      ctx,
+      userMessage,
+      reply: directCapabilityResult.reply,
+      emotion,
+      signal,
+      systemTriggered: opts?.systemTriggered,
+    });
+    return;
+  }
+
   if (!opts?.systemTriggered) {
     extractMemory(userMessage, ctx.memory);
   }
@@ -280,7 +338,6 @@ export async function* routeMessage(
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
   const slowBrainSnapshot = ctx.slowBrain.getSnapshot();
-  const inputSource = opts?.inputSource ?? "text";
   const analysisInput = {
     userMessage,
     history: ctx.history,

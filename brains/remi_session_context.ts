@@ -169,6 +169,8 @@ export class RemiSessionContext {
   readonly history: PromptMessage[] = [];
   readonly persona: PersonaState;
   persistentRelationshipRepo: MemoryRepository | null = null;
+  private clientTimeZone: string | null = null;
+  private clientLocale: string | null = null;
   private slowBrainController: AbortController | null = null;
   /** 最后一次被打断的AI回复内容，用于回答「刚才说到哪了」 */
   lastInterruptedReply: string | null = null;
@@ -223,6 +225,31 @@ export class RemiSessionContext {
 
   setUserId(userId: string): void {
     this.userId = userId;
+  }
+
+  setClientContext(input: { timeZone?: string | null; locale?: string | null }): void {
+    const nextTimeZone = input.timeZone?.trim() || null;
+    if (nextTimeZone) {
+      try {
+        new Intl.DateTimeFormat("zh-CN", { timeZone: nextTimeZone }).format(new Date());
+        this.clientTimeZone = nextTimeZone;
+      } catch {
+        this.clientTimeZone = null;
+      }
+    } else {
+      this.clientTimeZone = null;
+    }
+
+    const nextLocale = input.locale?.trim() || null;
+    this.clientLocale = nextLocale ? nextLocale.slice(0, 64) : null;
+  }
+
+  getClientTimeZone(): string | null {
+    return this.clientTimeZone;
+  }
+
+  getClientLocale(): string | null {
+    return this.clientLocale;
   }
 
   hydrateHistoryFromDb(messages: DbMessage[]): void {

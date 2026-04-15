@@ -70,6 +70,85 @@ Remi 后期不只会存在于网页聊天界面。
 - 外部能力应尽量通过 adapter / plugin 方式注册
 - capability 的输入输出语义要稳定，便于未来跨终端复用
 
+## 自研边界：哪些必须自己做，哪些只该借力
+
+不是“凡是核心链路上的东西都要全自研”。
+对 Remi 来说，更准确的判断是：只把决定“活人感、连续性、存在感”的那层握在自己手里，其它优先复用成熟能力。
+
+### 必须自研的部分
+
+这些模块直接决定 Remi 是否像“同一个持续存在的人”，不应该外包给通用框架：
+
+- `server/session/*`
+  - turn-taking、interrupt、duplex、prediction、turn state 语义
+- `brains/*` 与 `brain/*`
+  - fast brain / slow brain 分工
+  - `TurnInterpretation -> ResponsePolicy`
+  - prompt contract、relationship-aware response policy
+- `memory/*`
+  - episode memory、unresolved state、prompt recall、relationship continuity
+- identity / continuity 语义
+  - 用户身份、会话恢复、跨端接续、proactive 触发边界
+
+结论：
+- 这些层不是“基础设施”，而是 Remi 的产品内核
+- 它们可以借第三方模型，但行为语义必须自己定义
+
+### 优先借力的部分
+
+这些层更适合作为 adapter / provider abstraction，而不是继续往“平台产品”方向深挖：
+
+- `llm/*`
+  - 模型调用、重试、兼容 OpenAI 接口
+- `voice/stt_stream.ts`
+  - STT provider 接入、whisper server / hosted STT 切换
+- `voice/tts.ts`
+  - TTS provider、连接复用、fallback、短句缓存
+- 存储与基础设施
+  - Postgres、Redis、向量索引、连接与监控底座
+- 第三方平台 SDK / 设备协议
+  - 直播、游戏、IoT、机器人、特殊硬件
+
+结论：
+- 这些层应该服务 Remi，而不是变成 Remi 要自己维护的“下一套产品”
+- 自研应停在“适配与约束边界”，不要深入到“重新造引擎”
+
+### 当前不应继续扩大的方向
+
+- 不要继续把 `voice/*` 做成更重的 STT/TTS 平台层
+- 不要让 `web/src/hooks/useRemiChat.ts` 继续吸收业务策略和更多展示状态
+- 不要让 `ios/RemiChatLite/*/RemiChatStore.swift` 演化成第二套独立会话内核
+- 不要继续把时间、设备、工具等 capability 直接塞进 `brains/brain_router.ts`
+
+这几条不是说“现在的实现都错了”，而是：
+- 现阶段很多是合理临时方案
+- 但如果继续沿着这个方向扩，长期结构会偏
+
+## 当前结构风险
+
+基于当前代码状态，最现实的结构风险不是“缺少更多模块”，而是复杂度开始在错误层累积：
+
+1. 客户端正在形成双份状态机
+   - `web/src/hooks/useRemiChat.ts` 与 `ios/.../RemiChatStore.swift` 都在同时承载连接、历史、语音、播放、turn lifecycle
+   - 这会让跨端行为越来越难保持一致
+
+2. capability boundary 仍主要停留在文档
+   - 当前已经有 `brain/time_capability.ts` 这类点状能力直接接入 router
+   - 临时可以接受，但不能继续沿这条线扩天气、提醒、设备控制、平台接入
+
+3. 热点文件体量已接近风险区
+   - `server/session/index.ts`
+   - `brains/slow_brain_store.ts`
+   - `web/src/hooks/useRemiChat.ts`
+   - `ios/.../RemiChatStore.swift`
+   - 这些文件继续堆策略或状态，只会让回归成本越来越高
+
+因此当前更合理的演进方向不是“再多自研一点”。
+而是：
+- 核心语义继续自研
+- provider / 客户端 / capability 接入层持续薄化
+- 让跨端共享的是协议和状态语义，而不是复制两份会话大脑
+
 ## 架构总览
 
 ```

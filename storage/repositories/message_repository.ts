@@ -128,3 +128,38 @@ export async function getSessionMessages(
     throw e;
   }
 }
+
+export async function getUserMessagesInRange(
+  userId: string,
+  startAt: Date,
+  endAt: Date,
+  limit?: number,
+): Promise<DbMessage[]> {
+  try {
+    const hasLimit = limit !== undefined && limit > 0;
+    const sql = hasLimit
+      ? `SELECT m.id, m.session_id, m.role, m.content, m.created_at
+         FROM messages m
+         JOIN sessions s ON s.id = m.session_id
+         WHERE s.user_id = $1
+           AND m.created_at >= $2
+           AND m.created_at < $3
+         ORDER BY m.created_at ASC, m.id ASC
+         LIMIT $4`
+      : `SELECT m.id, m.session_id, m.role, m.content, m.created_at
+         FROM messages m
+         JOIN sessions s ON s.id = m.session_id
+         WHERE s.user_id = $1
+           AND m.created_at >= $2
+           AND m.created_at < $3
+         ORDER BY m.created_at ASC, m.id ASC`;
+
+    const res = hasLimit
+      ? await query(sql, [userId, startAt, endAt, limit])
+      : await query(sql, [userId, startAt, endAt]);
+    return res.rows.map((row) => mapRow(row as Record<string, unknown>));
+  } catch (e) {
+    console.log('[Storage] getUserMessagesInRange failed:', e);
+    throw e;
+  }
+}

@@ -6,6 +6,12 @@ import path from "path";
 import { WebSocket } from "ws";
 import { randomBytes } from "crypto";
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
+import {
+  buildTtsCacheVariant,
+  buildTtsShortCacheKey,
+  normalizeTtsTextWithConfig,
+  type TtsProvider,
+} from "./tts_helpers";
 import { createLogger } from "../infra/logger";
 import { withRetry } from "../utils/retry";
 
@@ -13,8 +19,6 @@ const logger = createLogger("tts");
 
 let client: OpenAI | null = null;
 let warnedTtsDisabled = false;
-
-type TtsProvider = "openai" | "piper" | "edge";
 
 function getProvider(): TtsProvider {
   const p = (process.env.tts_provider || "edge").toLowerCase();
@@ -61,41 +65,15 @@ const TTS_CACHE_MAX_CHARS = Number(process.env.tts_cache_max_chars ?? 24);
 const TTS_CACHE_MAX_ENTRIES = Number(process.env.tts_cache_max_entries ?? 80);
 const ttsShortAudioCache = new Map<string, Buffer>();
 
-function ttsShortCacheKey(
-  provider: TtsProvider,
-  normalizedText: string,
-  emotion: Emotion | undefined,
-): string {
-  return `${provider}\0${emotion ?? "neutral"}\0${normalizedText}`;
-}
-
-function ttsCacheVariant(
-  provider: TtsProvider,
-  emotion: Emotion | undefined,
-): string {
-  if (provider === "edge") {
-    const voice = process.env.tts_voice || "zh-CN-XiaoyiNeural";
-    const lang = process.env.tts_lang || "zh-CN";
-    const resolved = emotion ?? "neutral";
-    const rate =
-      resolved === "neutral"
-        ? process.env.tts_rate || "default"
-        : getEmotionVoiceParams(resolved).rate;
-    const pitch =
-      resolved === "neutral"
-        ? process.env.tts_pitch || "default"
-        : getEmotionVoiceParams(resolved).pitch;
-    return `${voice}\0${lang}\0${rate}\0${pitch}`;
-  }
-
-  if (provider === "openai") {
-    const model = process.env.tts_model || "tts-1";
-    const voice = process.env.tts_voice || "alloy";
-    const speed = getEmotionVoiceParams(emotion ?? "neutral").speed;
-    return `${model}\0${voice}\0${speed}`;
-  }
-
-  return getPiperModel() || "piper-default";
+function getTtsCacheVariant(provider: TtsProvider, emotion: Emotion | undefined): string {
+  return buildTtsCacheVariant(provider, emotion, {
+    voice: process.env.tts_voice || (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
+    lang: process.env.tts_lang || "zh-CN",
+    rate: process.env.tts_rate || "default",
+    pitch: process.env.tts_pitch || "default",
+    model: process.env.tts_model || "tts-1",
+    piperModel: getPiperModel(),
+  });
 }
 
 function getTtsShortCache(key: string): Buffer | null {
@@ -131,73 +109,12 @@ function getPiperModel(): string | null {
   return process.env.piper_model || null;
 }
 
-/**
- * Remove parenthetical stage directions (e.g. 表情、动作、括号内思考内容) so TTS does not read them aloud.
- * Full reply text is unchanged upstream — only used at synthesize time.
- * Set tts_strip_parenthetical=0 to disable. Iterates to peel simple nesting.
- */
-function stripParentheticalStageDirections(text: string): string {
-  if (process.env.tts_strip_parenthetical === "0") return text;
-  let out = text;
-  let prev = "";
-  while (out !== prev) {
-    prev = out;
-    out = out.replace(/（[^）]*）/g, ""); // 全角圆括号
-    out = out.replace(/\([^)]*\)/g, ""); // 半角圆括号
-    out = out.replace(/\[[^\]]*\]/g, ""); // 半角方括号
-    out = out.replace(/【[^】]*】/g, ""); // 全角方括号
-    out = out.replace(/<[^>]*>/g, ""); // 半角尖括号
-    out = out.replace(/《[^》]*》/g, ""); // 全角书名号/尖括号
-    out = out.replace(/\{[^}]*\}/g, ""); // 半角花括号
-  }
-  return out;
-}
-
-/** Remove emoji so TTS does not try to speak names or glitch; chat stream unchanged. */
-function stripEmojiForTts(text: string): string {
-  if (process.env.tts_strip_emoji === "0") return text;
-  return (
-    text
-      // Most pictographic emoji (covers far more than the old 1F300–1FAFF slice)
-      .replace(/\p{Extended_Pictographic}/gu, "")
-      // VS16 / ZWJ often left behind after emoji removal
-      .replace(/\uFE0F/g, "")
-      .replace(/\u200D/g, "")
-  );
-}
-
-function stripDecorativeTailForTts(text: string): string {
-  return text
-    .replace(/\p{Mark}+/gu, "")
-    .replace(/([。！？.!?~～]+)\s*[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thaana}\p{S}\p{Mark}]+$/gu, "$1")
-    .replace(/[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thaana}\p{S}\p{Mark}]+$/gu, "")
-    .trim();
-}
-
 export function normalizeTtsText(raw: string): string {
-  const maxChars = Number(process.env.tts_max_chars || 120);
-  const clean = stripDecorativeTailForTts(
-    stripEmojiForTts(stripParentheticalStageDirections(raw)),
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!clean) return "嗯。";
-  if (clean.length <= maxChars) return clean;
-
-  const cut = clean.slice(0, maxChars);
-  const lastPunc = Math.max(
-    cut.lastIndexOf("。"),
-    cut.lastIndexOf("！"),
-    cut.lastIndexOf("？"),
-    cut.lastIndexOf("."),
-    cut.lastIndexOf("!"),
-    cut.lastIndexOf("?"),
-    cut.lastIndexOf("，"),
-    cut.lastIndexOf(","),
-  );
-  if (lastPunc >= 16) return cut.slice(0, lastPunc + 1);
-  return `${cut}。`;
+  return normalizeTtsTextWithConfig(raw, {
+    maxChars: Number(process.env.tts_max_chars || 120),
+    stripParenthetical: process.env.tts_strip_parenthetical !== "0",
+    stripEmoji: process.env.tts_strip_emoji !== "0",
+  });
 }
 
 export function isTtsEnabled(): boolean {
@@ -929,7 +846,7 @@ export async function textToSpeech(
 
   const shortKey =
     ttsText.length > 0 && ttsText.length <= TTS_CACHE_MAX_CHARS
-      ? `${ttsShortCacheKey(provider, ttsText, emotion)}\0${ttsCacheVariant(provider, emotion)}`
+      ? buildTtsShortCacheKey(provider, ttsText, emotion, getTtsCacheVariant(provider, emotion))
       : null;
   if (shortKey) {
     const hit = getTtsShortCache(shortKey);
@@ -966,7 +883,12 @@ export async function textToSpeech(
     setTtsShortCache(shortKey, buf);
     if (actualProvider !== provider) {
       setTtsShortCache(
-        `${ttsShortCacheKey(actualProvider, ttsText, emotion)}\0${ttsCacheVariant(actualProvider, emotion)}`,
+        buildTtsShortCacheKey(
+          actualProvider,
+          ttsText,
+          emotion,
+          getTtsCacheVariant(actualProvider, emotion),
+        ),
         buf,
       );
     }
