@@ -7,355 +7,107 @@ import { VadDetector } from "../../voice/vad_detector";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
 import { createLogger } from "../../infra/logger";
-import { isDbReady } from "../../infra/app_state";
-import { getLatencyTracer, removeLatencyTracer } from "../../infra/latency_tracer";
-import { ensureStorageUser } from "../../storage/repositories/dev_identity";
-import { getPgMemoryRepository } from "../../storage/repositories/pg_memory_repository";
-import { createSession as createDbSession, endSession } from "../../storage/repositories/session_repository";
-import {
-  getUserMessagesPage,
-  type UserMessageHistoryCursor,
-} from "../../storage/repositories/message_repository";
+import { getLatencyTracer } from "../../infra/latency_tracer";
+import type { UserMessageHistoryCursor } from "../../storage/repositories/message_repository";
 import { RemiSessionContext } from "../../brains/remi_session_context";
 import { runPipeline } from "../pipeline";
-import { send, getWsRateLimiter } from "../gateway";
+import { send } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import { fastBrainPredictOnly } from "../../brains/fast_brain";
+import { analyzeTurn, type TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import { retrievePromptMemory } from "../../memory/memory_agent";
 import { trimHistoryToTokenBudget } from "../../brains/history_budget";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
 import {
-  persistentMemoryOverlayEnabled,
-  persistentMemoryPreloadLimit,
-} from "../../memory/session_memory_overlay";
-import {
-  loadPersistentRelationshipState,
-  RELATIONSHIP_STATE_KEY,
-  relationshipStateEnabled,
-  savePersistentRelationshipState,
-} from "../../memory/relationship_state";
-import {
-  buildEmptyRelationshipState,
-  buildRelationshipPresetState,
-  isPersonaPresetId,
-  isRelationshipPresetId,
-} from "../../brains/dev_presets";
-import {
-  buildSilenceNudgeUserMessage,
-  planProactiveNudge,
-} from "../../brains/proactive_planner";
-import {
   decideTurnTaking,
-  endsWithSentencePunctuation,
   evaluateBackchannelDecision,
   getMeaningfulTurnPreview,
   isTentativeSpeechText,
-  normalizeSpeechText,
   shouldSuppressFallbackNoiseUtterance,
   shouldSuppressStrictNoPreviewUtterance,
   strongFrameRatio,
-  type PartialGrowthTrend,
   type TurnTakingState,
 } from "./turn_taking";
-import { buildTurnTimingSnapshot } from "./turn_timing";
 import { buildCarryForwardHint, classifyInterruption } from "./interruption";
 import { resolveRequestUserId } from "../../infra/user_identity";
+import { initializeSessionStorage } from "./bootstrap";
+import {
+  fireSessionSilenceNudge,
+  isContinuousConversation,
+  persistRelationshipContinuityState,
+  syncSessionVadSilenceThreshold,
+  touchSessionUserActivity,
+} from "./continuity";
+import {
+  applyDeveloperPreset,
+  resetDeveloperState,
+  resetDeveloperLiveSessionState,
+  runSessionDevCommand,
+} from "./developer";
+import {
+  appendChunkWithByteCap,
+  isNoVadFallbackSpeechLikeFrame,
+  shouldAttemptNoVadDuplexFallback,
+} from "./duplex_audio";
+import { parseHistoryCursor, sendSessionHistoryPage } from "./history";
+import { cleanupSessionResources, attachSessionCloseHandlers } from "./lifecycle";
+import { attachSessionMessageHandlers } from "./message_router";
+import {
+  duplexInterruptMinSpeechMs,
+  effectiveUtteranceGapMs,
+  fallbackMinStrongFrames,
+  fallbackMinStrongRatio,
+  fallbackNoiseSuppressMaxMs,
+  fallbackNoiseSuppressMinRms,
+  fallbackNoiseTinyTextMaxChars,
+  fallbackStrongFramePeak,
+  fallbackStrongFrameRms,
+  fallbackWeakSpeechSuppressMaxMs,
+  hesitationHoldMs,
+  minSpeechMs,
+  parseNonNegativeMs,
+  pcmPeak,
+  pcmRms,
+  predictionBudgetConfig,
+  preRollMaxBytes,
+  proactivePlannerMainPathEnabled,
+  randomInterruptReaction,
+  silenceNudgeMs,
+  sttPreviewDebounceMs,
+  sttPreviewIntervalMs,
+  sttPreviewMinSpeechMs,
+  sttPreviewSettleMs,
+  sttPreviewWindowMs,
+  strictCandidateMinSpeechMs,
+  strictCandidateMinStrongFrames,
+  strictCandidateMinStrongRatio,
+  suppressedNoiseBypassPeak,
+  suppressedNoiseBypassRms,
+  suppressedNoiseCooldownMs,
+  turnTakingConfirmedStableMs,
+  turnTakingEnabled,
+  turnTakingGrowthHoldMs,
+  turnTakingLikelyStableMs,
+  type PredictionBudgetConfig,
+  voiceBackchannelCooldownMs,
+  voiceBackchannelEnabled,
+  voiceBackchannelStableMs,
+} from "./runtime_config";
+import {
+  getPartialShapeAggregates,
+  resolvePredictionGate,
+  resolveUtteranceGapMs,
+  updatePartialTrackingState,
+  type PartialShapeAggregates,
+  type PartialShapeSample,
+  type PredictionGate,
+} from "./turn_runtime";
+import { publishSessionTurnState } from "./turn_state_protocol";
+import { submitVoicePipelineTurn } from "./voice_submit";
 
 const logger = createLogger("session");
-const AUDIO_BIN_MAGIC_V1 = Buffer.from([0x52, 0x41]); // "RA" (legacy)
-const AUDIO_BIN_MAGIC_V2 = Buffer.from([0x52, 0x41, 0x55, 0x44]); // "RAUD"
-const AUDIO_BIN_VERSION = 1;
-const AUDIO_BIN_HEADER_BYTES_V1 = 8;
-const AUDIO_BIN_HEADER_BYTES_V2 = 16;
-const AUDIO_BIN_CODEC_PCM16_MONO = 1;
 const HISTORY_PAGE_SIZE = 15;
-
-/** Ring buffer duration (ms) kept before speech_start — inject into STT so minSpeech ramp-up does not clip sentence beginnings. */
-function preRollMaxBytes(sampleRate: number): number {
-  const raw = process.env.VAD_PRE_ROLL_MS;
-  const ms = raw !== undefined && raw !== "" ? Number(raw) : 480;
-  const dur = Number.isFinite(ms) && ms > 0 ? ms : 480;
-  return Math.floor((sampleRate * 2 * dur) / 1000);
-}
-
-/**
- * After speech_end, wait this long before running STT. If speech_start fires again
- * (user continued after a short pause), the same PCM buffer is extended — one sentence
- * is not split into multiple stt_final messages. Set to 0 to disable (immediate STT).
- */
-function utteranceGapMs(): number {
-  const raw = process.env.VAD_UTTERANCE_GAP_MS;
-  if (raw === undefined || raw === "") return 180;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return 180;
-  return n;
-}
-
-function parseNonNegativeMs(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return n;
-}
-
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
-function devPresetCommandsEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_DEV_PRESETS_ENABLED, process.env.NODE_ENV !== "production");
-}
-
-function proactivePlannerMainPathEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED, true);
-}
-
-function isSemanticallyCompletePreview(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  return endsWithSentencePunctuation(trimmed) || SEMANTIC_END_RE.test(trimmed);
-}
-
-type PredictionBudgetConfig = {
-  enabled: boolean;
-  pushEnabled: boolean;
-  debounceMs: number;
-};
-
-type PartialShapeSample = {
-  at: number;
-  normalizedLength: number;
-  deltaChars: number;
-  semanticallyComplete: boolean;
-};
-
-type PartialShapeAggregates = {
-  partialGrowthTrend: PartialGrowthTrend;
-  semanticCompletionStreak: number;
-  smallDeltaStreak: number;
-};
-
-type HistoryCursorPayload = {
-  id: string;
-  createdAt: string;
-};
-
-type PredictionGate = {
-  allow: boolean;
-  mode: "full" | "short";
-  debounceMs: number;
-  includeCarryForwardHint: boolean;
-  reason: string;
-};
-
-const SEMANTIC_END_RE = /(吗|呢|吧|了|啦|呀|啊|嘛|么|对吧|是吧|行吗|好吗|可以吗|是不是)\s*[。！？.!?]*$/u;
-const CARRY_FORWARD_CUE_RE =
-  /(继续刚才|继续那个|刚才那个|上次那个|回到刚才|还是那个|接着说|不是那个意思|我想说的是|我其实是想说)/u;
-
-function predictionBudgetConfig(): PredictionBudgetConfig {
-  const enabled = parseBooleanFlag(process.env.STT_PARTIAL_PREDICTION_ENABLED, false);
-  const pushRequested = parseBooleanFlag(process.env.STT_PREDICTION_PUSH_ENABLED, false);
-  return {
-    enabled,
-    // Push 是 prediction 的附属能力，不能单独开启。
-    pushEnabled: enabled && pushRequested,
-    debounceMs: parseNonNegativeMs(process.env.STT_PREDICTION_DEBOUNCE_MS, 300),
-  };
-}
-
-function sttPreviewIntervalMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_INTERVAL_MS, 650);
-}
-
-function sttPreviewDebounceMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_DEBOUNCE_MS, 180);
-}
-
-function sttPreviewMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_MIN_SPEECH_MS, 550);
-}
-
-function sttPreviewWindowMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_WINDOW_MS, 4200);
-}
-
-function sttPreviewSettleMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_SETTLE_MS, 260);
-}
-
-/** Minimum utterance duration to run STT after VAD speech_end. */
-function minSpeechMs(): number {
-  return parseNonNegativeMs(process.env.VAD_MIN_UTTERANCE_MS, 220);
-}
-
-/**
- * After speech_end, delay before STT. Longer spoken segments get a longer merge window
- * (mid-sentence pause); short phrases use a shorter delay (snappier end).
- * Set VAD_UTTERANCE_GAP_ADAPTIVE=0 for a fixed VAD_UTTERANCE_GAP_MS (legacy behavior).
- */
-function effectiveUtteranceGapMs(speechDurationMs: number): number {
-  const base = utteranceGapMs();
-  if (base <= 0) return 0;
-
-  if (process.env.VAD_UTTERANCE_GAP_ADAPTIVE === "0") {
-    return base;
-  }
-
-  const minG = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_MIN_MS, 120);
-  const maxG = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_MAX_MS, 320);
-  const lo = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_ADAPTIVE_LO_MS, 400);
-  const hi = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_ADAPTIVE_HI_MS, 4400);
-  if (maxG <= minG) return base;
-
-  const t = Math.min(1, Math.max(0, (speechDurationMs - lo) / Math.max(1, hi - lo)));
-  return Math.round(minG + t * (maxG - minG));
-}
-
-/** 用户多久没发消息后触发 Remi 主动搭话（ms）；未设置或 0 表示关闭 */
-function silenceNudgeMs(): number {
-  const raw = process.env.REMI_SILENCE_NUDGE_MS;
-  if (raw === undefined || raw === "") return 0;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n;
-}
-
-function hesitationHoldMs(): number {
-  return parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_HESITATION_MS, 980);
-}
-
-function turnTakingEnabled(): boolean {
-  const raw = (process.env.TURN_TAKING_STAGE2_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
-}
-
-function turnTakingGrowthHoldMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_GROWTH_HOLD_MS, 720);
-}
-
-function turnTakingLikelyStableMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_LIKELY_STABLE_MS, 680);
-}
-
-function turnTakingConfirmedStableMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_CONFIRMED_STABLE_MS, 1100);
-}
-
-function voiceBackchannelEnabled(): boolean {
-  const raw = (process.env.VOICE_BACKCHANNEL_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
-}
-
-function voiceBackchannelCooldownMs(): number {
-  return parseNonNegativeMs(process.env.VOICE_BACKCHANNEL_COOLDOWN_MS, 6000);
-}
-
-function voiceBackchannelStableMs(): number {
-  return parseNonNegativeMs(process.env.VOICE_BACKCHANNEL_STABLE_MS, 1100);
-}
-
-function duplexInterruptMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_INTERRUPT_MIN_SPEECH_MS, 260);
-}
-
-function fallbackNoiseSuppressMaxMs(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SUPPRESS_MS, 900);
-}
-
-function fallbackNoiseSuppressMinRms(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_MIN_RMS, 0.035);
-}
-
-function fallbackNoiseTinyTextMaxChars(): number {
-  return Math.max(
-    1,
-    Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_TINY_TEXT_MAX_CHARS, 1)),
-  );
-}
-
-function fallbackStrongFrameRms(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_STRONG_FRAME_RMS, 35) / 1000;
-}
-
-function fallbackStrongFramePeak(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_STRONG_FRAME_PEAK, 120) / 1000;
-}
-
-function fallbackMinStrongFrames(): number {
-  return Math.max(1, Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_MIN_STRONG_FRAMES, 2)));
-}
-
-function fallbackMinStrongRatio(): number {
-  const raw = process.env.VAD_FALLBACK_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.08;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.08;
-  return Math.max(0, Math.min(1, n));
-}
-
-function fallbackWeakSpeechSuppressMaxMs(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_WEAK_SPEECH_SUPPRESS_MS, 1600);
-}
-
-function strictCandidateMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.VAD_STRICT_CANDIDATE_MIN_SPEECH_MS, 520);
-}
-
-function strictCandidateMinStrongFrames(): number {
-  return Math.max(1, Math.floor(parseNonNegativeMs(process.env.VAD_STRICT_CANDIDATE_MIN_STRONG_FRAMES, 8)));
-}
-
-function strictCandidateMinStrongRatio(): number {
-  const raw = process.env.VAD_STRICT_CANDIDATE_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.22;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.22;
-  return Math.max(0, Math.min(1, n));
-}
-
-function suppressedNoiseCooldownMs(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_COOLDOWN_MS, 420);
-}
-
-function suppressedNoiseBypassRms(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_BYPASS_RMS, 40) / 1000;
-}
-
-function suppressedNoiseBypassPeak(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_BYPASS_PEAK, 90) / 1000;
-}
-
-/** 随机选择打断反应音文本 */
-function randomInterruptReaction(): string {
-  const reactions = ["啊？", "嗯？", "怎么啦？"];
-  return reactions[Math.floor(Math.random() * reactions.length)];
-}
-
-function pcmRms(pcm: Buffer): number {
-  const samples = Math.floor(pcm.length / 2);
-  if (samples <= 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < samples; i++) {
-    const sample = pcm.readInt16LE(i * 2) / 32768;
-    sum += sample * sample;
-  }
-  return Math.sqrt(sum / samples);
-}
-
-function pcmPeak(pcm: Buffer): number {
-  const samples = Math.floor(pcm.length / 2);
-  if (samples <= 0) return 0;
-  let peak = 0;
-  for (let i = 0; i < samples; i++) {
-    const abs = Math.abs(pcm.readInt16LE(i * 2) / 32768);
-    if (abs > peak) peak = abs;
-  }
-  return peak;
-}
+const DUPLEX_RAW_FALLBACK_MAX_MS = 15_000;
 
 export class ConnectionSession {
   readonly connId: string;
@@ -372,6 +124,9 @@ export class ConnectionSession {
   duplexActive: boolean = false;
   speechBuffer: Buffer[] = [];
   private speechBufferBytes: number = 0;
+  private duplexRawChunks: Buffer[] = [];
+  private duplexRawBytes = 0;
+  private duplexRawStrongFrames = 0;
 
   /** Last ~VAD_PRE_ROLL_MS of PCM before speech_start (same chunks client sends). */
   private preRollChunks: Buffer[] = [];
@@ -414,6 +169,7 @@ export class ConnectionSession {
   private predictionAbort: AbortController | null = null;
   private currentPartialText: string = "";
   private predictedReply: string = "";
+  private predictedStructuredAnalysis: TurnAnalysisBundle | null = null;
   private turnTakingState: TurnTakingState = "CONFIRMED_END";
   private lastMeaningfulPartialText = "";
   private lastMeaningfulPartialAt = 0;
@@ -464,120 +220,39 @@ export class ConnectionSession {
     this.interrupt = new InterruptController();
     this.avatar = new AvatarController();
     this.storageUserId = resolveRequestUserId(req);
+    this.brain.setUserId(this.storageUserId);
 
     this.setupVadEvents();
     this.setupMessageHandlers();
     this.setupCloseHandlers();
   }
 
-  private serializeHistoryCursor(cursor: UserMessageHistoryCursor | null): HistoryCursorPayload | null {
-    if (!cursor) return null;
-    return {
-      id: cursor.id,
-      createdAt: cursor.created_at.toISOString(),
-    };
-  }
-
-  private parseHistoryCursor(raw: unknown): UserMessageHistoryCursor | null {
-    if (!raw || typeof raw !== "object") return null;
-    const id = typeof (raw as HistoryCursorPayload).id === "string" ? (raw as HistoryCursorPayload).id.trim() : "";
-    const createdAtRaw =
-      typeof (raw as HistoryCursorPayload).createdAt === "string"
-        ? (raw as HistoryCursorPayload).createdAt.trim()
-        : "";
-    if (!id || !createdAtRaw) return null;
-    const createdAt = new Date(createdAtRaw);
-    if (Number.isNaN(createdAt.getTime())) return null;
-    return {
-      id,
-      created_at: createdAt,
-    };
-  }
-
   private async sendHistoryPage(
     mode: "replace" | "prepend",
     cursor?: UserMessageHistoryCursor | null,
   ): Promise<void> {
-    if (!isDbReady()) return;
-    const page = await getUserMessagesPage(this.storageUserId, HISTORY_PAGE_SIZE, cursor);
-    send(this.ws, {
-      type: "history_page",
+    await sendSessionHistoryPage({
+      ws: this.ws,
+      storageUserId: this.storageUserId,
+      connId: this.connId,
+      pageSize: HISTORY_PAGE_SIZE,
       mode,
-      messages: page.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.created_at.toISOString(),
-      })),
-      hasMore: page.hasMore,
-      nextCursor: this.serializeHistoryCursor(page.nextCursor),
+      cursor,
     });
-    if (page.messages.length > 0) {
-      logger.debug("[Memory] history page sent", {
-        connId: this.connId,
-        userId: this.storageUserId,
-        mode,
-        messageCount: page.messages.length,
-        hasMore: page.hasMore,
-      });
-    }
   }
 
   async initializeAsync(): Promise<void> {
     logger.info("[Remi] 新客户端已连接", { connId: this.connId, userId: this.storageUserId });
-
-    if (isDbReady()) {
-      try {
-        const userId = await ensureStorageUser(this.storageUserId);
-        this.brain.setUserId(userId);
-        const sess = await createDbSession(userId);
-        this.sessionId = sess.id;
-        logger.info("[Storage] Session created", { sessionId: this.sessionId, userId });
-
-        const persistentRepo = getPgMemoryRepository(userId);
-        if (relationshipStateEnabled()) {
-          this.brain.attachPersistentRelationshipRepo(persistentRepo);
-          const persistedState = await loadPersistentRelationshipState(persistentRepo);
-          if (persistedState) {
-            this.brain.hydratePersistentRelationshipState(persistedState);
-            logger.debug("[Memory] relationship state restored", {
-              connId: this.connId,
-              sessionId: this.sessionId,
-              turns: persistedState.relationship.turnCount,
-            });
-          }
-        }
-
-        if (persistentMemoryOverlayEnabled()) {
-          this.brain.memory.attachPersistent(persistentRepo);
-          void this.brain.memory
-            .hydrateFromPersistent(persistentMemoryPreloadLimit())
-            .then(() => {
-              logger.debug("[Memory] persistent facts hydrated into session overlay", {
-                connId: this.connId,
-                sessionId: this.sessionId,
-              });
-            });
-        }
-
-        try {
-          const recentPage = await getUserMessagesPage(userId, HISTORY_PAGE_SIZE);
-          if (recentPage.messages.length > 0) {
-            this.brain.hydrateHistoryFromDb(recentPage.messages);
-            logger.debug("[Memory] conversation history restored", {
-              connId: this.connId,
-              userId,
-              messageCount: recentPage.messages.length,
-            });
-          }
-          await this.sendHistoryPage("replace");
-        } catch (err) {
-          logger.warn("[Storage] Failed to restore conversation history", { error: err });
-        }
-      } catch (err) {
-        logger.warn("[Storage] Failed to create session", { error: err });
-      }
-    }
+    await initializeSessionStorage({
+      connId: this.connId,
+      storageUserId: this.storageUserId,
+      brain: this.brain,
+      historyPageSize: HISTORY_PAGE_SIZE,
+      setSessionId: (sessionId) => {
+        this.sessionId = sessionId;
+      },
+      sendHistoryPage: (mode) => this.sendHistoryPage(mode),
+    });
   }
 
   private pushSpeechChunk(chunk: Buffer): void {
@@ -624,6 +299,7 @@ export class ConnectionSession {
     }
     this.currentPartialText = "";
     this.predictedReply = "";
+    this.predictedStructuredAnalysis = null;
   }
 
   private resetPreviewState(): void {
@@ -687,6 +363,39 @@ export class ConnectionSession {
     this.utteranceMaxRms = 0;
     this.utteranceMaxPeak = 0;
     this.lastVadStartMode = null;
+    this.clearDuplexRawBuffer();
+  }
+
+  private clearDuplexRawBuffer(): void {
+    this.duplexRawChunks = [];
+    this.duplexRawBytes = 0;
+    this.duplexRawStrongFrames = 0;
+  }
+
+  private appendDuplexRawChunk(pcm: Buffer): void {
+    const maxBytes = Math.floor((this.duplexSampleRate * 2 * DUPLEX_RAW_FALLBACK_MAX_MS) / 1000);
+    this.duplexRawBytes = appendChunkWithByteCap(
+      this.duplexRawChunks,
+      this.duplexRawBytes,
+      pcm,
+      maxBytes,
+    );
+  }
+
+  private shouldAttemptNoVadDuplexFallback(): boolean {
+    const durationMs = (this.duplexRawBytes / 2 / this.duplexSampleRate) * 1000;
+    return shouldAttemptNoVadDuplexFallback({
+      speechBufferLength: this.speechBuffer.length,
+      duplexRxFrames: this.duplexRxFrames,
+      duplexRxVadStarts: this.duplexRxVadStarts,
+      durationMs,
+      rawStrongFrames: this.duplexRawStrongFrames,
+      strongRatio: strongFrameRatio(this.duplexRxFrames, this.duplexRawStrongFrames),
+      maxRms: this.duplexRxMaxRms,
+      minSpeechMs: minSpeechMs(),
+      minStrongFrames: strictCandidateMinStrongFrames(),
+      minStrongRatio: strictCandidateMinStrongRatio(),
+    });
   }
 
   private armSuppressedNoiseCooldown(reason: string, mode?: string | null): void {
@@ -715,6 +424,7 @@ export class ConnectionSession {
       lastPeak: Number(this.duplexRxLastPeak.toFixed(4)),
       maxRms: Number(this.duplexRxMaxRms.toFixed(4)),
       vadStarts: this.duplexRxVadStarts,
+      rawStrongFrames: this.duplexRawStrongFrames,
       speaking: this.vad.speaking,
     });
   }
@@ -767,68 +477,44 @@ export class ConnectionSession {
       force?: boolean;
     },
   ): void {
-    const now = Date.now();
-    const preview = extras?.preview?.trim();
-    if (!extras?.force && this.lastPublishedTurnState === state && this.lastPublishedTurnReason === reason) {
-      if (!preview && !extras?.interruptionType) {
-        return;
-      }
-    }
-    const previousState = this.turnState;
-    const previousReason = this.lastPublishedTurnReason;
-    const stateEnteredAt = this.turnStateEnteredAt || now;
-    const timing = buildTurnTimingSnapshot({
-      previousState,
-      nextState: state,
-      reason,
-      nowMs: now,
-      stateEnteredAtMs: stateEnteredAt,
-      speechStartAtMs: this.lastSpeechStartAt || null,
-      speechEndAtMs: this.lastSpeechEndAt || null,
-      sttFinalAtMs: this.lastSttFinalAt || null,
-      assistantEnterAtMs: this.lastAssistantEnterAt || null,
-      playbackStartAtMs: this.lastPlaybackStartAt || null,
-      partialGrowthAtMs: this.lastMeaningfulGrowthAt || null,
-      partialUpdateAtMs: this.lastMeaningfulPartialAt || null,
-    });
-    this.turnState = state;
-    if (previousState !== state || this.turnStateEnteredAt === 0) {
-      this.turnStateEnteredAt = now;
-    }
-    if (state === "assistant_entering") {
-      this.lastAssistantEnterAt = now;
-    } else if (state === "assistant_speaking") {
-      this.lastPlaybackStartAt = now;
-    }
-    this.lastPublishedTurnState = state;
-    this.lastPublishedTurnReason = reason;
-    logger.info("[TurnState]", {
-      connId: this.connId,
-      state,
-      reason,
-      generationId: extras?.generationId,
-      preview: preview || undefined,
-      interruptionType: extras?.interruptionType ?? undefined,
-    });
-    const shouldLogTiming =
-      previousState !== state || previousReason !== reason || extras?.force;
-    if (shouldLogTiming) {
-      logger.info("[TurnTiming]", {
+    publishSessionTurnState(
+      {
         connId: this.connId,
-        state,
-        reason,
-        generationId: extras?.generationId,
-        metrics: timing,
-      });
-    }
-    send(this.ws, {
-      type: "turn_state",
+        ws: this.ws,
+        turnState: this.turnState,
+        lastPublishedTurnState: this.lastPublishedTurnState,
+        lastPublishedTurnReason: this.lastPublishedTurnReason,
+        turnStateEnteredAt: this.turnStateEnteredAt,
+        lastSpeechStartAt: this.lastSpeechStartAt,
+        lastSpeechEndAt: this.lastSpeechEndAt,
+        lastSttFinalAt: this.lastSttFinalAt,
+        lastAssistantEnterAt: this.lastAssistantEnterAt,
+        lastPlaybackStartAt: this.lastPlaybackStartAt,
+        lastMeaningfulGrowthAt: this.lastMeaningfulGrowthAt,
+        lastMeaningfulPartialAt: this.lastMeaningfulPartialAt,
+        setTurnState: (next) => {
+          this.turnState = next;
+        },
+        setTurnStateEnteredAt: (timestamp) => {
+          this.turnStateEnteredAt = timestamp;
+        },
+        setLastAssistantEnterAt: (timestamp) => {
+          this.lastAssistantEnterAt = timestamp;
+        },
+        setLastPlaybackStartAt: (timestamp) => {
+          this.lastPlaybackStartAt = timestamp;
+        },
+        setLastPublishedTurnState: (next) => {
+          this.lastPublishedTurnState = next;
+        },
+        setLastPublishedTurnReason: (next) => {
+          this.lastPublishedTurnReason = next;
+        },
+      },
       state,
       reason,
-      generationId: extras?.generationId,
-      preview: preview || undefined,
-      interruptionType: extras?.interruptionType ?? undefined,
-    });
+      extras,
+    );
   }
 
   private maybeSendBackchannel(input: {
@@ -921,154 +607,37 @@ export class ConnectionSession {
   }
 
   private trackTurnTakingPartial(content: string): void {
-    const preview = getMeaningfulTurnPreview(content);
-    if (!preview) return;
-
-    const normalized = normalizeSpeechText(preview);
-    if (!normalized) return;
-
-    const now = Date.now();
-    const prevNormalized = normalizeSpeechText(this.lastMeaningfulPartialText);
-    let deltaChars = normalized.length;
-    if (!this.lastMeaningfulPartialText || normalized !== prevNormalized) {
-      this.lastMeaningfulGrowthAt = now;
-      if (prevNormalized && normalized.startsWith(prevNormalized)) {
-        deltaChars = Math.max(0, normalized.length - prevNormalized.length);
-        this.lastMeaningfulGrowthChars = deltaChars;
-        this.recentPartialPlateauCount =
-          deltaChars > 0 && deltaChars <= 2 ? this.recentPartialPlateauCount + 1 : 0;
-      } else {
-        this.lastMeaningfulGrowthChars = normalized.length;
-        deltaChars = normalized.length;
-        this.recentPartialPlateauCount = 0;
-      }
-    }
-    this.lastMeaningfulPartialText = preview;
-    this.lastMeaningfulPartialAt = now;
-    this.partialShapeSamples.push({
-      at: now,
-      normalizedLength: normalized.length,
-      deltaChars,
-      semanticallyComplete: isSemanticallyCompletePreview(preview),
+    const nextState = updatePartialTrackingState({
+      content,
+      lastMeaningfulPartialText: this.lastMeaningfulPartialText,
+      lastMeaningfulGrowthAt: this.lastMeaningfulGrowthAt,
+      recentPartialPlateauCount: this.recentPartialPlateauCount,
+      partialShapeSamples: this.partialShapeSamples,
+      maxSamples: this.PARTIAL_SHAPE_MAX_SAMPLES,
     });
-    if (this.partialShapeSamples.length > this.PARTIAL_SHAPE_MAX_SAMPLES) {
-      this.partialShapeSamples.splice(0, this.partialShapeSamples.length - this.PARTIAL_SHAPE_MAX_SAMPLES);
-    }
+    if (!nextState) return;
+
+    this.lastMeaningfulPartialText = nextState.lastMeaningfulPartialText;
+    this.lastMeaningfulPartialAt = nextState.lastMeaningfulPartialAt;
+    this.lastMeaningfulGrowthAt = nextState.lastMeaningfulGrowthAt;
+    this.lastMeaningfulGrowthChars = nextState.lastMeaningfulGrowthChars;
+    this.recentPartialPlateauCount = nextState.recentPartialPlateauCount;
+    this.partialShapeSamples = nextState.partialShapeSamples;
   }
 
-  private getPartialShapeAggregates(): PartialShapeAggregates {
-    const samples = this.partialShapeSamples;
-    if (samples.length === 0) {
-      return {
-        partialGrowthTrend: "oscillating",
-        semanticCompletionStreak: 0,
-        smallDeltaStreak: 0,
-      };
-    }
-
-    let smallDeltaStreak = 0;
-    for (let i = samples.length - 1; i >= 0; i -= 1) {
-      if (samples[i].deltaChars > 0 && samples[i].deltaChars <= 2) {
-        smallDeltaStreak += 1;
-      } else {
-        break;
-      }
-    }
-
-    let semanticCompletionStreak = 0;
-    for (let i = samples.length - 1; i >= 0; i -= 1) {
-      if (samples[i].semanticallyComplete) {
-        semanticCompletionStreak += 1;
-      } else {
-        break;
-      }
-    }
-
-    let positiveSteps = 0;
-    let negativeSteps = 0;
-    for (let i = 1; i < samples.length; i += 1) {
-      const delta = samples[i].normalizedLength - samples[i - 1].normalizedLength;
-      if (delta > 0) positiveSteps += 1;
-      if (delta < 0) negativeSteps += 1;
-    }
-
-    const trailing = samples.slice(-3);
-    const trailingTinyDelta = trailing.every((entry) => entry.deltaChars <= 2);
-    let partialGrowthTrend: PartialGrowthTrend = "oscillating";
-    if (smallDeltaStreak >= 2 || trailingTinyDelta) {
-      partialGrowthTrend = "plateau";
-    } else if (positiveSteps > 0 && negativeSteps === 0) {
-      partialGrowthTrend = "expanding";
-    }
-
-    return { partialGrowthTrend, semanticCompletionStreak, smallDeltaStreak };
-  }
-
-  private classifyPredictionInterruptionType(text: string): InterruptionType | null {
+  private resolvePredictionGate(text: string): PredictionGate {
     const interruptedReply =
       this.brain.lastInterruptedReply?.trim() ||
       this.brain.currentAssistantDraft?.trim() ||
       null;
-    if (text.trim()) {
-      return classifyInterruption(text, interruptedReply);
-    }
-    return this.lastInterruptionType;
-  }
-
-  private resolvePredictionGate(text: string): PredictionGate {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return { allow: false, mode: "full", debounceMs: this.predictionDebounceMs, includeCarryForwardHint: true, reason: "empty_partial" };
-    }
-    const aggregates = this.getPartialShapeAggregates();
-    const interruptionType = this.classifyPredictionInterruptionType(trimmed);
-    const explicitCarryForward = CARRY_FORWARD_CUE_RE.test(trimmed);
-    const isHold = this.turnTakingState === "HOLD";
-
-    if (
-      isHold &&
-      !explicitCarryForward &&
-      aggregates.partialGrowthTrend === "expanding" &&
-      aggregates.semanticCompletionStreak === 0
-    ) {
-      return { allow: false, mode: "full", debounceMs: this.predictionDebounceMs, includeCarryForwardHint: true, reason: "hold_expanding_partial" };
-    }
-    if (
-      isHold &&
-      aggregates.partialGrowthTrend === "oscillating" &&
-      aggregates.semanticCompletionStreak === 0 &&
-      aggregates.smallDeltaStreak < 2
-    ) {
-      return { allow: false, mode: "full", debounceMs: this.predictionDebounceMs, includeCarryForwardHint: true, reason: "hold_oscillating_partial" };
-    }
-
-    if (interruptionType === "topic_switch") {
-      if (isHold && aggregates.semanticCompletionStreak === 0) {
-        return { allow: false, mode: "short", debounceMs: Math.max(120, Math.floor(this.predictionDebounceMs * 0.8)), includeCarryForwardHint: false, reason: "topic_switch_not_stable" };
-      }
-      return { allow: true, mode: "short", debounceMs: Math.max(120, Math.floor(this.predictionDebounceMs * 0.8)), includeCarryForwardHint: false, reason: "topic_switch" };
-    }
-    if (interruptionType === "correction" || interruptionType === "emotional_interrupt") {
-      return {
-        allow: true,
-        mode: "short",
-        debounceMs: Math.max(100, Math.floor(this.predictionDebounceMs * 0.65)),
-        includeCarryForwardHint: interruptionType === "correction",
-        reason: interruptionType,
-      };
-    }
-
-    if (isHold && aggregates.partialGrowthTrend !== "plateau" && this.turnTakingState !== "LIKELY_END") {
-      return { allow: false, mode: "full", debounceMs: this.predictionDebounceMs, includeCarryForwardHint: true, reason: "hold_without_plateau" };
-    }
-
-    return {
-      allow: true,
-      mode: "full",
-      debounceMs: this.predictionDebounceMs,
-      includeCarryForwardHint: true,
-      reason: "stable_enough",
-    };
+    return resolvePredictionGate({
+      text,
+      predictionDebounceMs: this.predictionDebounceMs,
+      turnTakingState: this.turnTakingState,
+      aggregates: getPartialShapeAggregates(this.partialShapeSamples),
+      interruptedReply,
+      lastInterruptionType: this.lastInterruptionType,
+    });
   }
 
   private async runPrediction(
@@ -1083,19 +652,45 @@ export class ConnectionSession {
     this.currentPartialText = text;
     const abort = new AbortController();
     this.predictionAbort = abort;
+    const traceId = this.pendingVoiceTraceId ?? this.activeTraceId;
+    const latencyTracer = traceId ? getLatencyTracer(this.connId) : null;
     try {
       logger.debug("[预判] 开始预判", { text: text.slice(0, 30) });
       // 和正常回复一样组装输入，但是不更新状态
+      if (latencyTracer && traceId) {
+        latencyTracer.mark("memory_recall_start", traceId);
+      }
       const memory = await retrievePromptMemory(this.brain.memory, {
         userId: this.brain.userId,
         userMessage: text,
         slowBrainSnapshot: this.brain.slowBrain.getSnapshot(),
-        maxEntries: options?.mode === "short" ? 4 : undefined,
+        maxEntries: options?.mode === "short" ? 4 : 5,
+      }).finally(() => {
+        if (latencyTracer && traceId) {
+          latencyTracer.mark("memory_recall_end", traceId);
+        }
       });
       const slowBrainContext = this.brain.slowBrain.synthesizeContext();
-      const historyForPrompt = trimHistoryToTokenBudget([...this.brain.history]);
+      const historyForPrompt = trimHistoryToTokenBudget(
+        [...this.brain.history],
+        options?.mode === "short" ? 1000 : 1200,
+      );
       const predictionHistory =
         options?.mode === "short" ? historyForPrompt.slice(-4) : historyForPrompt;
+      if (latencyTracer && traceId) {
+        latencyTracer.mark("turn_analysis_start", traceId);
+      }
+      const analysis = await analyzeTurn({
+        userMessage: text,
+        history: predictionHistory,
+        slowBrainSnapshot: this.brain.slowBrain.getSnapshot(),
+        inputSource: "voice",
+        signal: abort.signal,
+      }).finally(() => {
+        if (latencyTracer && traceId) {
+          latencyTracer.mark("turn_analysis_end", traceId);
+        }
+      });
       const interruptedReply =
         this.brain.lastInterruptedReply?.trim() ||
         this.brain.currentAssistantDraft?.trim() ||
@@ -1104,7 +699,10 @@ export class ConnectionSession {
         options?.includeCarryForwardHint !== false && interruptedReply
         ? buildCarryForwardHint(classifyInterruption(text, interruptedReply), interruptedReply)
         : undefined;
-      const guidance = this.brain.slowBrain.buildConversationGuidance(text);
+      const guidance = this.brain.slowBrain.buildConversationGuidance(
+        text,
+        analysis?.used ? analysis : null,
+      );
       const reply = await fastBrainPredictOnly({
         userMessage: text,
         emotion: this.brain.emotion.getEmotion(),
@@ -1123,6 +721,7 @@ export class ConnectionSession {
       });
       if (abort.signal.aborted) return;
       this.predictedReply = reply;
+      this.predictedStructuredAnalysis = analysis?.used ? analysis : null;
       logger.debug("[预判] 完成", { preview: reply.slice(0, 30) });
       // 如果开启推送，把预判结果推到前端（调试用）
       if (this.predictionPushEnabled && reply) {
@@ -1243,36 +842,11 @@ export class ConnectionSession {
   }
 
   private resolveUtteranceGapMs(speechDurationMs: number): number {
-    const base = effectiveUtteranceGapMs(speechDurationMs);
-    if (base <= 0) return 0;
-
-    const preview = this.lastPreviewText.trim();
-    if (!preview) return base;
-
-    const holdMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_HOLD_MS, 140);
-    const releaseMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS, 60);
-    const minMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_MIN_MS, 80);
-    const maxMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_MAX_MS, 520);
-    const tentative = isTentativeSpeechText(preview);
-    const sentenceClosed = endsWithSentencePunctuation(preview);
-    let gap = base;
-
-    if (tentative) {
-      gap = Math.max(gap, hesitationHoldMs());
-    } else if (sentenceClosed) {
-      gap = Math.max(minMs, base - releaseMs);
-    } else if (preview.length >= 8) {
-      gap = Math.min(maxMs, base + holdMs);
-    }
-
-    const settleMs = sttPreviewSettleMs();
-    if (settleMs > 0 && !sentenceClosed && this.lastPreviewAt > 0) {
-      const age = Date.now() - this.lastPreviewAt;
-      if (age < settleMs) {
-        gap = Math.max(gap, settleMs - age);
-      }
-    }
-    return gap;
+    return resolveUtteranceGapMs({
+      speechDurationMs,
+      lastPreviewText: this.lastPreviewText,
+      lastPreviewAt: this.lastPreviewAt,
+    });
   }
 
   private resolveTurnTakingDecision(speechDurationMs: number): {
@@ -1314,7 +888,7 @@ export class ConnectionSession {
     const emotionalInterruptBias = interruptionPreviewType === "emotional_interrupt";
     const topicSwitchBias = interruptionPreviewType === "topic_switch";
     const now = Date.now();
-    const partialShape = this.getPartialShapeAggregates();
+    const partialShape = getPartialShapeAggregates(this.partialShapeSamples);
     const growthPlateauMs =
       this.lastMeaningfulGrowthAt > 0 ? Math.max(0, now - this.lastMeaningfulGrowthAt) : null;
     const baseGap = continuityBias
@@ -1500,146 +1074,31 @@ export class ConnectionSession {
 
   /** 判断是否处于连续对话状态（近3轮有交互且未超时） */
   private isContinuousConversation(): boolean {
-    const now = Date.now();
-    return this.recentInteractionCount >= this.CONTINUOUS_CONVERSATION_THRESHOLD && 
-           (now - this.lastInteractionAt) < this.CONTINUOUS_CONVERSATION_TIMEOUT;
+    return isContinuousConversation(this.buildContinuityRuntime());
   }
 
   /** 同步VAD静默阈值到当前对话状态 */
   private syncVadSilenceThreshold(): void {
-    const threshold = this.isContinuousConversation() 
-      ? this.VAD_CONTINUOUS_SILENCE_FRAMES 
-      : this.VAD_DEFAULT_SILENCE_FRAMES;
-    this.vad.setSpeakingSilenceFrames(threshold);
+    syncSessionVadSilenceThreshold(this.buildContinuityRuntime());
   }
 
   /** 用户每次发文字或语音被识别后调用，重新计时沉默搭话和连续对话状态 */
   private touchUserActivity(userMessage?: string): void {
-    this.clearSilenceNudgeTimer();
-    const ms = silenceNudgeMs();
-    this.brain.slowBrain.recordUserTurnActivity(userMessage);
-    if (ms <= 0) return;
-    this.silenceNudgeTimer = setTimeout(() => this.fireSilenceNudge(), ms);
-
-    // 更新连续对话状态
-    this.lastInteractionAt = Date.now();
-    this.recentInteractionCount = Math.min(this.recentInteractionCount + 1, this.CONTINUOUS_CONVERSATION_THRESHOLD);
-    this.syncVadSilenceThreshold();
+    touchSessionUserActivity(this.buildContinuityRuntime(), userMessage);
   }
 
   /**
    * 沉默超时：串进 pipelineChain，与用户消息互斥；结束后继续计时下一轮。
    */
   private fireSilenceNudge(): void {
-    this.silenceNudgeTimer = null;
-    const ms = silenceNudgeMs();
-    if (ms <= 0) return;
-
-    if (this.interrupt.active) {
-      this.silenceNudgeTimer = setTimeout(() => this.fireSilenceNudge(), 8000);
-      return;
-    }
-
-    const legacyGatePlan = this.brain.slowBrain.buildSilenceNudgePlan();
-    if (!legacyGatePlan) {
-      this.silenceNudgeTimer = setTimeout(() => this.fireSilenceNudge(), ms);
-      return;
-    }
-
-    logger.info("[陪伴] 沉默搭话", { connId: this.connId });
-    this.pipelineChain = this.pipelineChain
-      .then(async () => {
-        const legacyPlan = this.brain.slowBrain.buildSilenceNudgePlan();
-        if (!legacyPlan) {
-          return;
-        }
-
-        let nudgePlan = legacyPlan;
-        if (proactivePlannerMainPathEnabled()) {
-          try {
-            const proactivePlan = await planProactiveNudge(
-              this.brain.userId,
-              this.brain.slowBrain.getSnapshot(),
-            );
-            if (proactivePlan) {
-              nudgePlan = {
-                userMessage: buildSilenceNudgeUserMessage(proactivePlan),
-                proactiveCandidate:
-                  proactivePlan.mode === "presence" ? undefined : proactivePlan.text,
-                proactiveCandidateKey: proactivePlan.ledgerKey,
-                sharedMomentCandidate: undefined,
-                strategyMode: proactivePlan.mode,
-              };
-            }
-          } catch (err) {
-            logger.warn("[陪伴] proactive planner failed, fallback to legacy nudge plan", {
-              error: (err as Error).message,
-              connId: this.connId,
-            });
-          }
-        }
-
-        const generationId = this.nextGenerationId();
-        const traceId = this.createTraceId("silence_nudge", generationId);
-        this.bindActiveGeneration(generationId, traceId, "silence_nudge");
-        await runPipeline(
-          this.ws,
-          nudgePlan.userMessage,
-          this.interrupt,
-          this.avatar,
-          this.sessionId,
-          this.brain,
-          generationId,
-          traceId,
-          { silenceNudge: true },
-        );
-
-        const completedWithoutInterrupt =
-          !this.interrupt.active &&
-          this.brain.lastInterruptedReply === null;
-        if (completedWithoutInterrupt) {
-          this.brain.slowBrain.recordProactiveOutreach(
-            nudgePlan.strategyMode,
-            nudgePlan.proactiveCandidateKey,
-          );
-          this.brain.slowBrain.markContinuityCueUsed({
-            proactiveCandidate: nudgePlan.proactiveCandidate,
-            sharedMomentCandidate: nudgePlan.sharedMomentCandidate,
-          });
-          await this.persistRelationshipContinuityState();
-        }
-      })
-      .catch((err) => {
-        logger.warn("[陪伴] 沉默搭话失败", {
-          error: (err as Error).message,
-          connId: this.connId,
-        });
-      })
-      .finally(() => {
-        if (silenceNudgeMs() > 0) {
-          this.silenceNudgeTimer = setTimeout(() => this.fireSilenceNudge(), ms);
-        }
-      });
+    fireSessionSilenceNudge(this.buildContinuityRuntime());
   }
 
   private async persistRelationshipContinuityState(): Promise<void> {
-    if (!relationshipStateEnabled()) return;
-    const relationshipRepo =
-      this.brain.persistentRelationshipRepo ??
-      this.brain.memory.getPersistentBackend() ??
-      this.brain.memory;
-
-    try {
-      await savePersistentRelationshipState(
-        relationshipRepo,
-        this.brain.slowBrain.exportPersistentState(),
-      );
-    } catch (err) {
-      logger.warn("[陪伴] 连续性状态持久化失败", {
-        error: (err as Error).message,
-        connId: this.connId,
-      });
-    }
+    await persistRelationshipContinuityState({
+      connId: this.connId,
+      brain: this.brain,
+    });
   }
 
   /** Feed accumulated speechBuffer into STT and run pipeline (buffer cleared after feed). */
@@ -1707,69 +1166,12 @@ export class ConnectionSession {
             this.resetPreviewState();
             return;
           }
-          const generationId = this.nextGenerationId();
-          this.bindActiveGeneration(generationId, traceId, "voice");
-          this.lastSttFinalAt = Date.now();
-          getLatencyTracer(this.connId).mark("stt_final", traceId);
-          send(this.ws, { type: "stt_final", content: text });
-          logger.info(`[用户·语音] ${text}`, { connId: this.connId });
-          this.touchUserActivity(text);
-          const { interruptionType, carryForwardHint } = this.classifyCarryForward(text);
-          this.publishTurnState("assistant_entering", "tts_prepare", {
-            generationId,
-            interruptionType,
-            force: true,
+          await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
+            text,
+            traceId,
+            allowPredictionReuse: true,
+            clearPredictionAfterRun: true,
           });
-
-          // 优先使用预判结果，如果存在且匹配
-          const hasValidPrediction = this.predictedReply && 
-            text.startsWith(this.currentPartialText) && 
-            this.currentPartialText.length > 3;
-          if (hasValidPrediction) {
-            logger.info("[预判] 命中，复用提前生成的回复", { 
-              partial: this.currentPartialText.slice(0, 30),
-              final: text.slice(0, 30),
-              replyPreview: this.predictedReply.slice(0, 30)
-            });
-            // 直接把预判结果传给管线，跳过LLM调用
-            await runPipeline(
-              this.ws,
-              text,
-              this.interrupt,
-              this.avatar,
-              this.sessionId,
-              this.brain,
-              generationId,
-              traceId,
-              {
-                pregeneratedReply: this.predictedReply,
-                carryForwardHint,
-                interruptionType: interruptionType ?? undefined,
-              }
-            );
-          } else {
-            logger.debug("[预判] 未命中，走正常生成流程", {
-              hasPrediction: !!this.predictedReply,
-              partialLength: this.currentPartialText.length
-            });
-            // 没有预判结果，走正常流程
-            await runPipeline(
-              this.ws,
-              text,
-              this.interrupt,
-              this.avatar,
-              this.sessionId,
-              this.brain,
-              generationId,
-              traceId,
-              {
-                carryForwardHint,
-                interruptionType: interruptionType ?? undefined,
-              },
-            );
-          }
-          // 用完清空预判状态
-          this.cancelPrediction();
         } catch (err) {
           logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });
           send(this.ws, { type: "error", content: "语音识别失败：" + (err as Error).message });
@@ -1948,191 +1350,160 @@ export class ConnectionSession {
   }
 
   private setupMessageHandlers(): void {
-    this.ws.on("message", (raw) => {
-      const binary = this.parseBinaryAudioFrame(raw);
-      if (binary) {
-        this.handleAudioPcm(binary.pcm, binary.sampleRate);
-        return;
-      }
-
-      let data: any;
-      try {
-        data = JSON.parse(raw.toString());
-      } catch {
-        data = { type: "chat", content: raw.toString() };
-      }
-
-      const bypassRateLimit =
-        data.type === "audio_stream" ||
-        data.type === "audio_chunk" ||
-        data.type === "playback_start";
-      if (!bypassRateLimit) {
-        const limiter = getWsRateLimiter();
-        if (limiter && !limiter.check(this.connId)) {
-          send(this.ws, { type: "error", content: "消息频率过高，请稍后再试" });
-          return;
-        }
-      }
-
-      switch (data.type) {
-        case "history_more":
-          void this.sendHistoryPage("prepend", this.parseHistoryCursor(data.cursor)).catch((err) => {
-            logger.warn("[Storage] Failed to load older history", {
-              error: err,
-              connId: this.connId,
-              userId: this.storageUserId,
-            });
-            send(this.ws, { type: "error", content: "加载历史记录失败，请稍后重试" });
-          });
-          break;
-        case "dev_apply_preset":
-          if (!devPresetCommandsEnabled()) {
-            send(this.ws, { type: "error", content: "开发预设命令已禁用" });
-            break;
-          }
-          this.runDevCommand(this.handleDevApplyPreset(data));
-          break;
-        case "dev_reset_state":
-          if (!devPresetCommandsEnabled()) {
-            send(this.ws, { type: "error", content: "开发预设命令已禁用" });
-            break;
-          }
-          this.runDevCommand(this.handleDevResetState(data));
-          break;
-        case "duplex_start":
-          this.handleDuplexStart(data);
-          break;
-        case "duplex_stop":
-          this.handleDuplexStop();
-          break;
-        case "audio_stream":
-          this.handleAudioStream(data);
-          break;
-        case "audio_chunk":
-          this.handleAudioChunk(data);
-          break;
-        case "audio_end":
-          this.handleAudioEnd();
-          break;
-        case "playback_start":
-          this.handlePlaybackStart(data);
-          break;
-        default:
-          this.handleChat(data);
-          break;
-      }
+    attachSessionMessageHandlers({
+      ws: this.ws,
+      connId: this.connId,
+      storageUserId: this.storageUserId,
+      parseHistoryCursor,
+      sendHistoryPage: (mode, cursor) => this.sendHistoryPage(mode, cursor),
+      handleAudioPcm: (pcm, sampleRate) => this.handleAudioPcm(pcm, sampleRate),
+      runDevApplyPreset: (data) => {
+        this.runDevCommand(this.handleDevApplyPreset(data));
+      },
+      runDevResetState: (data) => {
+        this.runDevCommand(this.handleDevResetState(data));
+      },
+      handleDuplexStart: (data) => this.handleDuplexStart(data),
+      handleDuplexStop: () => this.handleDuplexStop(),
+      handleAudioStream: (data) => this.handleAudioStream(data),
+      handleAudioChunk: (data) => this.handleAudioChunk(data),
+      handleAudioEnd: () => this.handleAudioEnd(),
+      handlePlaybackStart: (data) => this.handlePlaybackStart(data),
+      handleChat: (data) => this.handleChat(data),
     });
   }
 
   private runDevCommand(task: Promise<void>): void {
-    void task.catch((err) => {
-      logger.warn("[DevPreset] command failed", {
-        error: (err as Error).message,
-        connId: this.connId,
-      });
-      send(this.ws, { type: "error", content: "开发预设操作失败，请稍后重试" });
-    });
+    runSessionDevCommand(this.connId, this.ws, task);
   }
 
   private resetDeveloperLiveState(): void {
-    this.cancelPrediction();
-    this.clearPendingUtteranceTimer();
-    this.clearSilenceNudgeTimer();
-    this.resetPreviewState();
-    this.clearSpeechBuffer();
-    this.preRollChunks = [];
-    this.preRollBytes = 0;
-    this.turnTakingState = "CONFIRMED_END";
-    this.predictedReply = "";
-    this.currentPartialText = "";
-    this.interrupt.interrupt();
-    this.brain.resetSessionArtifacts();
-    this.activeGenerationId = null;
-    this.activeTraceId = null;
-    this.publishTurnState("confirmed_end", "confirmed_end", { force: true });
-  }
-
-  private async clearPersistentRelationshipState(): Promise<void> {
-    const repo =
-      this.brain.persistentRelationshipRepo ??
-      this.brain.memory.getPersistentBackend();
-    if (!repo) return;
-    await repo.delete(RELATIONSHIP_STATE_KEY);
-  }
-
-  private async handleDevApplyPreset(data: any): Promise<void> {
-    const personaPreset =
-      typeof data.personaPreset === "string" ? data.personaPreset.trim() : "";
-    const relationshipPreset =
-      typeof data.relationshipPreset === "string" ? data.relationshipPreset.trim() : "";
-    const resetScope =
-      data.resetScope === "all" || data.resetScope === "relationship" || data.resetScope === "session"
-        ? data.resetScope
-        : "session";
-
-    if (personaPreset) {
-      if (!isPersonaPresetId(personaPreset)) {
-        send(this.ws, { type: "error", content: `未知 personaPreset：${personaPreset}` });
-        return;
-      }
-    }
-
-    if (relationshipPreset) {
-      if (!isRelationshipPresetId(relationshipPreset)) {
-        send(this.ws, { type: "error", content: `未知 relationshipPreset：${relationshipPreset}` });
-        return;
-      }
-    }
-
-    this.resetDeveloperLiveState();
-
-    if (resetScope === "all") {
-      await this.brain.memory.clearLocal();
-      await this.clearPersistentRelationshipState();
-      this.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-    } else if (resetScope === "relationship") {
-      await this.clearPersistentRelationshipState();
-      this.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-    }
-
-    if (personaPreset) {
-      this.brain.applyPersonaPreset(personaPreset);
-    }
-
-    if (relationshipPreset) {
-      const state = buildRelationshipPresetState(relationshipPreset);
-      this.brain.hydratePersistentRelationshipState(state);
-      if (relationshipStateEnabled()) {
-        await this.persistRelationshipContinuityState();
-      }
-    }
-
-    send(this.ws, {
-      type: "dev_preset_applied",
-      personaPreset: personaPreset || null,
-      relationshipPreset: relationshipPreset || null,
-      resetScope,
+    resetDeveloperLiveSessionState({
+      interrupt: this.interrupt,
+      brain: this.brain,
+      cancelPrediction: () => this.cancelPrediction(),
+      clearPendingUtteranceTimer: () => this.clearPendingUtteranceTimer(),
+      clearSilenceNudgeTimer: () => this.clearSilenceNudgeTimer(),
+      resetPreviewState: () => this.resetPreviewState(),
+      clearSpeechBuffer: () => this.clearSpeechBuffer(),
+      resetPreRoll: () => {
+        this.preRollChunks = [];
+        this.preRollBytes = 0;
+      },
+      setTurnTakingConfirmedEnd: () => {
+        this.turnTakingState = "CONFIRMED_END";
+      },
+      clearPredictionDrafts: () => {
+        this.predictedReply = "";
+        this.currentPartialText = "";
+      },
+      clearActiveGeneration: () => {
+        this.activeGenerationId = null;
+        this.activeTraceId = null;
+      },
+      publishConfirmedEndTurnState: () => {
+        this.publishTurnState("confirmed_end", "confirmed_end", { force: true });
+      },
     });
   }
 
+  private async handleDevApplyPreset(data: any): Promise<void> {
+    await applyDeveloperPreset({
+      ws: this.ws,
+      brain: this.brain,
+      resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
+      persistRelationshipContinuityState: () =>
+        this.persistRelationshipContinuityState(),
+    }, data);
+  }
+
   private async handleDevResetState(data: any): Promise<void> {
-    const scope =
-      data.scope === "all" || data.scope === "relationship" || data.scope === "session"
-        ? data.scope
-        : "session";
+    await resetDeveloperState({
+      ws: this.ws,
+      brain: this.brain,
+      resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
+      persistRelationshipContinuityState: () =>
+        this.persistRelationshipContinuityState(),
+    }, data);
+  }
 
-    this.resetDeveloperLiveState();
+  private buildContinuityRuntime() {
+    return {
+      connId: this.connId,
+      ws: this.ws,
+      brain: this.brain,
+      interrupt: this.interrupt,
+      avatar: this.avatar,
+      sessionId: this.sessionId,
+      pipelineChain: this.pipelineChain,
+      setPipelineChain: (next: Promise<void>) => {
+        this.pipelineChain = next;
+      },
+      silenceNudgeTimer: this.silenceNudgeTimer,
+      setSilenceNudgeTimer: (timer: ReturnType<typeof setTimeout> | null) => {
+        this.silenceNudgeTimer = timer;
+      },
+      lastInteractionAt: this.lastInteractionAt,
+      setLastInteractionAt: (timestamp: number) => {
+        this.lastInteractionAt = timestamp;
+      },
+      recentInteractionCount: this.recentInteractionCount,
+      setRecentInteractionCount: (count: number) => {
+        this.recentInteractionCount = count;
+      },
+      continuousConversationThreshold: this.CONTINUOUS_CONVERSATION_THRESHOLD,
+      continuousConversationTimeoutMs: this.CONTINUOUS_CONVERSATION_TIMEOUT,
+      continuousSilenceFrames: this.VAD_CONTINUOUS_SILENCE_FRAMES,
+      defaultSilenceFrames: this.VAD_DEFAULT_SILENCE_FRAMES,
+      syncVadSilenceFrames: (frames: number) =>
+        this.vad.setSpeakingSilenceFrames(frames),
+      nextGenerationId: () => this.nextGenerationId(),
+      createTraceId: (
+        source: "voice" | "text" | "silence_nudge",
+        generationId?: number,
+      ) => this.createTraceId(source, generationId),
+      bindActiveGeneration: (
+        generationId: number,
+        traceId: string,
+        source: "voice" | "text" | "silence_nudge",
+      ) => this.bindActiveGeneration(generationId, traceId, source),
+    };
+  }
 
-    if (scope === "all") {
-      await this.brain.memory.clearLocal();
-      await this.clearPersistentRelationshipState();
-      this.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-    } else if (scope === "relationship") {
-      await this.clearPersistentRelationshipState();
-      this.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-    }
-
-    send(this.ws, { type: "dev_state_reset", scope });
+  private buildVoiceSubmitRuntime() {
+    return {
+      ws: this.ws,
+      connId: this.connId,
+      brain: this.brain,
+      interrupt: this.interrupt,
+      avatar: this.avatar,
+      sessionId: this.sessionId,
+      currentPartialText: this.currentPartialText,
+      predictedReply: this.predictedReply,
+      predictedStructuredAnalysis: this.predictedStructuredAnalysis,
+      nextGenerationId: () => this.nextGenerationId(),
+      bindActiveGeneration: (
+        generationId: number,
+        traceId: string,
+        source: "voice" | "text" | "silence_nudge",
+      ) => this.bindActiveGeneration(generationId, traceId, source),
+      touchUserActivity: (userMessage?: string) => this.touchUserActivity(userMessage),
+      classifyCarryForward: (userText: string) => this.classifyCarryForward(userText),
+      publishTurnState: (
+        state: RemiTurnState,
+        reason: RemiTurnStateReason,
+        extras?: {
+          generationId?: number;
+          preview?: string;
+          interruptionType?: InterruptionType | null;
+          force?: boolean;
+        },
+      ) => this.publishTurnState(state, reason, extras),
+      setLastSttFinalAt: (timestamp: number) => {
+        this.lastSttFinalAt = timestamp;
+      },
+      cancelPrediction: () => this.cancelPrediction(),
+    };
   }
 
   private handleDuplexStart(data: any): void {
@@ -2209,6 +1580,7 @@ export class ConnectionSession {
           suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
         });
         this.clearSpeechBuffer();
+        this.clearDuplexRawBuffer();
         this.pendingVoiceTraceId = null;
         this.stt.cancelPcm();
         this.armSuppressedNoiseCooldown("duplex_stop_pre_stt", this.lastVadStartMode);
@@ -2217,6 +1589,7 @@ export class ConnectionSession {
       this.stt.cancelPreview();
       for (const chunk of this.speechBuffer) this.stt.feedPcm(chunk);
       this.clearSpeechBuffer();
+      this.clearDuplexRawBuffer();
 
       this.pipelineChain = this.pipelineChain
         .then(async () => {
@@ -2268,111 +1641,106 @@ export class ConnectionSession {
               this.resetPreviewState();
               return;
             }
-            const generationId = this.nextGenerationId();
-            this.bindActiveGeneration(generationId, traceId, "voice");
-            getLatencyTracer(this.connId).mark("stt_final", traceId);
-            send(this.ws, { type: "stt_final", content: text });
-            logger.info(`[用户·语音] ${text}`, { connId: this.connId });
-            this.touchUserActivity(text);
-            const { interruptionType, carryForwardHint } = this.classifyCarryForward(text);
-            this.publishTurnState("assistant_entering", "tts_prepare", {
-              generationId,
-              interruptionType,
-              force: true,
-            });
-            await runPipeline(
-              this.ws,
+            await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
               text,
-              this.interrupt,
-              this.avatar,
-              this.sessionId,
-              this.brain,
-              generationId,
               traceId,
-              {
-                carryForwardHint,
-                interruptionType: interruptionType ?? undefined,
-              },
-            );
+              markSttFinalTimestamp: false,
+            });
           } catch (err) {
             logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });
+            send(this.ws, { type: "error", content: "语音转写失败，请重试" });
+          }
+        })
+        .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
+    } else if (this.shouldAttemptNoVadDuplexFallback()) {
+      const rawChunks = [...this.duplexRawChunks];
+      const rawDurationMs = (this.duplexRawBytes / 2 / this.duplexSampleRate) * 1000;
+      const rawFrameCount = this.duplexRxFrames;
+      const rawStrongFrames = this.duplexRawStrongFrames;
+      const rawMaxRms = this.duplexRxMaxRms;
+      this.stt.cancelPreview();
+      for (const chunk of rawChunks) this.stt.feedPcm(chunk);
+      this.clearDuplexRawBuffer();
+
+      this.pipelineChain = this.pipelineChain
+        .then(async () => {
+          const traceId = this.takeVoiceTrace();
+          try {
+            const text = await this.stt.endPcm();
+            if (!text) return;
+            if (
+              shouldSuppressStrictNoPreviewUtterance({
+                vadMode: "strict",
+                previewText: "",
+                utteranceFrameCount: rawFrameCount,
+                utteranceStrongFrames: rawStrongFrames,
+                minStrongFrames: strictCandidateMinStrongFrames(),
+                minStrongRatio: strictCandidateMinStrongRatio(),
+                recognizedText: text,
+              }) ||
+              shouldSuppressFallbackNoiseUtterance({
+                vadMode: "fallback_energy",
+                previewText: "",
+                speechDurationMs: rawDurationMs,
+                suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+                utteranceMaxRms: rawMaxRms,
+                minUtteranceRms: fallbackNoiseSuppressMinRms(),
+                utteranceFrameCount: rawFrameCount,
+                utteranceStrongFrames: rawStrongFrames,
+                minStrongFrames: fallbackMinStrongFrames(),
+                minStrongRatio: fallbackMinStrongRatio(),
+                recognizedText: text,
+                tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
+              })
+            ) {
+              logger.info("[STT] suppress no-vad duplex fallback utterance", {
+                connId: this.connId,
+                speechMs: Math.round(rawDurationMs),
+                utteranceMaxRms: Number(rawMaxRms.toFixed(4)),
+                strongFrames: rawStrongFrames,
+                totalFrames: rawFrameCount,
+                text,
+              });
+              this.pendingVoiceTraceId = null;
+              this.resetPreviewState();
+              return;
+            }
+            await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
+              text,
+              traceId,
+              logPrefix: "[用户·语音 fallback/no-vad]",
+              logMeta: {
+                speechMs: Math.round(rawDurationMs),
+                strongFrames: rawStrongFrames,
+                totalFrames: rawFrameCount,
+              },
+              markSttFinalTimestamp: false,
+            });
+          } catch (err) {
+            logger.warn("[STT fallback/no-vad]", {
+              error: (err as Error).message,
+              connId: this.connId,
+            });
+            send(this.ws, { type: "error", content: "语音转写失败，请重试" });
           }
         })
         .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
     } else {
       this.pendingVoiceTraceId = null;
+      this.clearDuplexRawBuffer();
     }
 
     logger.info("[Duplex] 已停止", { connId: this.connId });
   }
 
   private appendPreRoll(pcm: Buffer): void {
-    this.preRollChunks.push(pcm);
-    this.preRollBytes += pcm.length;
     const maxBytes = preRollMaxBytes(this.duplexSampleRate);
-    while (this.preRollBytes > maxBytes && this.preRollChunks.length > 0) {
-      const first = this.preRollChunks.shift()!;
-      this.preRollBytes -= first.length;
-    }
-  }
-
-  /**
-   * Binary audio frame formats (little-endian):
-   *
-   * V2 (current)
-   * [0..3]   magic "RAUD"
-   * [4]      version (1)
-   * [5]      codec (1 = pcm16le mono)
-   * [6..7]   reserved
-   * [8..11]  sampleRate uint32
-   * [12..15] payload byteLength uint32
-   * [16..N]  PCM16LE mono payload
-   *
-   * V1 (legacy compatibility)
-   * [0..1]   magic "RA"
-   * [2]      version (1)
-   * [3]      flags (reserved)
-   * [4..7]   sampleRate uint32
-   * [8..N]   PCM16LE mono payload
-   */
-  private parseBinaryAudioFrame(raw: unknown): { sampleRate: number; pcm: Buffer } | null {
-    const asBuffer = (value: unknown): Buffer | null => {
-      if (Buffer.isBuffer(value)) return value;
-      if (value instanceof ArrayBuffer) return Buffer.from(value);
-      if (Array.isArray(value) && value.every((v) => Buffer.isBuffer(v))) {
-        return Buffer.concat(value as Buffer[]);
-      }
-      return null;
-    };
-
-    const buf = asBuffer(raw);
-    if (!buf) return null;
-
-    if (buf.length >= AUDIO_BIN_HEADER_BYTES_V2 + 2 && buf.subarray(0, 4).equals(AUDIO_BIN_MAGIC_V2)) {
-      if (buf[4] !== AUDIO_BIN_VERSION) return null;
-      if (buf[5] !== AUDIO_BIN_CODEC_PCM16_MONO) return null;
-
-      const sampleRate = buf.readUInt32LE(8);
-      const payloadBytes = buf.readUInt32LE(12);
-      if (!Number.isFinite(sampleRate) || sampleRate <= 0) return null;
-      if (payloadBytes <= 0 || buf.length < AUDIO_BIN_HEADER_BYTES_V2 + payloadBytes) return null;
-
-      const pcm = buf.subarray(AUDIO_BIN_HEADER_BYTES_V2, AUDIO_BIN_HEADER_BYTES_V2 + payloadBytes);
-      return { sampleRate, pcm: Buffer.from(pcm) };
-    }
-
-    if (buf.length >= AUDIO_BIN_HEADER_BYTES_V1 + 2 && buf.subarray(0, 2).equals(AUDIO_BIN_MAGIC_V1)) {
-      if (buf[2] !== AUDIO_BIN_VERSION) return null;
-
-      const sampleRate = buf.readUInt32LE(4);
-      if (!Number.isFinite(sampleRate) || sampleRate <= 0) return null;
-
-      const pcm = buf.subarray(AUDIO_BIN_HEADER_BYTES_V1);
-      if (pcm.length === 0) return null;
-      return { sampleRate, pcm: Buffer.from(pcm) };
-    }
-
-    return null;
+    this.preRollBytes = appendChunkWithByteCap(
+      this.preRollChunks,
+      this.preRollBytes,
+      pcm,
+      maxBytes,
+    );
   }
 
   private handleAudioPcm(pcm: Buffer, rate: number): void {
@@ -2387,6 +1755,10 @@ export class ConnectionSession {
     this.duplexRxLastRms = rms;
     this.duplexRxLastPeak = peak;
     this.duplexRxMaxRms = Math.max(this.duplexRxMaxRms, rms);
+    this.appendDuplexRawChunk(pcm);
+    if (isNoVadFallbackSpeechLikeFrame(pcm, rms, peak)) {
+      this.duplexRawStrongFrames += 1;
+    }
     this.logDuplexRxSummary();
 
     this.appendPreRoll(pcm);
@@ -2454,33 +1826,10 @@ export class ConnectionSession {
             this.lastSttFinalAt = 0;
             return;
           }
-          const generationId = this.nextGenerationId();
-          this.bindActiveGeneration(generationId, traceId, "voice");
-          this.lastSttFinalAt = Date.now();
-          getLatencyTracer(this.connId).mark("stt_final", traceId);
-          send(this.ws, { type: "stt_final", content: text });
-          logger.info(`[用户·语音] ${text}`, { connId: this.connId });
-          this.touchUserActivity(text);
-          const { interruptionType, carryForwardHint } = this.classifyCarryForward(text);
-          this.publishTurnState("assistant_entering", "tts_prepare", {
-            generationId,
-            interruptionType,
-            force: true,
-          });
-          await runPipeline(
-            this.ws,
+          await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
             text,
-            this.interrupt,
-            this.avatar,
-            this.sessionId,
-            this.brain,
-            generationId,
             traceId,
-            {
-              carryForwardHint,
-              interruptionType: interruptionType ?? undefined,
-            },
-          );
+          });
         } catch (err) {
           logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });
           send(this.ws, { type: "error", content: "语音识别失败：" + (err as Error).message });
@@ -2574,6 +1923,7 @@ export class ConnectionSession {
     const generationId = this.nextGenerationId();
     const traceId = this.createTraceId("text", generationId);
     this.bindActiveGeneration(generationId, traceId, "text");
+    getLatencyTracer(this.connId).mark("input_received", traceId);
     this.publishTurnState("assistant_entering", "tts_prepare", {
       generationId,
       interruptionType,
@@ -2594,6 +1944,7 @@ export class ConnectionSession {
           {
             carryForwardHint,
             interruptionType: interruptionType ?? undefined,
+            inputSource: "text",
           },
         ),
       )
@@ -2602,69 +1953,31 @@ export class ConnectionSession {
 
   /** 全面的资源清理方法 */
   private cleanupAllResources(): void {
-    try {
-      this.duplexActive = false;
-
-      // 清理 VAD 检测器
-      try {
-        this.vad.reset();
-      } catch (e) {
-        logger.warn("[Cleanup] VAD reset failed", { error: e, connId: this.connId });
-      }
-
-      // 清理所有定时器
-      this.clearPendingUtteranceTimer();
-      this.clearSilenceNudgeTimer();
-      this.resetPreviewState();
-
-      // 发送中断信号给正在运行的 pipeline
-      try {
-        this.interrupt.interrupt();
-      } catch (e) {
-        logger.warn("[Cleanup] Interrupt failed", { error: e, connId: this.connId });
-      }
-
-      // 清理 STT 流
-      try {
-        this.stt.reset();
-      } catch (e) {
-        logger.warn("[Cleanup] STT reset failed", { error: e, connId: this.connId });
-      }
-
-      // 清理语音缓冲区
-      this.clearSpeechBuffer();
-      this.preRollChunks = [];
-      this.preRollBytes = 0;
-
-      // 清理数据库会话
-      if (isDbReady() && this.sessionId) {
-        void endSession(this.sessionId).catch((err) => {
-          logger.warn("[Storage] Failed to end session", { error: err, sessionId: this.sessionId });
-        });
-      }
-
-      // 清理延迟追踪器
-      removeLatencyTracer(this.connId);
-
-      logger.debug("[Cleanup] All resources released", { connId: this.connId });
-    } catch (e) {
-      logger.error("[Cleanup] Unexpected error during cleanup", {
-        error: e,
-        connId: this.connId,
-      });
-    }
+    cleanupSessionResources({
+      connId: this.connId,
+      sessionId: this.sessionId,
+      setDuplexActive: (active) => {
+        this.duplexActive = active;
+      },
+      resetVad: () => this.vad.reset(),
+      clearPendingUtteranceTimer: () => this.clearPendingUtteranceTimer(),
+      clearSilenceNudgeTimer: () => this.clearSilenceNudgeTimer(),
+      resetPreviewState: () => this.resetPreviewState(),
+      interruptPipeline: () => this.interrupt.interrupt(),
+      resetStt: () => this.stt.reset(),
+      clearSpeechBuffer: () => this.clearSpeechBuffer(),
+      resetPreRoll: () => {
+        this.preRollChunks = [];
+        this.preRollBytes = 0;
+      },
+    });
   }
 
   private setupCloseHandlers(): void {
-    this.ws.on("close", () => {
-      logger.info("[Remi] 客户端已断开", { connId: this.connId });
-      this.cleanupAllResources();
-    });
-
-    this.ws.on("error", (err) => {
-      logger.error("[WebSocket 错误]", { error: err, connId: this.connId });
-      // WebSocket 错误后也清理资源
-      this.cleanupAllResources();
+    attachSessionCloseHandlers({
+      ws: this.ws,
+      connId: this.connId,
+      cleanup: () => this.cleanupAllResources(),
     });
   }
 }

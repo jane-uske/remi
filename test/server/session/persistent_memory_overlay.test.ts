@@ -48,6 +48,13 @@ function loadSessionWithPersistentMemory({
     __dirname,
     "../../../storage/repositories/pg_memory_repository.ts",
   );
+  const bootstrapPath = path.resolve(__dirname, "../../../server/session/bootstrap.ts");
+  const historyPath = path.resolve(__dirname, "../../../server/session/history.ts");
+  const lifecyclePath = path.resolve(__dirname, "../../../server/session/lifecycle.ts");
+  const messageRouterPath = path.resolve(
+    __dirname,
+    "../../../server/session/message_router.ts",
+  );
   const sessionPath = path.resolve(__dirname, "../../../server/session/index.ts");
 
   const appState = require(appStatePath);
@@ -61,7 +68,7 @@ function loadSessionWithPersistentMemory({
   const originalDevIdentity = require.cache[devIdentityPath];
   const originalSessionRepo = require.cache[sessionRepositoryPath];
   const originalPgRepo = require.cache[pgRepoPath];
-  const hooks = { getAllCalls: 0, createSessionCalls: 0, devUserCalls: 0, upsertCalls: 0 };
+  const hooks = { getAllCalls: 0, createSessionCalls: 0, ensureUserCalls: 0, upsertCalls: 0 };
   const persistentRepo = {
     async upsert(key, value) {
       hooks.upsertCalls += 1;
@@ -87,9 +94,9 @@ function loadSessionWithPersistentMemory({
     filename: devIdentityPath,
     loaded: true,
     exports: {
-      ensureDevUser: async () => {
-        hooks.devUserCalls += 1;
-        return "dev-user";
+      ensureStorageUser: async (userId) => {
+        hooks.ensureUserCalls += 1;
+        return userId;
       },
     },
   };
@@ -119,6 +126,10 @@ function loadSessionWithPersistentMemory({
     },
   };
 
+  delete require.cache[bootstrapPath];
+  delete require.cache[historyPath];
+  delete require.cache[lifecyclePath];
+  delete require.cache[messageRouterPath];
   delete require.cache[sessionPath];
   const { createSession } = require(sessionPath);
   const ws = new FakeWebSocket();
@@ -147,6 +158,10 @@ function loadSessionWithPersistentMemory({
       appState.setRedisReady(previousRedisReady);
       appState.setMemoryMode(previousMemoryMode);
       restoreEnv();
+      delete require.cache[bootstrapPath];
+      delete require.cache[historyPath];
+      delete require.cache[lifecyclePath];
+      delete require.cache[messageRouterPath];
       delete require.cache[sessionPath];
       ws.close();
     },
@@ -217,7 +232,7 @@ describe("persistent memory overlay session wiring", () => {
       await waitFor(() => hooks.createSessionCalls === 1 && hooks.getAllCalls === 1, 800);
       const memories = await session.brain.memory.getAll();
       const slowBrainSnapshot = session.brain.slowBrain.getSnapshot();
-      assert.equal(hooks.devUserCalls, 1);
+      assert.equal(hooks.ensureUserCalls, 1);
       assert.equal(session.sessionId, "sess-1");
       assert.equal(session.brain.memory.hasPersistentBackend(), true);
       assert.deepEqual(memories.map((entry) => [entry.key, entry.value]), [["名字", "阿宁"]]);
