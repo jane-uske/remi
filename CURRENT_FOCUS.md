@@ -2,7 +2,7 @@
 
 ## 一句话
 
-Memory V2 基础设施、prompt 读路径和 proactive planner 主路径已接通；当前还差真实会话验收，以及 V1 旧路径清理。
+Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本会话写路径验收都已完成；V1 旧 episode 派生主路径也已收口。当前阶段不再是“主链路未通”，而是“单路径已验证，进入观察与前端 spot-check”。
 
 这条主线程服务的不是“再做一个记忆功能”，而是终极目标里最重要的一层之一：
 让 Remi 更像一个持续存在的人，而不是每轮都重置的聊天框。
@@ -17,7 +17,7 @@ Memory V2 基础设施、prompt 读路径和 proactive planner 主路径已接�
 
 ## 当前最高优先级
 
-Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
+Memory V2 验收收尾与观察期
 
 ## 当前进度
 
@@ -39,14 +39,27 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 - ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
 - ✅ `REMI_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
 - ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
-- ⏳ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
-- ⏳ 真实会话链路验收仍需持续观察：鉴权/WS 主路径已修复，但在 Docker 未就绪时会退化为无 PG/Redis 运行
-- ⏳ V1 旧 episode 路径仍在：`buildEpisodes` / `buildTopicThreads` / `PersistentEpisode` 尚未收口
+- ✅ iOS v0（文本）内测基线已建立：`ios/RemiChatLite` 具备 WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离
+- ⏳ iOS 按住说话语音链路仍未验收通过：此前真机反馈是“无转文字、无回复反应”；本轮已在服务端补上 no-VAD stop-time STT fallback 兜底并补回归，但还缺真机 iOS 复测。除该点外，iOS 文本/连接/鉴权/缓存主链路已基本打通。现阶段不要把 iOS 端语音输入误判为稳定可用能力
+- ✅ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
+- ✅ 真实 WS 文本会话验收已通过：`episodes` 在真实连接上稳定写入并合并，同主题 `recurrence_count` 持续增长；本轮未再出现 `dev-user` UUID 查询报错或 `192 -> 768` embedding 降级
+- ⏳ 浏览器/UI 层仍建议补一次 spot-check：本次验收覆盖了真实服务、真实 DB、真实 WS，但不是完整前端手工回归
+- ✅ V1 旧 episode 派生主路径已收口：`buildEpisodes` / `buildTopicThreads` 已移出主派生链；旧 `PersistentEpisode` JSON 已停写，仅保留向后兼容读取；`memory_agent` / `RemiSessionContext` / `slow_brain_store` 主要读取侧已转向直接消费 `sharedMoments`
+- ✅ 文本链路已补第一版语气稳定性基础设施：`tone contract` 进入 prompt 主链路，文本回复新增轻量 `assistanty` review，且已有初始 eval fixture
+- ✅ 已接入第一版结构化回合解释层：`TurnInterpretation -> ResponsePolicy` 进入文本主链路与语音预判/最终转写候选点；当前规则层开始从“决定回复方向”降级为 fallback / guard，而不是继续堆主解释逻辑
+- ✅ 文本/语音主链路已补分段延迟指标：`memory_recall_ms`、`structured_turn_analysis_ms`、`input_to_llm_request`、`input_to_llm_first_token` 已进入统一 latency trace；同时已收紧 prompt budget（history / priority context / prompt memory）
+- ✅ 当前延迟判断已更清楚：普通文本回合预处理约 `157ms`，决策类文本回合预处理约 `188ms`（其中结构化解释约 `182ms`）；当前主瓶颈仍主要是主模型首 token，不再是“结构化解释把所有文本都拖住”
+- ✅ 普通文本 fast path 已做 `priorityContext` 分层：普通文本只保留最多 3 个高价值动态块；最新探针里普通文本 `priorityChars` 已降到 `320`、`slowBrainContextChars` 为 `0`，首 token 约 `3.89s`
+- ✅ 分析路径也已改成“精选动态块”而不是整段 `slowBrainContext` 灌入：决策类样本 `priorityChars` 已从约 `2694` 降到 `388`、`slowBrainContextChars` 为 `0`、`systemChars` 降到 `1103`，首 token 从约 `10.9s` 降到 `4.13s`
+- ⚠️ 常驻 `systemChars` 又收了一轮（最小样本约 `478 -> 449`），但真实 TTFT 没有稳定跟着下降；最新普通文本样本甚至飘到 `17.5s`，决策样本 25s 内没出首 token。结论是：继续死磕静态 prompt 已进入明显收益递减区，当前更大的现实问题是模型首 token 波动和运行时稳定性
+- ✅ 资源监控已改口径：内存告警不再看 `heapUsed / heapTotal` 这种误导指标，而是改看进程 `rss`、`heapUsed / heapLimit` 和告警节流；当前旧日志里的 “97%/98%” 不应再被当作“服务快 OOM”的证据
 
 ### 下一步
-1. **真实会话验收**：在前端真实对话里确认 episode 数据稳定写入，且 prompt 能消费 V2 结果
-2. **V1 旧路径收口**：删除 `buildEpisodes` / `buildTopicThreads` / `PersistentEpisode` 主逻辑
-3. **T-040**：情绪推断 + 多维表情协议（可并行）
+1. **浏览器 spot-check**：在实际前端 UI 再补一轮对话，确认本地缓存、历史回放、流式文本与 V2 记忆主链路没有交互回退
+2. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；按住说话语音问题单独跟踪，不计入本轮 v0 done
+3. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
+4. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
+5. **语气/理解观察期**：收集“回答优先级、现实约束更新、场景承接、边界尊重”真实 bad cases，继续扩充结构化解释层 eval 集，而不是回到 regex 补丁路线
 
 ## 自动推进规则
 
@@ -60,7 +73,7 @@ Memory V2 最终验证 + V1 旧路径收口（V2.1 尾声）
 - 当前步骤未达到 Exit Criteria 前，不自动跳下一步
 - 当前步骤 `blocked` 时，先在 `TASKS.md` 标注阻塞原因，再转向并行任务
 - 每完成一步，必须同步更新 `TASKS.md` 的 `Current Execution Board`
-- 只有 `R-V2.1-04` 为 `done`，才允许切换主线程
+- 只有 `R-V2.1-01 ~ R-V2.1-04` 全部为 `done`，才允许切换主线程
 
 ## 这条主线程和终极目标的关系
 

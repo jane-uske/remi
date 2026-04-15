@@ -23,21 +23,22 @@
 
 | ID | Task | Status | Exit Criteria | Next |
 |---|---|---|---|---|
-| `R-V2.1-01` | 验证 V2 写路径 | `in_progress` | 真实对话写入 `episodes` 成功，抽样数据质量通过 | `R-V2.1-04` |
+| `R-V2.1-01` | 验证 V2 写路径 | `done` | 真实对话写入 `episodes` 成功，抽样数据质量通过 | `observe` |
 | `R-V2.1-02` | 切换 episode 读路径 | `done` | `recallEpisodes` / prompt 注入走 V2，回归通过 | `R-V2.1-03` |
 | `R-V2.1-03` | 接通 proactive planner 到主路径 | `done` | `fireSilenceNudge()` 走 `planProactiveNudge()` 且行为正确 | `R-V2.1-04` |
-| `R-V2.1-04` | 清理 V1 episode 旧路径 | `todo` | 旧 episode 主路径移除后，关系连续性与回归测试通过 | `next-thread` |
+| `R-V2.1-04` | 清理 V1 episode 旧路径 | `done` | 旧 episode 主路径移除后，关系连续性与回归测试通过 | `R-V2.1-01` |
 
 状态枚举只允许：`todo` / `in_progress` / `blocked` / `done`。
 每次任务状态变化，先改这个表，再改下方详细说明。
 
 ### 当前正在做
 
-- [ ] **R-V2.1-01** 验证 V2 写路径
-  - 目标：确认真实对话会稳定写入 `episodes` 表
-  - 当前状态：已修复 `embedding_client` 与 LM Studio 的 192 维兼容问题；直连 `runSlowBrain -> episodeStore.ingest -> Postgres` 已验证能成功落表
-  - 未完成：还没在真实前端会话里完成一次端到端验收；裸 WebSocket 调试命中 `401`
-  - 验收标准：真实对话后能看到合理的 episode 数据；embedding、topics、summary、unresolved 状态符合预期
+- [x] **R-V2.1-01** 验证 V2 写路径
+  - 已完成：修复 `embedding_client` 环境变量兼容（`REMI_*` / `REM_*` / `EMBEDDING_*`）并统一旧 `llm/embeddings.ts` 到同一 fetch 链路
+  - 已完成：修复 session 初始化 race；`brain.userId` 在连接构造时即绑定标准化 UUID，避免 `dev-user` 落入 pgvector 查询
+  - 已完成：真实 WS 文本会话验收通过；`episodes` 行稳定写入且同主题成功 merge，抽样 `summary/topics/mood/unresolved` 合理
+  - 验收证据：同一真实会话后 `episodes.recurrence_count` 增长到 `5`，`last_seen_at` 更新；本轮未再出现 `invalid input syntax for type uuid: \"dev-user\"` 或 `192 -> 768` embedding 警告
+  - 剩余观察项：浏览器/UI 层建议再补一次手工 spot-check，但这不再阻塞 V2.1 主链路收尾
 
 - [x] **R-V2.1-02** 切换 episode 读路径
   - 已完成：`retrievePromptMemory()` 已优先使用 `episodeStore.findRelevant()`；失败时回退 snapshot，避免硬切导致线上退化
@@ -49,10 +50,10 @@
   - 涉及位置：`server/session/index.ts`、`brains/proactive_planner.ts`
   - 证据：新增 planner user-message 生成测试；类型检查与相关回归已通过
 
-- [ ] **R-V2.1-04** 清理 V1 episode 旧路径
-  - 目标：在 V2 读路径验证通过后，再收口旧的 episode 推导逻辑
-  - 涉及位置：`brains/slow_brain_store.ts::buildEpisodes()`、`buildTopicThreads()`、旧 `PersistentEpisode` 相关路径
-  - 验收标准：V1 旧 episode 路径不再承担主逻辑；删除后不影响关系状态与 prompt 质量
+- [x] **R-V2.1-04** 清理 V1 episode 旧路径
+  - 已完成：`PersistentRelationshipStateV1` 不再写出旧 `episodes/topicThreads` JSON；`memory/memory_agent.ts`、`brains/remi_session_context.ts`、`brains/slow_brain_store.ts` 主要读取侧已转向 `sharedMoments`
+  - 已完成：`brains/slow_brain_store.ts::buildEpisodes()` / `buildTopicThreads()` 已移出主派生链并删除
+  - 兼容策略：旧 payload 读取仍保留，避免历史数据恢复回退
 
 ### 当前明确不优先做
 
@@ -63,6 +64,18 @@
 - [ ] 新的插件 / capability 系统实现
 - [ ] 与主线程无关的单点 VAD 阈值微调
 - [ ] 只为展示效果服务的前端扩展
+
+### 当前禁止并行修改的热点文件
+
+- `server/session/index.ts`
+- `brains/slow_brain_store.ts`
+- `web/src/hooks/useRemiChat.ts`
+- `memory/memory_agent.ts`
+
+规则：
+- 同一迭代周期内，一个热点文件只能有一个 owner。
+- 任何 agent 在改热点文件前，先看对应目录的 `MODULE.md` 和根目录 `TEST_MAP.md`。
+- 如果任务必须同时涉及两个以上热点文件，优先拆成“单 owner 主改 + 其他人只补测试 / fixture / 文档”。
 
 ---
 
@@ -135,7 +148,7 @@
 - `1738718` 修复 3 个持久化缺口
 - `829d9d4` 移除成人内容规则
 
-### M5 · Memory V2 基础设施已完成，进入验证阶段
+### M5 · Memory V2 主链路已完成单路径验收
 
 - [x] `llm/embedding_client.ts`
 - [x] `episodes` 表与 repository
@@ -145,6 +158,7 @@
 - [x] 文档已明确：当前是验证写路径、准备切读路径，而不是一次性硬切换完成态
 - [x] prompt 读路径已优先接到 `episodeStore.findRelevant()`
 - [x] silence nudge 主路径已接到 `planProactiveNudge()`
+- [x] 真实 WS 文本会话写路径已验收，`episodes` 可稳定写入并合并
 
 关键提交：
 - `e41543d` PR1 — embedding client + episodes 表 + repository
@@ -161,6 +175,9 @@
 - [x] 用户明确“先不聊某话题（如项目）”后，slow brain 会在短窗口内抑制 continuity/proactive 回拉
 - [x] 用户已进入共创场景时，回复不再退回成“要不要我陪你想象”的重新开场
 - [x] 修复 `embedding_client` 与 LM Studio/OpenAI SDK 兼容问题，恢复 768 维写路径
+- [x] 修复 session `userId` 初始化 race，避免 `dev-user` 进入 V2 pgvector 查询
+- [x] 文本回复链路新增第一版 `tone contract` / `anti-assistant` 基础设施，并补了初始语气评测样本骨架
+- [x] 决策型问题新增 `answer-first` 控制位：用户在要判断或明确嫌你老反问时，优先直接回答，不再让 follow-up 抢优先级
 - [x] 收口本地/远程访问语义：远程强制 JWT，本机回环可无 token 调试
 - [x] 修复 access gate 与 JWT 冲突：持 token 的 HTTP/WS 请求可直通，不再被 cookie 门禁误拦
 - [x] 前端聊天本地缓存改为按 token 用户分桶，避免不同用户共享同一份本地历史
@@ -176,7 +193,7 @@
 - 本机开发入口 `http://localhost:3000/` 视为“开发主入口”，默认无 token，必须保留历史连续性。
 - 远程入口（如 `https://app-rem.remi.run`）视为“分用户入口”，必须带 token，并保证用户隔离。
 - `user_001` / `user_002` 等 token 用户的聊天缓存与持久化必须隔离，禁止出现前端本地缓存串号。
-- 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；此时只能走原生 `dev:once` / `dev:native`，并显式标注“DB/Redis 未连接”风险。
+- 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；此时只能走原生 `npm run dev` / `npm run dev:app:once`，并显式标注“DB/Redis 未连接”风险。
 
 ---
 
@@ -186,13 +203,32 @@
 
 ### A. 当前主线程未完成
 
-- [ ] V2 写路径真实数据验证
-- [ ] V2 读路径迁移
-- [ ] silence nudge 接 proactive planner
-- [ ] V1 episode 旧路径收口
+- [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
 
 ### B. 并行但非主线程
 
+- [ ] **I-001** iOS v0（文本）5 人内测闭环
+  - 目标：完成 TestFlight 分发、5 人可稳定聊天、断线恢复、无跨用户历史串号
+  - 当前状态：`ios/RemiChatLite` 文本基线已完成；Xcode 模板工程已接入文本聊天 UI、WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离；已补 `IOS_V0_TESTFLIGHT_CHECKLIST`；已通过本地缓存 user1/user2 桶隔离回归脚本。最新真机反馈显示除“按住说话语音链路”外，其余主链路基本打通；当前按住说话仍无转文字、无回复反应，因此不计入本任务验收范围
+  - 验收标准：5 人试用通过、无 P0 崩溃、无串号反馈
+- [ ] **I-002** iOS 按住说话语音链路收口
+  - 目标：让 `ios/RemiChatLite` 的按住说话至少达到“松手后稳定拿到 `stt_final`，并触发回复/TTS”的单路径可用
+  - 当前状态：UI 已有 mic press-and-hold 入口，iOS 端可本地录音并发送 duplex PCM；已在服务端补上“收到音频但 VAD 未起时，duplex_stop 后做一次受限 STT fallback”的兜底，并已补回归测试覆盖 no-VAD speech / silence / sparse-noise 场景。当前进度从“静默失败”推进到“最小单路径已有代码级兜底”，但仍缺真机 iOS 复测，不能先算 done
+  - 验收标准：真机下按住说话可稳定出现 transcript 或最终用户气泡，并触发 assistant 回复；异常时有明确错误态，而不是静默失败
+- [ ] **T-041** 结构化回合解释层观察期与 eval 扩充
+  - 目标：继续用真实 bad case 校准 `TurnInterpretation -> ResponsePolicy`，减少答非所问、过度追问、场景出戏和边界回拉
+  - 当前状态：文本主链路、语音预判候选点和语音最终转写候选点已接入第一版结构化解释层；legacy regex 仍保留为 fallback / guard
+  - 验收标准：真实 bad case 中 `先答后问`、`现实约束更新判断`、`场景承接`、`边界尊重` 误判率下降，且不引入明显首音/流式回退
+- [ ] **T-042** Prompt / latency budget 收口
+  - 目标：把“感觉慢”拆成可量化阶段，并优先压掉 fast path 上不必要的 prompt 体积
+  - 当前状态：已新增 `memory_recall_ms`、`structured_turn_analysis_ms`、`input_to_llm_request`、`input_to_llm_first_token`；文本普通回合 prompt memory 已收回到 4 条，默认 history token budget 由 `1400 -> 1200`，priority context 缺省裁剪由 `700 -> 500`；普通文本 fast path 现已把 `priorityContext` 分层为最多 3 个高价值动态块；分析路径也已改成精选动态块，不再整段灌入 `slowBrainContext`
+  - 当前判断：动态 prompt 收口是有效的，决策路径已从上轮样本的 `priorityChars≈2694 / 首 token≈10.9s` 回落到 `priorityChars=388 / 首 token≈4.13s`；但常驻 `systemChars` 再收一轮后（最小样本约 `478 -> 449`），真实 TTFT 没有稳定跟着下降，普通文本样本甚至出现 `17.5s` 波动，决策样本 25s 内未出首 token。当前更大的现实瓶颈是模型首 token 波动和运行时稳定性
+  - 验收标准：普通文本首 token 继续下降，且 prompt 压缩不引入记忆/场景/边界明显回退
+- [ ] **T-043** 资源监控告警口径收口
+  - 目标：把“内存 97%/98%”这类误导告警替换成真实可用的进程内存告警
+  - 当前状态：已把告警口径从 `heapUsed / heapTotal` 改成进程 `rss`、`heapUsed / heapLimit` 与告警节流；已补纯函数测试覆盖“高堆填充但安全”“rss 超阈值”“heap limit 逼近”“重复告警节流”
+  - 当前判断：旧告警更多反映 V8 已分配堆的填充率，不等于服务快 OOM；当前更值得关注的是进程 RSS 趋势和系统整体内存压力
+  - 验收标准：开发日志不再因为 `heapUsed / heapTotal` 高填充率刷假警报；当进程 RSS 或 heap limit 逼近阈值时仍能及时告警
 - [ ] **T-040** 助手侧情绪推断 + 多维表情协议
   - 价值：后续 2.5D / 3D、情绪驱动表现层会更自然
   - 现状：可以并行设计，但不应抢占 Memory V2 主线程
