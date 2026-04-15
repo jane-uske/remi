@@ -48,6 +48,7 @@ Memory V2 验收收尾与观察期
 - ✅ 文本链路已补第一版语气稳定性基础设施：`tone contract` 进入 prompt 主链路，文本回复新增轻量 `assistanty` review，且已有初始 eval fixture
 - ✅ 已接入第一版结构化回合解释层：`TurnInterpretation -> ResponsePolicy` 进入文本主链路与语音预判/最终转写候选点；当前规则层开始从“决定回复方向”降级为 fallback / guard，而不是继续堆主解释逻辑
 - ✅ 文本/语音主链路已补分段延迟指标：`memory_recall_ms`、`structured_turn_analysis_ms`、`input_to_llm_request`、`input_to_llm_first_token` 已进入统一 latency trace；同时已收紧 prompt budget（history / priority context / prompt memory）
+- ✅ `stt_final` 已补一层轻量热词级局部同音纠偏：固定词表驱动、默认关闭、词表失败时直接回退原始 transcript，并且命中纠偏时会关闭当轮 prediction reuse，避免 partial 错词继续污染 final transcript；但这仍只覆盖项目名 / 人名 / 术语等已知热词，不等于通用 STT 消歧能力
 - ✅ 当前延迟判断已更清楚：普通文本回合预处理约 `157ms`，决策类文本回合预处理约 `188ms`（其中结构化解释约 `182ms`）；当前主瓶颈仍主要是主模型首 token，不再是“结构化解释把所有文本都拖住”
 - ✅ 普通文本 fast path 已做 `priorityContext` 分层：普通文本只保留最多 3 个高价值动态块；最新探针里普通文本 `priorityChars` 已降到 `320`、`slowBrainContextChars` 为 `0`，首 token 约 `3.89s`
 - ✅ 分析路径也已改成“精选动态块”而不是整段 `slowBrainContext` 灌入：决策类样本 `priorityChars` 已从约 `2694` 降到 `388`、`slowBrainContextChars` 为 `0`、`systemChars` 降到 `1103`，首 token 从约 `10.9s` 降到 `4.13s`

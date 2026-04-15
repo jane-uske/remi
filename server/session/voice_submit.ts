@@ -10,6 +10,10 @@ import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { createLogger } from "../../infra/logger";
 import { getLatencyTracer } from "../../infra/latency_tracer";
+import {
+  disambiguateSttFinal,
+  sttFinalDisambiguationLogDiffEnabled,
+} from "../../voice/stt_final_disambiguator";
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { runPipeline } from "../pipeline";
 import { send } from "../gateway";
@@ -65,6 +69,19 @@ export async function submitVoicePipelineTurn(
   runtime: SessionVoiceSubmitRuntime,
   input: SubmitVoicePipelineTurnInput,
 ): Promise<void> {
+  const disambiguation = disambiguateSttFinal(input.text);
+  const finalText = disambiguation.text;
+  const allowPredictionReuse = Boolean(input.allowPredictionReuse) && !disambiguation.changed;
+
+  if (disambiguation.changed && sttFinalDisambiguationLogDiffEnabled()) {
+    logger.info("[STT final disambiguation]", {
+      connId: runtime.connId,
+      rawText: input.text,
+      correctedText: finalText,
+      matchedRuleIds: disambiguation.matchedRuleIds,
+    });
+  }
+
   const generationId = runtime.nextGenerationId();
   runtime.bindActiveGeneration(generationId, input.traceId, "voice");
   if (input.markSttFinalTimestamp !== false) {
@@ -72,14 +89,14 @@ export async function submitVoicePipelineTurn(
   }
   getLatencyTracer(runtime.connId).mark("stt_final", input.traceId);
   getLatencyTracer(runtime.connId).mark("input_received", input.traceId);
-  send(runtime.ws, { type: "stt_final", content: input.text });
-  logger.info(`${input.logPrefix ?? "[用户·语音]"} ${input.text}`, {
+  send(runtime.ws, { type: "stt_final", content: finalText });
+  logger.info(`${input.logPrefix ?? "[用户·语音]"} ${finalText}`, {
     connId: runtime.connId,
     ...input.logMeta,
   });
-  runtime.touchUserActivity(input.text);
+  runtime.touchUserActivity(finalText);
   const { interruptionType, carryForwardHint } =
-    runtime.classifyCarryForward(input.text);
+    runtime.classifyCarryForward(finalText);
   runtime.publishTurnState("assistant_entering", "tts_prepare", {
     generationId,
     interruptionType,
@@ -87,9 +104,9 @@ export async function submitVoicePipelineTurn(
   });
 
   const hasValidPrediction =
-    input.allowPredictionReuse &&
+    allowPredictionReuse &&
     runtime.predictedReply &&
-    input.text.startsWith(runtime.currentPartialText) &&
+    finalText.startsWith(runtime.currentPartialText) &&
     runtime.currentPartialText.length > 3;
 
   if (hasValidPrediction) {
@@ -100,7 +117,7 @@ export async function submitVoicePipelineTurn(
     });
     await runPipeline(
       runtime.ws,
-      input.text,
+      finalText,
       runtime.interrupt,
       runtime.avatar,
       runtime.sessionId,
@@ -120,11 +137,12 @@ export async function submitVoicePipelineTurn(
       logger.debug("[预判] 未命中，走正常生成流程", {
         hasPrediction: Boolean(runtime.predictedReply),
         partialLength: runtime.currentPartialText.length,
+        disambiguated: disambiguation.changed,
       });
     }
     await runPipeline(
       runtime.ws,
-      input.text,
+      finalText,
       runtime.interrupt,
       runtime.avatar,
       runtime.sessionId,

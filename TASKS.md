@@ -182,6 +182,7 @@
 - [x] 修复 access gate 与 JWT 冲突：持 token 的 HTTP/WS 请求可直通，不再被 cookie 门禁误拦
 - [x] 前端聊天本地缓存改为按 token 用户分桶，避免不同用户共享同一份本地历史
 - [x] `/vrm/*` 资源加入鉴权放行，修复 3D VRM 401 导致的加载失败
+- [x] 语音 `stt_final` 已补一层轻量热词级局部同音纠偏：仅作用于 voice final transcript，固定词表驱动、默认关闭、词表失败时 fail-open；当前价值是压住项目名 / 人名 / 术语这类高频错词，避免继续污染 reply / memory / slow brain，但这还不是开放域 STT 消歧
 
 关键提交：
 - `4ab7237` embedding 失效修复
