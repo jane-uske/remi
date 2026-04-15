@@ -7,13 +7,197 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
+import { getLatencyTracer } from "../infra/latency_tracer";
 import {
   relationshipStateEnabled,
   savePersistentRelationshipState,
 } from "../memory/relationship_state";
+import { reviewReplyTone } from "../brain/tone_policy";
+import {
+  analyzeTurn,
+  shouldAnalyzeTurn,
+  type TurnAnalysisBundle,
+} from "../brain/turn_interpreter";
 
 const MAX_HISTORY = 10;
 const logger = createLogger("brain_router");
+const DEFAULT_FAST_PATH_HISTORY_TOKENS = 1000;
+const DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS = 1200;
+const DEFAULT_FAST_PATH_PROMPT_MEMORY_ENTRIES = 4;
+const DEFAULT_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES = 5;
+const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
+const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
+
+function configuredPositiveInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function resolvePromptMemoryMaxEntries(
+  inputSource: "text" | "voice",
+  _analysisCandidate: boolean,
+): number {
+  if (inputSource === "text") {
+    return configuredPositiveInt(
+      process.env.REMI_FAST_PATH_PROMPT_MEMORY_ENTRIES,
+      DEFAULT_FAST_PATH_PROMPT_MEMORY_ENTRIES,
+    );
+  }
+  return configuredPositiveInt(
+    process.env.REMI_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES,
+    DEFAULT_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES,
+  );
+}
+
+function resolveHistoryTokenBudget(
+  inputSource: "text" | "voice",
+  analysisCandidate: boolean,
+): number {
+  if (inputSource === "text" && !analysisCandidate) {
+    return configuredPositiveInt(
+      process.env.REMI_FAST_PATH_HISTORY_TOKENS,
+      DEFAULT_FAST_PATH_HISTORY_TOKENS,
+    );
+  }
+  return configuredPositiveInt(
+    process.env.REMI_ANALYSIS_PATH_HISTORY_TOKENS,
+    DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS,
+  );
+}
+
+function readPriorityBlock(text: string | undefined, heading: string): string | undefined {
+  if (!text?.trim()) return undefined;
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`【${escaped}】\\s*([\\s\\S]*?)(?=\\n\\s*【|$)`, "m");
+  const match = text.match(pattern);
+  const content = match?.[1]?.trim();
+  return content ? `【${heading}】${content}` : undefined;
+}
+
+function trimTextByChars(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function compactPriorityBlock(block: string, heading: string, maxChars: number): string {
+  const content = block.replace(/^【[^】]+】/, "").trim();
+  let normalized = content.replace(/\n+/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  if (heading === "关系阶段") {
+    const firstLine = content.split("\n")[0]?.trim() ?? "";
+    normalized = firstLine.replace(/^当前阶段[:：]\s*/, "").trim() || normalized;
+  } else if (heading === "长期关系主线") {
+    normalized = content
+      .split("\n")
+      .map((line) => line.replace(/^-+\s*/, "").trim())
+      .filter(Boolean)[0] ?? normalized;
+  }
+
+  return `【${heading}】${trimTextByChars(normalized, maxChars)}`;
+}
+
+function buildCompactPriorityContext(
+  strategyHints: string | undefined,
+  slowBrainContext: string | undefined,
+): string | undefined {
+  const selectors: Array<{ source: string | undefined; heading: string }> = [
+    { source: strategyHints, heading: "话题边界" },
+    { source: slowBrainContext, heading: "话题边界" },
+    { source: strategyHints, heading: "场景承接" },
+    { source: strategyHints, heading: "响应策略" },
+    { source: strategyHints, heading: "本轮回复合同" },
+    { source: strategyHints, heading: "实时连续性" },
+    { source: strategyHints, heading: "语气合同" },
+    { source: strategyHints, heading: "主动提起候选" },
+    { source: strategyHints, heading: "共同经历提醒" },
+    { source: slowBrainContext, heading: "当前未完主线" },
+    { source: slowBrainContext, heading: "长期关系主线" },
+    { source: slowBrainContext, heading: "对话摘要" },
+    { source: strategyHints, heading: "关系表达风格" },
+    { source: slowBrainContext, heading: "关系阶段" },
+  ];
+  const selected: string[] = [];
+  const seenHeadings = new Set<string>();
+
+  for (const selector of selectors) {
+    if (selected.length >= COMPACT_PRIORITY_BLOCK_LIMIT) break;
+    if (seenHeadings.has(selector.heading)) continue;
+    const block = readPriorityBlock(selector.source, selector.heading);
+    if (!block) continue;
+    selected.push(block);
+    seenHeadings.add(selector.heading);
+  }
+
+  return selected.length > 0 ? selected.join("\n") : undefined;
+}
+
+function buildAnalysisPriorityContext(
+  analysis: TurnAnalysisBundle,
+  strategyHints: string | undefined,
+  slowBrainContext: string | undefined,
+): string | undefined {
+  const act = analysis.interpretation.userAct;
+  const decisionLike = (
+    act === "decision_seek" ||
+    act === "answer_now" ||
+    act === "direct_question" ||
+    analysis.policy.shouldUpdateDecisionContext
+  );
+  const sceneLike = act === "scene_continue";
+  const boundaryLike = act === "topic_veto";
+
+  const selectors: Array<{ source: string | undefined; heading: string; maxChars: number }> = decisionLike
+    ? [
+        { source: strategyHints, heading: "话题边界", maxChars: 84 },
+        { source: strategyHints, heading: "响应策略", maxChars: 180 },
+        { source: strategyHints, heading: "本轮回复合同", maxChars: 150 },
+        { source: strategyHints, heading: "语气合同", maxChars: 180 },
+        { source: slowBrainContext, heading: "当前未完主线", maxChars: 120 },
+        { source: slowBrainContext, heading: "对话摘要", maxChars: 110 },
+        { source: slowBrainContext, heading: "关系阶段", maxChars: 36 },
+      ]
+    : sceneLike
+      ? [
+          { source: strategyHints, heading: "话题边界", maxChars: 84 },
+          { source: strategyHints, heading: "场景承接", maxChars: 96 },
+          { source: strategyHints, heading: "本轮回复合同", maxChars: 150 },
+          { source: strategyHints, heading: "语气合同", maxChars: 180 },
+          { source: slowBrainContext, heading: "关系阶段", maxChars: 36 },
+        ]
+      : boundaryLike
+        ? [
+            { source: strategyHints, heading: "话题边界", maxChars: 84 },
+            { source: strategyHints, heading: "响应策略", maxChars: 160 },
+            { source: strategyHints, heading: "本轮回复合同", maxChars: 120 },
+            { source: strategyHints, heading: "语气合同", maxChars: 160 },
+            { source: slowBrainContext, heading: "关系阶段", maxChars: 36 },
+          ]
+        : [
+            { source: strategyHints, heading: "话题边界", maxChars: 84 },
+            { source: strategyHints, heading: "响应策略", maxChars: 160 },
+            { source: strategyHints, heading: "本轮回复合同", maxChars: 140 },
+            { source: strategyHints, heading: "语气合同", maxChars: 170 },
+            { source: strategyHints, heading: "实时连续性", maxChars: 110 },
+            { source: slowBrainContext, heading: "当前未完主线", maxChars: 110 },
+            { source: slowBrainContext, heading: "对话摘要", maxChars: 100 },
+            { source: slowBrainContext, heading: "关系阶段", maxChars: 36 },
+          ];
+
+  const selected: string[] = [];
+  const seenHeadings = new Set<string>();
+
+  for (const selector of selectors) {
+    if (selected.length >= ANALYSIS_PRIORITY_BLOCK_LIMIT) break;
+    if (seenHeadings.has(selector.heading)) continue;
+    const block = readPriorityBlock(selector.source, selector.heading);
+    if (!block) continue;
+    selected.push(compactPriorityBlock(block, selector.heading, selector.maxChars));
+    seenHeadings.add(selector.heading);
+  }
+
+  return selected.length > 0 ? selected.join("\n") : undefined;
+}
 
 function slowBrainEnabled(): boolean {
   const raw = (process.env.REMI_SLOW_BRAIN_ENABLED ?? "1").trim().toLowerCase();
@@ -25,8 +209,14 @@ export interface RouteMessageOptions {
   systemTriggered?: boolean;
   /** 阶段1增量输入命中预判时，复用已生成回复，避免再次触发LLM。 */
   pregeneratedReply?: string;
+  /** 预判阶段已完成的结构化解释，可随预生成回复一起复用。 */
+  structuredAnalysis?: TurnAnalysisBundle | null;
   /** 打断承接提示，帮助快脑把新一轮回复接在正确的会话分支上。 */
   carryForwardHint?: string;
+  /** 仅文本主链路启用语气 review，先不影响语音链路。 */
+  inputSource?: "text" | "voice";
+  /** 延迟追踪 trace id，用于把 memory/analysis 开销记到同一轮。 */
+  traceId?: string;
 }
 
 async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void> {
@@ -71,6 +261,10 @@ export async function* routeMessage(
   opts?: RouteMessageOptions,
 ): AsyncGenerator<string> {
   ctx.cancelSlowBrain();
+  ctx.lastInterpretation = null;
+  ctx.lastResponsePolicy = null;
+  ctx.analysisSource = null;
+  ctx.analysisLatencyMs = null;
 
   // 处理「刚才说到哪了」查询
   const interruptedQueryRegex = /^(刚才|刚刚|刚刚|刚才)(说到哪|说什么|在说啥|讲到哪)/i;
@@ -82,20 +276,99 @@ export async function* routeMessage(
   if (!opts?.systemTriggered) {
     extractMemory(userMessage, ctx.memory);
   }
-  const memory = await retrievePromptMemory(ctx.memory, {
-    userId: ctx.userId,
-    userMessage,
-    slowBrainSnapshot: ctx.slowBrain.getSnapshot(),
-  });
-
-  const slowBrainContext = ctx.slowBrain.synthesizeContext();
-  const historyForPrompt = trimHistoryToTokenBudget([...ctx.history]);
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
+  const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
-  const guidance = ctx.slowBrain.buildConversationGuidance(userMessage);
+  const slowBrainSnapshot = ctx.slowBrain.getSnapshot();
+  const inputSource = opts?.inputSource ?? "text";
+  const analysisInput = {
+    userMessage,
+    history: ctx.history,
+    slowBrainSnapshot,
+    inputSource,
+    signal,
+  } as const;
+  const analysisCandidate =
+    Boolean(precomputedAnalysis) ||
+    (!opts?.systemTriggered && shouldAnalyzeTurn(analysisInput));
+  const promptMemoryMaxEntries = resolvePromptMemoryMaxEntries(inputSource, analysisCandidate);
+  const historyTokenBudget = resolveHistoryTokenBudget(inputSource, analysisCandidate);
+  const latencyTracer = opts?.traceId ? getLatencyTracer(ctx.connId) : null;
+  const traceId = opts?.traceId;
+  let analysis = precomputedAnalysis;
+  let memory = [] as Awaited<ReturnType<typeof retrievePromptMemory>>;
+  if (!pregeneratedReply) {
+    const analysisPromise =
+      opts?.systemTriggered || precomputedAnalysis || !analysisCandidate
+        ? Promise.resolve(precomputedAnalysis)
+        : (async () => {
+            if (latencyTracer && traceId) {
+              latencyTracer.mark("turn_analysis_start", traceId);
+            }
+            try {
+              return await analyzeTurn(analysisInput);
+            } finally {
+              if (latencyTracer && traceId) {
+                latencyTracer.mark("turn_analysis_end", traceId);
+              }
+            }
+          })();
+    const memoryPromise = (async () => {
+      if (latencyTracer && traceId) {
+        latencyTracer.mark("memory_recall_start", traceId);
+      }
+      try {
+        return await retrievePromptMemory(ctx.memory, {
+          userId: ctx.userId,
+          userMessage,
+          slowBrainSnapshot,
+          maxEntries: promptMemoryMaxEntries,
+        });
+      } finally {
+        if (latencyTracer && traceId) {
+          latencyTracer.mark("memory_recall_end", traceId);
+        }
+      }
+    })();
+    [memory, analysis] = await Promise.all([memoryPromise, analysisPromise]);
+  }
+  if (analysis) {
+    ctx.lastInterpretation = analysis.interpretation;
+    ctx.lastResponsePolicy = analysis.policy;
+    ctx.analysisSource = analysis.source;
+    ctx.analysisLatencyMs = analysis.latencyMs;
+  }
+  const guidance = ctx.slowBrain.buildConversationGuidance(
+    userMessage,
+    analysis?.used ? analysis : null,
+  );
+  const slowBrainContext = ctx.slowBrain.synthesizeContext();
+  const analysisPriorityContext =
+    inputSource === "text" && analysis?.used
+      ? buildAnalysisPriorityContext(analysis, guidance.hints, slowBrainContext)
+      : undefined;
+  const compactPriorityContext =
+    inputSource === "text" && !analysisCandidate
+      ? buildCompactPriorityContext(guidance.hints, slowBrainContext)
+      : undefined;
+  const historyForPrompt = trimHistoryToTokenBudget([...ctx.history], historyTokenBudget);
+  const strategyHintsForPrompt = [
+    analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
+    carryForwardHint,
+  ]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join("\n\n");
+  const slowBrainContextForPrompt =
+    (analysisPriorityContext && inputSource === "text") ||
+    (compactPriorityContext && inputSource === "text" && !analysisCandidate)
+      ? undefined
+      : slowBrainContext;
 
   let fullReply = "";
   if (pregeneratedReply) {
+    if (latencyTracer && traceId) {
+      latencyTracer.mark("llm_request_start", traceId);
+    }
     logger.info("复用 partial transcript 预判回复", {
       replyChars: pregeneratedReply.length,
       userChars: userMessage.length,
@@ -103,18 +376,16 @@ export async function* routeMessage(
     fullReply = pregeneratedReply;
     yield pregeneratedReply;
   } else {
+    if (latencyTracer && traceId) {
+      latencyTracer.mark("llm_request_start", traceId);
+    }
     for await (const token of fastBrainStream({
       userMessage,
       emotion,
       memory,
       history: historyForPrompt,
-      slowBrainContext,
-      strategyHints: [
-        guidance.hints,
-        carryForwardHint,
-      ]
-        .filter((part): part is string => Boolean(part?.trim()))
-        .join("\n\n"),
+      slowBrainContext: slowBrainContextForPrompt,
+      strategyHints: strategyHintsForPrompt,
       signal,
       persona: ctx.persona,
     })) {
@@ -132,6 +403,20 @@ export async function* routeMessage(
       ctx.markInterrupted();
     }
     return;
+  }
+
+  if (opts?.inputSource === "text") {
+    const toneReview = reviewReplyTone(fullReply);
+    if (toneReview.assistanty) {
+      logger.warn("tone guard flagged assistanty reply", {
+        connId: ctx.connId,
+        score: toneReview.score,
+        reasons: toneReview.reasons,
+        preview: fullReply.slice(0, 120),
+        analysisSource: ctx.analysisSource ?? undefined,
+        analysisLatencyMs: ctx.analysisLatencyMs ?? undefined,
+      });
+    }
   }
 
   const historyUserContent = opts?.systemTriggered

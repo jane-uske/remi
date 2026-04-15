@@ -68,7 +68,7 @@ function loadMockedRouteMessage(fastBrainStream) {
 
 describe("relationship state persistence", () => {
   it("round-trips structured relationship state through the memory repository", async () => {
-    const { repo } = createPersistentRepo();
+    const { repo, hooks } = createPersistentRepo();
     const store = new SlowBrainStore();
     store.recordTurn();
     store.bumpRelationship({ familiarityDelta: 0.2, emotionalBondDelta: 0.1 });
@@ -99,6 +99,7 @@ describe("relationship state persistence", () => {
 
     await savePersistentRelationshipState(repo, store.exportPersistentState(123));
     const loaded = await loadPersistentRelationshipState(repo);
+    const persistedPayload = JSON.parse(hooks.upsertArgs[0].value);
 
     assert.equal(loaded.version, "v1");
     assert.equal(loaded.updatedAt, 123);
@@ -111,12 +112,10 @@ describe("relationship state persistence", () => {
     assert.equal(loaded.sharedMoments[0].unresolved, true);
     assert.equal(loaded.sharedMoments[0].recurrenceCount, 1);
     assert.ok(Array.isArray(loaded.sharedMoments[0].semanticKeywords));
-    assert.equal(loaded.episodes.length, 1);
-    assert.equal(loaded.episodes[0].layer, "active");
-    assert.equal(loaded.episodes[0].title, "睡眠");
-    assert.equal(loaded.topicThreads.length, 1);
-    assert.equal(loaded.topicThreads[0].topic, "睡眠");
-    assert.equal(loaded.topicThreads[0].memoryLayer, "active");
+    assert.equal("episodes" in persistedPayload, false);
+    assert.equal("topicThreads" in persistedPayload, false);
+    assert.deepEqual(loaded.episodes, []);
+    assert.deepEqual(loaded.topicThreads, []);
     assert.equal(loaded.proactiveLedger.length, 1);
     assert.equal(loaded.proactiveLedger[0].key, "episode:sleep-line");
     assert.equal(loaded.proactiveLedger[0].ignoredCount >= 1, true);
@@ -129,6 +128,92 @@ describe("relationship state persistence", () => {
       loaded.continuityCueState.lastSharedMomentSummary,
       "上次你提到最近睡不太好，我们顺着这个聊了很久。",
     );
+  });
+
+  it("keeps reading legacy episode/thread fields for backward compatibility", async () => {
+    const { repo } = createPersistentRepo();
+    await repo.upsert(
+      RELATIONSHIP_STATE_KEY,
+      JSON.stringify({
+        version: "v1",
+        updatedAt: 123,
+        userProfile: {
+          interests: [],
+          personalityNotes: [],
+        },
+        relationship: {
+          familiarity: 0.4,
+          emotionalBond: 0.3,
+          turnCount: 5,
+          preferredTopics: ["睡眠"],
+        },
+        topicHistory: [],
+        moodTrajectory: [],
+        conversationSummary: "最近在聊睡眠。",
+        proactiveTopics: [],
+        sharedMoments: [],
+        continuityCueState: {
+          lastProactiveHook: "",
+          lastProactiveTurn: -100,
+          lastSharedMomentSummary: "",
+          lastSharedMomentTurn: -100,
+        },
+        proactiveLedger: [],
+        proactiveStrategyState: {
+          lastUserTurnAt: 0,
+          lastProactiveAt: 0,
+          lastUserReturnAfterProactiveAt: 0,
+          consecutiveProactiveCount: 0,
+          totalProactiveCount: 0,
+          nudgesSinceLastUserTurn: 0,
+          retreatLevel: 0,
+          ignoredProactiveStreak: 0,
+          cooldownUntilAt: 0,
+          lastProactiveMode: "",
+        },
+        episodes: [
+          {
+            id: "sleep-line",
+            layer: "active",
+            title: "睡眠",
+            summary: "最近睡眠这条线还没过去。",
+            sourceTopics: ["睡眠"],
+            semanticKeywords: ["失眠"],
+            topMood: "疲惫",
+            salience: 0.8,
+            relationshipWeight: 0.7,
+            status: "active",
+            firstTurn: 1,
+            lastTurn: 5,
+            recurrenceCount: 2,
+            originMomentSummaries: ["上次你说最近睡不好。"],
+          },
+        ],
+        topicThreads: [
+          {
+            topic: "睡眠",
+            summary: "最近一直在聊睡眠。",
+            topMood: "疲惫",
+            salience: 0.75,
+            relationshipWeight: 0.7,
+            unresolvedCount: 1,
+            recurrenceCount: 2,
+            episodeCount: 1,
+            firstTurn: 1,
+            timeSpanTurns: 4,
+            memoryLayer: "active",
+            lastTurn: 5,
+          },
+        ],
+      }),
+      1,
+    );
+
+    const loaded = await loadPersistentRelationshipState(repo);
+    assert.equal(loaded.episodes.length, 1);
+    assert.equal(loaded.episodes[0].title, "睡眠");
+    assert.equal(loaded.topicThreads.length, 1);
+    assert.equal(loaded.topicThreads[0].topic, "睡眠");
   });
 
   it("filters system relationship entries out of prompt memory retrieval", async () => {
@@ -302,6 +387,7 @@ describe("relationship state persistence", () => {
     const guidance = store.buildConversationGuidance("我还是有点委屈");
     const context = store.synthesizeContext();
     assert.ok(guidance.hints?.includes("【关系表达风格】"));
+    assert.ok(guidance.hints?.includes("【语气合同】"));
     assert.ok(guidance.hints?.includes("【主动策略】"));
     assert.ok(guidance.hints?.includes("建立关系期"));
     assert.equal(guidance.hints?.includes("亲密稳定期"), false);
@@ -319,6 +405,7 @@ describe("relationship state persistence", () => {
     const guidance = store.buildConversationGuidance("北海公园，跟rem手牵手");
 
     assert.ok(guidance.hints?.includes("【场景承接】"));
+    assert.ok(guidance.hints?.includes("【语气合同】"));
     assert.ok(guidance.hints?.includes("不要把回复退回成“要不要我陪你想象”"));
     assert.equal(guidance.hints?.includes("本轮用户说得简短"), false);
   });
@@ -361,6 +448,110 @@ describe("relationship state persistence", () => {
     const closePlan = closeStore.buildSilenceNudgePlan();
     assert.ok(closePlan);
     assert.equal(closePlan.strategyMode, "care");
+  });
+
+  it("forces answer-first guidance for decision-seeking questions", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.58, emotionalBondDelta: 0.46 });
+
+    const guidance = store.buildConversationGuidance("你觉得我是不是需要换个老板呢");
+
+    assert.ok(guidance.hints?.includes("【判断优先】"));
+    assert.ok(guidance.hints?.includes("【本轮回复合同】"));
+    assert.ok(guidance.hints?.includes("先明确给出你的倾向判断"));
+    assert.equal(Boolean(guidance.proactiveCandidate), false);
+    assert.equal(Boolean(guidance.sharedMomentCandidate), false);
+  });
+
+  it("uses structured context-update guidance to suppress proactive pullbacks", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.6, emotionalBondDelta: 0.5 });
+    store.setProactiveTopics(["工作那件事后来缓一点了吗"]);
+    store.recordSharedMoment({
+      summary: "上次你提到工作上那件事一直压着你。",
+      topic: "工作",
+      mood: "委屈",
+      hook: "工作那件事后来缓一点了吗",
+      kind: "stress",
+      salience: 0.86,
+      unresolved: true,
+      createdAt: 320,
+    });
+
+    const guidance = store.buildConversationGuidance("攒了两年半，还欠花呗两万五", {
+      interpretation: {
+        userAct: "context_update",
+        answerObligation: "answer_then_followup",
+        responseMode: "answer_first",
+        emotionalState: {
+          valence: "mixed",
+          intensity: "medium",
+          feltNeeds: ["clarity", "practical_help"],
+        },
+        relationalPosture: "serious",
+        topicUpdate: {
+          kind: "constraint_update",
+        },
+        sceneState: "not_in_scene",
+        boundaryState: "none",
+        followupPermission: "none",
+        confidence: 0.82,
+      },
+      policy: {
+        openingMove: "direct_answer",
+        directness: "high",
+        warmth: "high",
+        questionBudget: 0,
+        shouldMirrorEmotion: true,
+        shouldGiveJudgment: false,
+        shouldUpdateDecisionContext: true,
+        bans: ["no_assistantese", "no_host_mode", "no_repeat_user_question"],
+      },
+      source: "llm_structured",
+      latencyMs: 120,
+      timedOut: false,
+      mode: "on",
+      used: true,
+    });
+
+    assert.ok(guidance.hints?.includes("【响应策略】"));
+    assert.ok(guidance.hints?.includes("补充现实约束"));
+    assert.ok(guidance.hints?.includes("更新你的判断"));
+    assert.equal(Boolean(guidance.proactiveCandidate), false);
+    assert.equal(Boolean(guidance.sharedMomentCandidate), false);
+  });
+
+  it("forces answer-now mode when the user complains about being asked back", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.62, emotionalBondDelta: 0.52 });
+    store.setProactiveTopics(["工作那件事后来缓一点了吗"]);
+    store.recordSharedMoment({
+      summary: "你之前提到工作里那件事一直让你很堵。",
+      topic: "工作",
+      mood: "委屈",
+      hook: "工作那件事后来缓一点了吗",
+      kind: "stress",
+      salience: 0.88,
+      unresolved: true,
+      createdAt: 300,
+    });
+
+    const guidance = store.buildConversationGuidance("我在问你呢，你怎么老是问我");
+
+    assert.ok(guidance.hints?.includes("【先回答】"));
+    assert.ok(guidance.hints?.includes("【本轮回复合同】"));
+    assert.ok(guidance.hints?.includes("不要再用“你是不是”"));
+    assert.equal(Boolean(guidance.proactiveCandidate), false);
+    assert.equal(Boolean(guidance.sharedMomentCandidate), false);
   });
 
   it("backs off proactive intensity after repeated unanswered nudges", () => {

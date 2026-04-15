@@ -107,6 +107,27 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【本轮回复合同】"));
     assert.ok(system.includes("开头先接情绪"));
     assert.ok(system.includes("【优先参考"));
+    assert.equal(system.includes("【优先参考（请自然融入对话，不要逐条复述）】\n【关系阶段】"), false);
+  });
+
+  it("renders tone contract slots from priority context blocks", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "我们继续",
+      priorityContext:
+        "【语气合同】像真人接话，不像主持人；先接住，再推进；少用‘如果你愿意’。\n\n【对话摘要】我们刚聊到最近失眠和晚上的散步习惯。",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【语气合同】"));
+    assert.ok(system.includes("不像主持人"));
+    assert.ok(system.includes("少用‘如果你愿意’"));
+    assert.equal(system.includes("【优先参考（请自然融入对话，不要逐条复述）】\n【语气合同】"), false);
   });
 
   it("keeps backward compatibility when priority context has no structured relationship blocks", () => {
@@ -178,5 +199,22 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("我们聊了多久"));
     assert.ok(system.includes("不能脑补成已经认识很久"));
     assert.ok(system.includes("不能编造具体聊天时长或轮数"));
+  });
+
+  it("includes the default tone contract even without structured priority blocks", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "嗯",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【语气合同】"));
+    assert.ok(system.includes("像真人接话"));
+    assert.ok(system.includes("少用这些开头"));
   });
 });

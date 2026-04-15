@@ -4,6 +4,18 @@ import { findRelevant as findRelevantEpisodes } from "./episode_store";
 import { createLogger } from "../infra/logger";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
+import {
+  buildRelationshipTexts,
+  episodeLongHorizonRankingEnabled,
+  episodeStorePromptEnabled,
+  extractKeywords,
+  getLongHorizonThreadCandidates,
+  getSnapshotEpisodeCandidates,
+  keywordOverlapScore,
+  normalizeText,
+  parseBooleanFlag,
+  parsePositiveInt,
+} from "./prompt_memory_support";
 
 const logger = createLogger("memory_agent");
 
@@ -53,27 +65,6 @@ const CORE_FACT_KEYS = new Set([
 ]);
 const CORE_FACT_LIMIT = 2;
 const MAX_PROMPT_EPISODES = 1;
-const STOP_WORDS = new Set([
-  "我们",
-  "你们",
-  "他们",
-  "这个",
-  "那个",
-  "现在",
-  "最近",
-  "刚才",
-  "还是",
-  "已经",
-  "真的",
-  "有点",
-  "一下",
-  "因为",
-  "所以",
-  "可以",
-  "今天",
-  "昨天",
-  "晚上",
-]);
 
 function hasNegationBeforeMatch(msg: string, matchIndex: number): boolean {
   const beforeMatch = msg.slice(0, matchIndex);
@@ -96,147 +87,13 @@ export function extractMemory(userMessage: string, repo: MemoryRepository): void
   }
 }
 
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
-function episodeLongHorizonRankingEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED, true);
-}
-
-function episodeStorePromptEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_EPISODE_STORE_PROMPT_ENABLED, true);
-}
-
-function normalizeText(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, " ")
-    .trim();
-}
-
-function extractKeywords(text: string): string[] {
-  const normalized = normalizeText(text);
-  if (!normalized) return [];
-  const raw = normalized.split(/\s+/);
-  const seen = new Set<string>();
-  const keywords: string[] = [];
-
-  for (const token of raw) {
-    const trimmed = token.trim();
-    if (trimmed.length < 2 || STOP_WORDS.has(trimmed)) continue;
-    if (!seen.has(trimmed)) {
-      seen.add(trimmed);
-      keywords.push(trimmed);
-    }
-    if (/^[\u4e00-\u9fff]{4,}$/.test(trimmed)) {
-      for (let size = 2; size <= 3; size++) {
-        for (let i = 0; i + size <= trimmed.length; i++) {
-          const slice = trimmed.slice(i, i + size);
-          if (STOP_WORDS.has(slice) || seen.has(slice)) continue;
-          seen.add(slice);
-          keywords.push(slice);
-        }
-      }
-    }
-  }
-
-  return keywords;
-}
-
-function buildRelationshipTexts(slowBrainSnapshot?: SlowBrainSnapshot | null): {
-  summaryText: string;
-  combinedText: string;
-  keywords: string[];
-  recentMoodText: string;
-  preferredTopics: string[];
-} {
-  if (!slowBrainSnapshot) {
-    return {
-      summaryText: "",
-      combinedText: "",
-      keywords: [],
-      recentMoodText: "",
-      preferredTopics: [],
-    };
-  }
-
-  const recentMoodText = slowBrainSnapshot.moodTrajectory
-    .slice(-4)
-    .map((entry) => entry.mood)
-    .join(" ");
-
-  const parts = [
-    slowBrainSnapshot.conversationSummary,
-    ...slowBrainSnapshot.relationship.preferredTopics,
-    ...slowBrainSnapshot.proactiveTopics,
-    ...(slowBrainSnapshot.topicThreads ?? [])
-      .slice(0, 4)
-      .map((entry) =>
-        `${entry.topic} ${entry.summary} ${entry.bridgeSummary ?? ""} ${(entry.relatedTopics ?? []).join(" ")} ${(entry.semanticKeywords ?? []).join(" ")} ${entry.topMood}`.trim()
-      ),
-    ...(slowBrainSnapshot.episodes ?? [])
-      .slice(0, 4)
-      .map((entry) =>
-        `${entry.title} ${entry.summary} ${entry.sourceTopics.join(" ")} ${entry.semanticKeywords.join(" ")} ${entry.topMood}`.trim()
-      ),
-    ...slowBrainSnapshot.sharedMoments
-      .slice(0, 3)
-      .map((entry) =>
-        `${entry.topic} ${entry.summary} ${entry.hook} ${(entry.semanticKeywords ?? []).join(" ")}`.trim()
-      ),
-    ...slowBrainSnapshot.topicHistory
-      .slice()
-      .sort((a, b) => b.lastTurn - a.lastTurn || b.depth - a.depth)
-      .slice(0, 4)
-      .map((entry) => entry.topic),
-    ...slowBrainSnapshot.moodTrajectory.slice(-4).map((entry) => entry.mood),
-  ].filter(Boolean);
-
-  const combinedText = parts.join(" ");
-  return {
-    summaryText: slowBrainSnapshot.conversationSummary,
-    combinedText,
-    keywords: extractKeywords(combinedText),
-    recentMoodText,
-    preferredTopics: [...slowBrainSnapshot.relationship.preferredTopics],
-  };
-}
-
-function keywordOverlapScore(
-  haystack: string,
-  keywords: string[],
-  weight: number,
-  maxScore: number,
-): number {
-  let score = 0;
-  for (const keyword of keywords) {
-    if (!keyword || keyword.length < 2) continue;
-    if (haystack.includes(keyword)) {
-      score += weight;
-      if (score >= maxScore) return maxScore;
-    }
-  }
-  return score;
-}
-
 function buildTopicThreadPromptMemory(
   slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
   userMessage: string,
   maxEntries: number,
 ): Memory[] {
   if (!slowBrainSnapshot || maxEntries <= 0) return [];
-  const threads = slowBrainSnapshot.topicThreads ?? [];
+  const threads = getLongHorizonThreadCandidates(slowBrainSnapshot);
   if (threads.length === 0) return [];
 
   const userText = normalizeText(userMessage);
@@ -323,7 +180,7 @@ function recallEpisodesFromSnapshot(
   core?: RecalledEpisode;
   active?: RecalledEpisode;
 } {
-  const episodes = slowBrainSnapshot?.episodes ?? [];
+  const episodes = getSnapshotEpisodeCandidates(slowBrainSnapshot);
   if (episodes.length === 0) return {};
 
   const userText = normalizeText(userMessage);
@@ -449,7 +306,7 @@ function shouldPreferThreadMemory(
   const trimmed = userMessage.trim();
   const continuationLike = /继续|刚才|上次那个|还是那个|回到刚才|然后呢|后来呢/u.test(trimmed);
   const lowSignal = trimmed.length <= 12;
-  const topThread = (slowBrainSnapshot.topicThreads ?? [])[0];
+  const topThread = getLongHorizonThreadCandidates(slowBrainSnapshot)[0];
   if (!topThread) return false;
   return continuationLike || lowSignal || (topThread.episodeCount ?? 1) >= 3;
 }
@@ -660,7 +517,7 @@ export async function retrievePromptMemory(
 ): Promise<Memory[]> {
   const maxEntries =
     options.maxEntries ??
-    parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 6);
+    parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
   if (maxEntries <= 0) return [];
 
   const allEntries = await repo.getAll();
@@ -700,13 +557,17 @@ export async function retrievePromptMemory(
   }
 
   if (selected.length < maxEntries) {
+    const hasStructuredSnapshotNarrative = Boolean(
+      (options.slowBrainSnapshot?.episodes?.length ?? 0) > 0 ||
+      (options.slowBrainSnapshot?.topicThreads?.length ?? 0) > 0,
+    );
     const recalledEpisodes = await recallEpisodes(
       options.slowBrainSnapshot,
       options.userMessage,
       { userId: options.userId },
     );
     let structuredNarrativeAdded = false;
-    if (recalledEpisodes.core) {
+    if ((options.userId || hasStructuredSnapshotNarrative) && recalledEpisodes.core) {
       selected.push({
         key: "长期关系主线",
         value: `${recalledEpisodes.core.title}：${recalledEpisodes.core.summary}`,
@@ -714,7 +575,11 @@ export async function retrievePromptMemory(
       seenKeys.add("长期关系主线");
       structuredNarrativeAdded = true;
     }
-    if (selected.length < maxEntries && recalledEpisodes.active) {
+    if (
+      (options.userId || hasStructuredSnapshotNarrative) &&
+      selected.length < maxEntries &&
+      recalledEpisodes.active
+    ) {
       selected.push({
         key: "当前未完主线",
         value: `${recalledEpisodes.active.title}：${recalledEpisodes.active.summary}`,

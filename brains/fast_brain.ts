@@ -77,10 +77,27 @@ export async function* fastBrainStream(
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+  const strategyChars = input.strategyHints?.length ?? 0;
+  const slowBrainContextChars = input.slowBrainContext?.length ?? 0;
+  const systemChars = messages
+    .filter((msg) => msg.role === "system")
+    .reduce((sum, msg) => sum + msg.content.length, 0);
+  const historyChars = input.history.reduce((sum, msg) => sum + msg.content.length, 0);
+  const userChars = input.userMessage.length;
+  const memoryChars = input.memory.reduce(
+    (sum, entry) => sum + entry.key.length + entry.value.length,
+    0,
+  );
   logger.info("LLM prompt stats", {
     messages: messages.length,
     estimatedTokens: estimateTextTokens(promptText),
     promptChars,
+    systemChars,
+    historyChars,
+    userChars,
+    memoryChars,
+    strategyChars,
+    slowBrainContextChars,
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
     priorityChars: priorityContext?.length ?? 0,
@@ -153,10 +170,27 @@ export async function fastBrainPredictOnly(
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+  const strategyChars = input.strategyHints?.length ?? 0;
+  const slowBrainContextChars = input.slowBrainContext?.length ?? 0;
+  const systemChars = messages
+    .filter((msg) => msg.role === "system")
+    .reduce((sum, msg) => sum + msg.content.length, 0);
+  const historyChars = input.history.reduce((sum, msg) => sum + msg.content.length, 0);
+  const userChars = input.userMessage.length;
+  const memoryChars = input.memory.reduce(
+    (sum, entry) => sum + entry.key.length + entry.value.length,
+    0,
+  );
   logger.debug("[预判] LLM prompt stats", {
     messages: messages.length,
     estimatedTokens: estimateTextTokens(promptText),
     promptChars,
+    systemChars,
+    historyChars,
+    userChars,
+    memoryChars,
+    strategyChars,
+    slowBrainContextChars,
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
     priorityChars: priorityContext?.length ?? 0,

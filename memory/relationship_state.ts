@@ -122,8 +122,9 @@ export interface PersistentRelationshipStateV1 {
   conversationSummary: string;
   proactiveTopics: string[];
   sharedMoments: PersistentSharedMoment[];
-  episodes: PersistentEpisode[];
-  topicThreads: PersistentTopicThread[];
+  /** Legacy derived snapshot fields. New writes omit them; old payloads may still carry them. */
+  episodes?: PersistentEpisode[];
+  topicThreads?: PersistentTopicThread[];
   continuityCueState: PersistentContinuityCueState;
   proactiveLedger: PersistentProactiveLedgerEntry[];
   proactiveStrategyState: PersistentProactiveStrategyState;

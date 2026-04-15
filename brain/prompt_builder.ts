@@ -1,6 +1,7 @@
 import type { Emotion } from "../emotion/emotion_state";
 import { buildCharacterRulesPrompt } from "./character_rules";
 import { buildPersonalityPrompt } from "./personality";
+import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
 
@@ -28,7 +29,18 @@ interface BuildPromptInput {
 type PrioritySlots = {
   relationshipStageLabel?: string;
   replyShapeContract?: string;
+  toneContract?: string;
 };
+
+const PRIORITY_SLOT_HEADINGS = [
+  "关系阶段",
+  "陪伴阶段提示",
+  "本轮回复合同",
+  "回复结构",
+  "关系风格合同",
+  "语气合同",
+  "反助手味",
+] as const;
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw === "") return fallback;
@@ -58,7 +70,7 @@ const EMOTION_SPEECH_STYLE: Record<Emotion, string> = {
 };
 
 function buildEmotionSpeechGuidance(emotion: Emotion): string {
-  return `当前情绪：${emotion}\n情绪表达风格：${EMOTION_STYLE[emotion]}\n说话节奏提示：${EMOTION_SPEECH_STYLE[emotion]}`;
+  return `当前情绪：${emotion}；情绪表达风格：${EMOTION_STYLE[emotion]}；说话节奏提示：${EMOTION_SPEECH_STYLE[emotion]}`;
 }
 
 function readPriorityBlock(priorityContext: string, heading: string): string | undefined {
@@ -85,7 +97,30 @@ function extractPrioritySlots(priorityContext?: string): PrioritySlots {
     readPriorityBlock(raw, "回复结构") ||
     readPriorityBlock(raw, "关系风格合同");
 
-  return { relationshipStageLabel, replyShapeContract };
+  const toneContract =
+    readPriorityBlock(raw, "语气合同") ||
+    readPriorityBlock(raw, "反助手味");
+
+  return { relationshipStageLabel, replyShapeContract, toneContract };
+}
+
+function stripPriorityBlocks(
+  priorityContext: string | undefined,
+  headings: readonly string[],
+): string | undefined {
+  if (!priorityContext?.trim()) return undefined;
+  let stripped = priorityContext.trim();
+  for (const heading of headings) {
+    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\n\\s*)【${escaped}】\\s*[\\s\\S]*?(?=(?:\\n\\s*【)|$)`, "g");
+    stripped = stripped.replace(pattern, "\n");
+  }
+  const normalized = stripped
+    .split(/\n{2,}/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  return normalized || undefined;
 }
 
 function buildSystemPrompt(
@@ -94,13 +129,14 @@ function buildSystemPrompt(
   priorityContext?: string,
   persona?: PersonaState,
 ): string {
-  const maxPriorityChars = parsePositiveInt(process.env.MAX_PRIORITY_CONTEXT_CHARS, 700);
-  const maxMemoryEntries = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 6);
-  const maxMemoryValueChars = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_VALUE_CHARS, 48);
+  const maxPriorityChars = parsePositiveInt(process.env.MAX_PRIORITY_CONTEXT_CHARS, 500);
+  const maxMemoryEntries = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
+  const maxMemoryValueChars = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_VALUE_CHARS, 40);
 
   // Use new persona system if provided
   if (persona) {
     const slots = extractPrioritySlots(priorityContext);
+    const reducedPriorityContext = stripPriorityBlocks(priorityContext, PRIORITY_SLOT_HEADINGS);
     const memoryStr = memory.length > 0
       ? memory
           .slice(0, maxMemoryEntries)
@@ -108,8 +144,8 @@ function buildSystemPrompt(
           .join("\n")
       : undefined;
     return buildPersonaPrompt(persona, {
-      priorityContext: priorityContext?.trim()
-        ? trimTextByChars(priorityContext.trim(), maxPriorityChars)
+      priorityContext: reducedPriorityContext?.trim()
+        ? trimTextByChars(reducedPriorityContext.trim(), maxPriorityChars)
         : undefined,
       relationshipStageLabel: slots.relationshipStageLabel
         ? trimTextByChars(slots.relationshipStageLabel, 120)
@@ -117,6 +153,15 @@ function buildSystemPrompt(
       replyShapeContract: slots.replyShapeContract
         ? trimTextByChars(slots.replyShapeContract, 260)
         : undefined,
+      toneContract: slots.toneContract
+        ? trimTextByChars(slots.toneContract, 320)
+        : trimTextByChars(
+            buildToneContract({
+              relationshipStage: slots.relationshipStageLabel,
+              userMessage: "",
+            }),
+            320,
+          ),
       memoryStr,
       emotionSpeechGuidance: buildEmotionSpeechGuidance(emotion),
     });
@@ -124,17 +169,19 @@ function buildSystemPrompt(
 
   // Fallback to original system prompt logic
   const sections: string[] = [];
+  const reducedPriorityContext = stripPriorityBlocks(priorityContext, PRIORITY_SLOT_HEADINGS);
 
-  if (priorityContext?.trim()) {
+  if (reducedPriorityContext?.trim()) {
     sections.push(
       "【优先参考（请自然融入对话，不要逐条复述）】\n" +
-        trimTextByChars(priorityContext.trim(), maxPriorityChars),
+        trimTextByChars(reducedPriorityContext.trim(), maxPriorityChars),
     );
   }
 
   sections.push(
     buildPersonalityPrompt(),
     buildCharacterRulesPrompt(),
+    `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: "" }), 320)}`,
     "【关系与记忆回答规则】如果用户问“我们是什么关系”“我们聊了多久”“你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按“刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。",
     buildEmotionSpeechGuidance(emotion),
     "用中文回复。",

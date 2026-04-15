@@ -3,10 +3,15 @@ import { createLogger } from "./logger";
 const logger = createLogger("latency");
 
 export interface LatencyTimestamps {
+  input_received?: number;
   vad_speech_start?: number;
   vad_speech_end?: number;
   stt_partial?: number;
   stt_final?: number;
+  memory_recall_start?: number;
+  memory_recall_end?: number;
+  turn_analysis_start?: number;
+  turn_analysis_end?: number;
   llm_request_start?: number;
   llm_first_token?: number;
   llm_end?: number;
@@ -17,6 +22,11 @@ export interface LatencyTimestamps {
 }
 
 export interface LatencyMetrics {
+  input_to_llm_request?: number;
+  input_to_llm_first_token?: number;
+  pre_llm_overhead?: number;
+  memory_recall_ms?: number;
+  structured_turn_analysis_ms?: number;
   stt_latency?: number;
   llm_first_token?: number;
   tts_latency?: number;
@@ -28,6 +38,11 @@ export interface LatencyMetrics {
 }
 
 export interface LatencyMetricSnapshot {
+  input_to_llm_request: number | null;
+  input_to_llm_first_token: number | null;
+  pre_llm_overhead: number | null;
+  memory_recall_ms: number | null;
+  structured_turn_analysis_ms: number | null;
   stt_latency: number | null;
   llm_first_token: number | null;
   tts_latency: number | null;
@@ -147,6 +162,17 @@ export class LatencyTracer {
     return end - start;
   }
 
+  private firstDefinedTimestamp(
+    keys: Array<keyof LatencyTimestamps>,
+    timestamps: LatencyTimestamps,
+  ): number | undefined {
+    for (const key of keys) {
+      const value = timestamps[key];
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  }
+
   findActiveTraceIdByGenerationId(generationId: number): string | null {
     let candidate: string | null = null;
     for (const [traceId, trace] of this.traces) {
@@ -160,7 +186,28 @@ export class LatencyTracer {
   /** Compute all latency metrics from the current timestamps. */
   computeMetrics(traceId: string = this.defaultTraceId): LatencyMetrics {
     const timestamps = this.traces.get(traceId)?.timestamps ?? {};
+    const preLlmBaseline = this.firstDefinedTimestamp(
+      ["stt_final", "input_received", "vad_speech_end"],
+      timestamps,
+    );
+    const llmRequestStart = timestamps.llm_request_start;
+    const preLlmOverhead =
+      preLlmBaseline !== undefined &&
+      llmRequestStart !== undefined &&
+      llmRequestStart >= preLlmBaseline
+        ? llmRequestStart - preLlmBaseline
+        : undefined;
+
     return {
+      input_to_llm_request: this.duration("input_received", "llm_request_start", timestamps),
+      input_to_llm_first_token: this.duration("input_received", "llm_first_token", timestamps),
+      pre_llm_overhead: preLlmOverhead,
+      memory_recall_ms: this.duration("memory_recall_start", "memory_recall_end", timestamps),
+      structured_turn_analysis_ms: this.duration(
+        "turn_analysis_start",
+        "turn_analysis_end",
+        timestamps,
+      ),
       // Legacy metrics for backward compatibility
       stt_latency: this.duration("vad_speech_end", "stt_final", timestamps),
       llm_first_token: this.duration("stt_final", "llm_first_token", timestamps),
@@ -181,6 +228,11 @@ export class LatencyTracer {
    */
   static normalizeMetrics(metrics: LatencyMetrics): LatencyMetricSnapshot {
     return {
+      input_to_llm_request: metrics.input_to_llm_request ?? null,
+      input_to_llm_first_token: metrics.input_to_llm_first_token ?? null,
+      pre_llm_overhead: metrics.pre_llm_overhead ?? null,
+      memory_recall_ms: metrics.memory_recall_ms ?? null,
+      structured_turn_analysis_ms: metrics.structured_turn_analysis_ms ?? null,
       stt_latency: metrics.stt_latency ?? null,
       llm_first_token: metrics.llm_first_token ?? null,
       tts_latency: metrics.tts_latency ?? null,

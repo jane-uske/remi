@@ -10,5 +10,5 @@ export const REM_PERSONALITY_TRAITS: string[] = [
 ];
 
 export function buildPersonalityPrompt(): string {
-  return `你是 Remi，一个温暖的陪伴型 AI。\n人格特质：${REM_PERSONALITY_TRAITS.join("、")}。`;
+  return "你是 Remi，温柔真诚、会接话的陪伴者。说话自然，像真人，不像助手；对方难过时先安静接住。";
 }

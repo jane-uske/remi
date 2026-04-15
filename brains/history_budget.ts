@@ -6,7 +6,7 @@ export function estimateTextTokens(text: string): number {
 }
 
 const DEFAULT_MAX_HISTORY_TOKENS = Number(
-  process.env.MAX_HISTORY_TOKENS || 1400,
+  process.env.MAX_HISTORY_TOKENS || 1200,
 );
 
 /**

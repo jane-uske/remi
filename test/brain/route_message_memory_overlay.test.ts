@@ -257,8 +257,8 @@ describe("routeMessage with session memory overlay", () => {
         true,
       );
       assert.ok(captured[0].strategyHints.includes("【主动提起候选】"));
-      assert.ok(captured[0].strategyHints.includes("【关系表达风格】"));
       assert.ok(captured[0].strategyHints.includes("【实时连续性】"));
+      assert.ok(captured[0].strategyHints.includes("【语气合同】"));
     } finally {
       restore();
       restoreEnv();
@@ -334,7 +334,10 @@ describe("routeMessage with session memory overlay", () => {
 
     const captured = [];
     const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
-      captured.push(input.strategyHints);
+      captured.push({
+        strategyHints: input.strategyHints,
+        slowBrainContext: input.slowBrainContext,
+      });
       yield "先回答你";
     });
 
@@ -344,9 +347,53 @@ describe("routeMessage with session memory overlay", () => {
       }
 
       assert.equal(captured.length, 1);
-      assert.equal(captured[0].includes("【主动提起候选】"), false);
-      assert.equal(captured[0].includes("【共同经历提醒】"), false);
-      assert.equal(captured[0].includes("【关系表达风格】"), true);
+      assert.equal(captured[0].strategyHints.includes("【主动提起候选】"), false);
+      assert.equal(captured[0].strategyHints.includes("【共同经历提醒】"), false);
+      assert.ok(
+        captured[0].strategyHints.includes("【响应策略】") ||
+        captured[0].strategyHints.includes("【本轮回复合同】"),
+      );
+      assert.equal(captured[0].strategyHints.includes("【关系表达风格】"), false);
+      assert.ok(
+        captured[0].strategyHints.includes("【当前未完主线】") ||
+        captured[0].strategyHints.includes("【对话摘要】"),
+      );
+      assert.equal(Boolean(captured[0].slowBrainContext), false);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
+  it("updates the response strategy when the user adds decision-changing constraints", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-constraint-update");
+    ctx.history.push({ role: "user", content: "我是不是该辞职" });
+    ctx.history.push({ role: "assistant", content: "我倾向于你先别裸辞，先看有没有更稳的下家。" });
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        strategyHints: input.strategyHints,
+        slowBrainContext: input.slowBrainContext,
+      });
+      yield "先把这条现实约束算进去。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "攒了两年半，还欠花呗两万五", "neutral")) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.ok(captured[0].strategyHints.includes("【响应策略】"));
+      assert.ok(captured[0].strategyHints.includes("补充现实约束"));
+      assert.ok(captured[0].strategyHints.includes("更新判断"));
+      assert.equal(captured[0].strategyHints.includes("【主动提起候选】"), false);
+      assert.equal(Boolean(captured[0].slowBrainContext), false);
     } finally {
       restore();
       restoreEnv();
@@ -369,6 +416,53 @@ describe("routeMessage with session memory overlay", () => {
       assert.deepEqual(chunks, ["啊…出了点问题，等我缓缓再试试…"]);
       assert.equal(ctx.history.length, 1);
       assert.deepEqual(ctx.history[0], { role: "user", content: "111" });
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
+  it("keeps ordinary text fast-path priority context compact", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_PROACTIVE_PROMPT_ENABLED: "1",
+      REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-compact-priority");
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.bumpRelationship({ familiarityDelta: 0.5, emotionalBondDelta: 0.42 });
+    ctx.slowBrain.setConversationSummary("最近主要在聊工作上的委屈和去留判断。");
+    ctx.slowBrain.setProactiveTopics(["工作那件事后来缓一点了吗"]);
+    ctx.slowBrain.recordSharedMoment({
+      summary: "上次你提到工作上被误解后一直很委屈。",
+      topic: "工作",
+      mood: "委屈",
+      hook: "工作那件事后来缓一点了吗",
+      createdAt: 620,
+      unresolved: true,
+    });
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        strategyHints: input.strategyHints,
+        slowBrainContext: input.slowBrainContext,
+      });
+      yield "先接住了";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "我今天中午吃了面", "neutral")) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.ok(captured[0].strategyHints.includes("【语气合同】"));
+      assert.ok(captured[0].strategyHints.includes("【主动提起候选】"));
+      assert.equal(captured[0].strategyHints.includes("【关系表达风格】"), false);
+      assert.equal(Boolean(captured[0].slowBrainContext), false);
     } finally {
       restore();
       restoreEnv();

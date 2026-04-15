@@ -58,6 +58,7 @@ type BuildPersonaPromptOptions = {
   priorityContext?: string;
   relationshipStageLabel?: string;
   replyShapeContract?: string;
+  toneContract?: string;
   memoryStr?: string;
   emotionSpeechGuidance?: string;
 };
@@ -67,9 +68,9 @@ export function createDefaultPersona(): PersonaState {
     profile: {
       presetId: "warm_companion",
       label: "温柔陪伴型",
-      coreIdentity: "更像温柔、稳定、愿意陪人慢慢把话说完的陪伴者。",
-      toneGuide: "语气柔和、自然，优先给人被接住的感觉，不要像通用助手。",
-      proactiveGuide: "主动时以轻陪伴和自然 follow-up 为主，不催、不压迫。",
+      coreIdentity: "温柔、稳定，愿意陪人把话说完。",
+      toneGuide: "自然接话，先让人感觉被接住，不要像通用助手。",
+      proactiveGuide: "主动只做轻陪伴或轻跟进，不催不压。",
     },
     liveState: {
       mood: "neutral",
@@ -94,22 +95,22 @@ export function createDefaultPersona(): PersonaState {
 function energyGuidance(energy: EnergyLevel): string {
   switch (energy) {
     case "high":
-      return "精力状态：好，回复可以稍展开，语气更活。";
+      return "精力高，回复可稍展开、更活一点。";
     case "low":
-      return "精力状态：低，回复更短更轻，不要用力过度，陪着就好。";
+      return "精力低，回复更短更轻，别用力过度。";
     default:
-      return "精力状态：正常，回复简洁自然。";
+      return "";
   }
 }
 
 function closenessGuidance(closeness: ClosenessLevel): string {
   switch (closeness) {
     case "familiar":
-      return "关系阶段：已经熟悉，说话可以随意一些，不用刻意保持距离。";
+      return "已经熟悉，说话可以随意些。";
     case "relaxed":
-      return "关系阶段：比较放松，可以分享一点自己的想法，语气更轻松自然。";
+      return "关系比较放松，可自然带一点自己的想法。";
     case "dependent":
-      return "关系阶段：很亲近，说话更贴近，更愿意陪着，语气里带一点温柔。";
+      return "关系很亲近，语气可以更贴近、更温柔。";
     default:
       return "";
   }
@@ -119,10 +120,10 @@ function attentionGuidance(attention: AttentionState, topicPull: string): string
   switch (attention) {
     case "hooked":
       return topicPull
-        ? `注意力被吸住了，很想继续聊「${topicPull}」这个方向。`
-        : "注意力被当前话题吸住了，专注在这里。";
+        ? `注意力被吸住了，想继续聊「${topicPull}」。`
+        : "注意力被当前话题吸住了。";
     case "scattered":
-      return "注意力有点分散，可以轻轻把话题往重要的地方引。";
+      return "注意力有点散，轻轻把话题往重要处带。";
     default:
       return "";
   }
@@ -130,12 +131,12 @@ function attentionGuidance(attention: AttentionState, topicPull: string): string
 
 function interruptedGuidance(interrupted: boolean): string {
   if (!interrupted) return "";
-  return "你刚刚被打断过。重新开口时先用一句很短的话接住上下文或接住对方，再继续展开，不要机械重复上一句。";
+  return "你刚刚被打断过。先用一句很短的话接住上下文，再继续展开，不要机械重复上一句。";
 }
 
 function continuationGuidance(isContinuing: boolean): string {
   if (!isContinuing) return "";
-  return "对方大概率还在延续刚才的话题。回复时优先自然承接上下文，不要像全新话题重开。";
+  return "对方大概率还在延续刚才的话题。优先自然承接上下文，不要像全新话题重开。";
 }
 
 // ── Layer 4: 轻主动性指令 ────────────────────────────────────────
@@ -146,13 +147,13 @@ function proactiveIntentGuidance(
 ): string {
   switch (intent) {
     case "followup":
-      return "【本轮追问】对方提到了情绪、计划或困难，回复之后自然顺势问一句，不要刻意，像真的好奇。";
+      return "【本轮追问】顺着情绪、计划或困难轻问一句，别刻意。";
     case "callback":
       return topicPull
-        ? `【本轮回钩】可以在回复里自然带起「${topicPull}」，像是随口想起，不要生硬切入。`
-        : "【本轮回钩】可以轻轻提起之前没说完的话题，像是随口想起。";
+        ? `【本轮回钩】自然带起「${topicPull}」，像随口想起。`
+        : "【本轮回钩】轻轻提起之前没说完的话题。";
     case "preference":
-      return "【本轮偏好】可以带一点你自己的倾向或看法，不用只给信息，像真的有点想法的人说话。";
+      return "【本轮偏好】可以带一点你自己的倾向或看法。";
     default:
       return "";
   }
@@ -171,6 +172,9 @@ export function buildPersonaPrompt(
   }
   if (options.replyShapeContract?.trim()) {
     sections.push(`【本轮回复合同】\n${options.replyShapeContract.trim()}`);
+  }
+  if (options.toneContract?.trim()) {
+    sections.push(`【语气合同】\n${options.toneContract.trim()}`);
   }
   if (options.priorityContext?.trim()) {
     sections.push(
@@ -191,23 +195,26 @@ export function buildPersonaPrompt(
   sections.push(buildPersonalityPrompt());
   sections.push(buildCharacterRulesPrompt());
   sections.push(
-    "【关系与记忆回答规则】如果用户问“我们是什么关系”“我们聊了多久”“你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按“刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。",
+    "【关系与记忆回答规则】用户问“我们是什么关系”“我们聊了多久”“你还记得多少”时，只能依据当前给出的关系阶段、轮数、摘要和记忆来答；没有长期依据时按刚开始接触来答，不能脑补成已经认识很久，也不能编造具体聊天时长或轮数。",
   );
-  sections.push(`【人格预设】${persona.profile.label}`);
-  sections.push(persona.profile.coreIdentity);
-  sections.push(`【人格语气】${persona.profile.toneGuide}`);
-  sections.push(`【人格主动性】${persona.profile.proactiveGuide}`);
+  sections.push(
+    `【人格设定】${persona.profile.label}；${persona.profile.coreIdentity}；${persona.profile.toneGuide}；${persona.profile.proactiveGuide}`,
+  );
 
   // 4. Layer 2: 角色状态（6 个字段翻译为 prompt 指导）
   const stateLines: string[] = [
-    `当前心情：${liveState.mood}，情绪状态：${liveState.emotionalState}`,
+    liveState.mood !== "neutral" || liveState.emotionalState !== "平静"
+      ? `当前心情：${liveState.mood}，情绪状态：${liveState.emotionalState}`
+      : "",
     energyGuidance(liveState.energy),
     closenessGuidance(liveState.closeness),
     attentionGuidance(liveState.attention, liveState.topicPull),
     interruptedGuidance(liveState.lastInterrupted || liveState.wasInterrupted),
     continuationGuidance(liveState.isContinuingTopic),
   ].filter(Boolean);
-  sections.push(stateLines.join("\n"));
+  if (stateLines.length > 0) {
+    sections.push(stateLines.join("；"));
+  }
 
   // 5. 情绪语调（由外部 prompt_builder 传入）
   if (options.emotionSpeechGuidance?.trim()) {
@@ -217,7 +224,7 @@ export function buildPersonaPrompt(
   // 6. 最近对话（轻量上下文感知）
   if (liveState.recentInteractions.length > 0) {
     sections.push(
-      `最近的对话：\n${liveState.recentInteractions.join("\n")}`,
+      `最近对话：\n${liveState.recentInteractions.slice(-2).join("\n")}`,
     );
   }
 

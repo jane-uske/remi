@@ -192,6 +192,89 @@ describe("prompt memory retrieval", () => {
     assert.equal(recalled.active?.id, "sleep-active");
   });
 
+  it("can derive recall candidates from shared moments when structured episode fields are absent", async () => {
+    const recalled = await recallEpisodes(
+      {
+        userProfile: {
+          facts: new Map(),
+          interests: [],
+          personalityNotes: [],
+        },
+        relationship: {
+          familiarity: 0.7,
+          emotionalBond: 0.62,
+          turnCount: 12,
+          preferredTopics: ["工作", "睡眠"],
+        },
+        topicHistory: [
+          { topic: "工作", depth: 4, lastTurn: 12, sentiment: "negative" },
+          { topic: "睡眠", depth: 2, lastTurn: 12, sentiment: "negative" },
+        ],
+        moodTrajectory: [
+          { turn: 11, mood: "委屈" },
+          { turn: 12, mood: "疲惫/烦躁" },
+        ],
+        conversationSummary: "那次工作上的误解还没过去，最近也开始影响睡眠。",
+        proactiveTopics: ["那件工作上的事后来有缓一点吗"],
+        sharedMoments: [
+          {
+            summary: "那次被误解之后，你一直有点委屈。",
+            topic: "工作",
+            mood: "委屈",
+            hook: "那件工作上的事后来有缓一点吗",
+            semanticKeywords: ["误解", "委屈"],
+            kind: "stress",
+            salience: 0.92,
+            recurrenceCount: 3,
+            unresolved: true,
+            turn: 10,
+            createdAt: 100,
+            firstSeenAt: 100,
+            lastReferencedAt: 0,
+          },
+          {
+            summary: "最近又开始睡不好，像一直绷着。",
+            topic: "睡眠",
+            mood: "疲惫/烦躁",
+            hook: "最近睡得怎么样",
+            semanticKeywords: ["失眠", "绷着"],
+            kind: "support",
+            salience: 0.82,
+            recurrenceCount: 1,
+            unresolved: true,
+            turn: 12,
+            createdAt: 200,
+            firstSeenAt: 200,
+            lastReferencedAt: 0,
+          },
+        ],
+        continuityCueState: {
+          lastProactiveHook: "",
+          lastProactiveTurn: -100,
+          lastSharedMomentSummary: "",
+          lastSharedMomentTurn: -100,
+        },
+        proactiveLedger: [],
+        proactiveStrategyState: {
+          lastUserTurnAt: 0,
+          lastProactiveAt: 0,
+          lastUserReturnAfterProactiveAt: 0,
+          consecutiveProactiveCount: 0,
+          totalProactiveCount: 0,
+          nudgesSinceLastUserTurn: 0,
+          retreatLevel: 0,
+          ignoredProactiveStreak: 0,
+          cooldownUntilAt: 0,
+          lastProactiveMode: "",
+        },
+      },
+      "我今天又想到那次工作上的误解，昨晚也没睡好",
+    );
+
+    assert.equal(recalled.core?.title, "工作");
+    assert.equal(recalled.active?.title, "睡眠");
+  });
+
   it("can surface a shared moment even when there are no fact memories yet", async () => {
     const repo = await seedRepo([]);
 

@@ -6,6 +6,13 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface CompletionOptions {
+  maxTokens?: number;
+  temperature?: number;
+  model?: string;
+  signal?: AbortSignal;
+}
+
 let client: OpenAI | null = null;
 
 function getClient(): OpenAI {
@@ -26,8 +33,18 @@ export async function complete(
   maxTokens = 512,
   signal?: AbortSignal,
 ): Promise<string> {
+  return completeWithOptions(messages, {
+    maxTokens,
+    signal,
+  });
+}
+
+export async function completeWithOptions(
+  messages: ChatMessage[],
+  options: CompletionOptions = {},
+): Promise<string> {
   const openai = getClient();
-  const model = process.env.model;
+  const model = options.model ?? process.env.model;
   if (!model) throw new Error("LLM 未配置：缺少 model");
 
   const res = await withRetry(
@@ -35,9 +52,9 @@ export async function complete(
       openai.chat.completions.create({
         model,
         messages,
-        temperature: 0.3,
-        max_tokens: maxTokens,
-        ...(signal ? { signal } : {}),
+        temperature: options.temperature ?? 0.3,
+        max_tokens: options.maxTokens ?? 512,
+        ...(options.signal ? { signal: options.signal } : {}),
       }),
     { retries: 1, label: "complete" },
   );

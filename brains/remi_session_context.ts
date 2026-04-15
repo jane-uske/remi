@@ -20,6 +20,15 @@ import {
   resetPersonaLiveState,
   type PersonaPresetId,
 } from "./dev_presets";
+import {
+  detectAnswerNowSignal,
+  detectDecisionSeekingSignal,
+} from "../brain/tone_policy";
+import type {
+  ResponsePolicy,
+  StructuredAnalysisSource,
+  TurnInterpretation,
+} from "../brain/turn_interpreter";
 
 // ── Layer 2 派生逻辑 ─────────────────────────────────────────────
 // 从 SlowBrainStore 已有数据推导 6 个角色状态字段，不引入额外计算。
@@ -54,8 +63,12 @@ function deriveAttention(
   const snapshot = slowBrain.getSnapshot();
   // 有强牵引话题 → hooked
   if (topicPull) {
-    const topThread = (snapshot.topicThreads ?? [])[0];
-    if (topThread && topThread.unresolvedCount > 0 && topThread.salience >= 0.7) {
+    const hasStrongUnresolvedMoment = snapshot.sharedMoments.some((entry) =>
+      entry.unresolved &&
+      (entry.salience ?? 0) >= 0.7 &&
+      (entry.topic === topicPull || entry.summary.includes(topicPull)),
+    );
+    if (hasStrongUnresolvedMoment) {
       return "hooked";
     }
   }
@@ -68,11 +81,15 @@ function deriveAttention(
 
 function deriveTopicPull(slowBrain: SlowBrainStore): string {
   const snapshot = slowBrain.getSnapshot();
-  // 优先取有未解决计数的高权重话题线
-  const topThread = (snapshot.topicThreads ?? [])
-    .filter((t) => t.unresolvedCount > 0 && t.salience >= 0.6)
-    .sort((a, b) => b.salience - a.salience)[0];
-  if (topThread) return topThread.topic;
+  // 优先取高显著、未解决的 shared moment
+  const topMoment = snapshot.sharedMoments
+    .filter((entry) => entry.unresolved && (entry.salience ?? 0) >= 0.6)
+    .sort((a, b) =>
+      (b.salience ?? 0) - (a.salience ?? 0) ||
+      (b.recurrenceCount ?? 1) - (a.recurrenceCount ?? 1) ||
+      b.turn - a.turn,
+    )[0];
+  if (topMoment?.topic) return topMoment.topic;
   // 退而取慢脑主动话题列表的第一条
   return snapshot.proactiveTopics[0] ?? "";
 }
@@ -90,12 +107,35 @@ function deriveProactiveIntent(
   userMessage: string,
   topicPull: string,
   slowBrain: SlowBrainStore,
+  interpretation?: TurnInterpretation | null,
+  responsePolicy?: ResponsePolicy | null,
 ): ProactiveIntent {
   const snapshot = slowBrain.getSnapshot();
   const turnCount = snapshot.relationship.turnCount;
+  const msg = userMessage.trim();
+
+  if (
+    interpretation &&
+    (
+      interpretation.userAct === "decision_seek" ||
+      interpretation.userAct === "answer_now" ||
+      interpretation.userAct === "context_update" ||
+      interpretation.userAct === "scene_continue" ||
+      interpretation.userAct === "topic_veto"
+    )
+  ) {
+    return "none";
+  }
+  if (responsePolicy?.questionBudget === 0 && responsePolicy.shouldGiveJudgment) {
+    return "none";
+  }
+
+  // 用户在要明确判断，或已经嫌你老在反问时，本轮不要再抢成 followup/callback。
+  if (detectDecisionSeekingSignal(msg) || detectAnswerNowSignal(msg)) {
+    return "none";
+  }
 
   // 追问：用户输入触发了情绪/计划/困难关键词
-  const msg = userMessage;
   if (FOLLOWUP_TRIGGERS.some((w) => msg.includes(w))) {
     return "followup";
   }
@@ -122,7 +162,7 @@ function deriveProactiveIntent(
  * 单条 WebSocket 连接上的 Remi 状态：情绪、慢脑、对话历史、会话内记忆（C1）。
  */
 export class RemiSessionContext {
-  userId = "dev-user";
+  userId = "";
   readonly emotion: EmotionRuntime;
   readonly slowBrain: SlowBrainStore;
   readonly memory: SessionMemoryOverlayRepository;
@@ -134,6 +174,10 @@ export class RemiSessionContext {
   lastInterruptedReply: string | null = null;
   /** 当前正在生成中的 AI 回复草稿，用于打断瞬间承接上下文。 */
   currentAssistantDraft: string | null = null;
+  lastInterpretation: TurnInterpretation | null = null;
+  lastResponsePolicy: ResponsePolicy | null = null;
+  analysisSource: StructuredAnalysisSource | null = null;
+  analysisLatencyMs: number | null = null;
 
   constructor(readonly connId: string) {
     this.emotion = new EmotionRuntime(connId);
@@ -213,6 +257,10 @@ export class RemiSessionContext {
     this.history.splice(0, this.history.length);
     this.lastInterruptedReply = null;
     this.currentAssistantDraft = null;
+    this.lastInterpretation = null;
+    this.lastResponsePolicy = null;
+    this.analysisSource = null;
+    this.analysisLatencyMs = null;
     this.emotion.setEmotion("neutral");
     resetPersonaLiveState(this.persona);
     this.cancelSlowBrain();
@@ -353,7 +401,13 @@ export class RemiSessionContext {
 
     // Layer 4：决定本轮主动意图
     liveState.proactiveIntent = lastUserMessage
-      ? deriveProactiveIntent(lastUserMessage, topicPull, this.slowBrain)
+      ? deriveProactiveIntent(
+          lastUserMessage,
+          topicPull,
+          this.slowBrain,
+          this.lastInterpretation,
+          this.lastResponsePolicy,
+        )
       : "none";
 
     // 话题延续检测 & 摘要

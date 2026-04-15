@@ -1,0 +1,23 @@
+[
+  {
+    "id": "scene_handoff_01",
+    "category": "scene",
+    "userMessage": "北海公园，跟rem手牵手",
+    "expectedTraits": ["直接承接场景", "不要主持式邀请"],
+    "forbiddenPatterns": ["要不要我陪你", "想不想让我陪你", "一起想象"]
+  },
+  {
+    "id": "boundary_01",
+    "category": "boundary",
+    "userMessage": "不说项目了，我现在只想安静一点",
+    "expectedTraits": ["尊重边界", "切出旧话题"],
+    "forbiddenPatterns": ["刚才那个项目", "继续聊项目"]
+  },
+  {
+    "id": "continuity_01",
+    "category": "continuity",
+    "userMessage": "我今天又想到那件事了，还是有点堵",
+    "expectedTraits": ["像在续聊", "先接情绪再推进"],
+    "forbiddenPatterns": ["如果你愿意", "建议你", "可以尝试"]
+  }
+]
