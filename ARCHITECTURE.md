@@ -75,12 +75,12 @@ Remi 后期不只会存在于网页聊天界面。
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Client Layer                            │
-│         Next.js (web/)  ·  Legacy (public/)                 │
+│   Next.js (web/)  ·  iOS RemiChatLite v0  ·  Legacy public/ │
 │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌────────────────┐   │
 │  │ ChatWindow│ │ InputBar │ │ Avatar │ │VoiceIndicator  │   │
 │  └──────────┘ └──────────┘ └────────┘ └────────────────┘   │
 │       useRemiChat (WebSocket)  ·  useAudioBase64Queue        │
-│       pcmCapture (16kHz mono Int16)                         │
+│       pcmCapture (16kHz mono Int16)  ·  iOS WS text v0      │
 └────────────────────┬────────────────────────────────────────┘
                      │ WebSocket (ws)
                      │ text / audio_stream / duplex_start|stop
@@ -188,6 +188,7 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 当前判断：
 - `server/session/index.ts` 仍然是高风险热点，但已经不再同时承载 bootstrap/history/cleanup/turn_state protocol/dev preset 这些外围层。
 - 真正的实时复杂度仍然主要在 VAD event flow、prediction、duplex state machine、turn-taking 决策。
+- 远程接入语义也比以前清楚：远程域名默认要求 JWT，本机回环地址允许无 token 调试；iOS v0 当前优先走 JWT，dev-key 只保留开发兜底链路。
 
 ### 3. Pipeline — `server/pipeline/`
 
@@ -256,15 +257,21 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 中央调度器，每次用户消息触发：
 1. 更新情绪状态
 2. 提取 + 检索记忆
-3. 获取慢脑上下文（上一轮分析结果）
-4. 调用快脑流式生成回复
-5. 仅在非中断完成态维护正式对话历史（滑动窗口，最近 10 轮）
-6. 仅在非中断完成态异步触发慢脑后台分析
+3. 在需要时执行结构化回合解释：`TurnInterpretation -> ResponsePolicy`
+4. 获取慢脑上下文（上一轮分析结果）
+5. 调用快脑流式生成回复
+6. 仅在非中断完成态维护正式对话历史（滑动窗口，最近 10 轮）
+7. 仅在非中断完成态异步触发慢脑后台分析
+
+当前判断：
+- `TurnInterpretation` 不再是第二套“更聪明的主脑”，而是有界的结构化判定层，主要服务决策题、现实约束更新、边界敏感、场景承接这些高价值回合。
+- 普通文本回合仍然优先走轻量 fast path；结构化解释需要受预算约束，不能重新把慢逻辑塞回 live path。
 
 **Fast Brain (`fast_brain.ts`)**
 
 低延迟路径，直接面向用户：
 - 通过 Prompt Builder 组装完整 prompt
+- 消费 `ResponsePolicy` 和 tone contract，把“先答后问、少助手味、保边界”变成可执行约束
 - 注入慢脑上下文作为"长期观察"
 - 调用 LLM 流式生成
 - 支持 AbortSignal 中断
@@ -289,6 +296,7 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 System Prompt:
 ├── 人设（personality）
 ├── 说话规则（character rules）
+├── tone contract / response policy
 ├── 情绪风格（EMOTION_STYLE map）
 ├── "用中文回复"
 └── 用户记忆（key-value 列表）
@@ -300,6 +308,11 @@ Messages:
 ```
 
 情绪风格映射（`EMOTION_STYLE`）让 AI 根据当前情绪调整回复语气。
+
+当前文本主链不再只靠 prompt 文案“拍脑袋控风格”：
+- `brain/turn_interpreter.ts` 负责把高价值用户回合解释成结构化意图
+- `brain/tone_policy.ts` 负责把“减少助手味、回答优先、边界尊重”收成稳定 contract
+- `prompt_builder.ts` 只负责把这些 contract 和人格/记忆一起压进 fast path 可消费的 prompt
 
 ### 7. LLM 客户端 — `llm/qwen_client.ts`
 
@@ -554,6 +567,14 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 ### 15. 旧版前端 — `public/`
 
 原生 HTML/CSS/JS 实现，功能基本对应 Next.js 版本但不支持双工语音和打断控制。由当前 HTTP 网关兼容托管。
+
+### 15.5. iOS v0 — `ios/RemiChatLite/`
+
+当前 iOS 端不是完整多模态客户端，而是独立的 v0 文本优先面：
+- 已具备：WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底、本地缓存按用户隔离
+- 价值：验证“跨终端存在层”的最小闭环，不再把 Remi 只绑在网页单端生命周期里
+- 真实阶段：属于“单路径基本可用”，不是“生产可用移动端”
+- 当前缺口：按住说话语音链路仍未验收通过，不能把它算作稳定能力
 
 ## 全局数据流
 

@@ -30,6 +30,10 @@ updateEmotion(runtime)
     ↓
 extractMemory() + retrieveMemory() / relationship context
     ↓
+structured turn analysis (bounded)
+    ↓
+response policy / tone contract
+    ↓
 brain router
     ↓
 fast brain
@@ -150,24 +154,30 @@ slow brain (background only)
    - 检索和当前输入相关的关系上下文
    - 当前正处于 V1 → V2 迁移过程中
 
-5. **Fast Brain**
+5. **Structured Turn Analysis / Response Policy**
+   - 只在高价值文本回合进入：决策题、现实约束更新、边界敏感、场景承接
+   - 产出 `TurnInterpretation -> ResponsePolicy`
+   - 目标不是再造第二套主脑，而是把“先答后问、边界尊重、少助手味”收成有界 contract
+   - 必须受延迟预算约束；普通文本不能因为它重新变重
+
+6. **Fast Brain**
    - 面向用户的低延迟生成路径
    - 历史按 token 预算裁剪
-   - 消费 prompt builder 注入的人格、关系、情绪与上下文
+   - 消费 prompt builder 注入的人格、关系、情绪、`ResponsePolicy` 与上下文
 
-6. **Sentence Chunker**
+7. **Sentence Chunker**
    - 按稳定边界切句
    - 为 TTS 和播放连续性服务
 
-7. **TTS**
+8. **TTS**
    - 逐句合成语音
    - 带情绪与语调参数
 
-8. **Audio Stream**
+9. **Audio Stream**
    - 将音频与文本流同步推给客户端
    - generation / playback 状态要保持可观察
 
-9. **Slow Brain**
+10. **Slow Brain**
    - 只在后台异步执行
    - 负责 episode 写入、关系状态推进、长期上下文提炼
    - 中断轮次不触发正常完成态写回
@@ -227,10 +237,23 @@ server/
 │   ├── index.ts                 # HTTP + WebSocket 网关
 │   └── types.ts                 # ServerMessage 类型
 ├── session/
-│   ├── index.ts                 # ConnectionSession 类
+│   ├── index.ts                 # ConnectionSession 主 orchestrator
+│   ├── bootstrap.ts             # async bootstrap / restore
+│   ├── history.ts               # history page send
+│   ├── lifecycle.ts             # close / cleanup
+│   ├── message_router.ts        # WS message dispatch
+│   ├── continuity.ts            # silence nudge / continuity
+│   ├── developer.ts             # dev preset / reset helpers
+│   ├── duplex_audio.ts          # duplex raw-buffer / no-vad helper
+│   ├── turn_state_protocol.ts   # turn_state protocol publish
+│   ├── voice_submit.ts          # final voice submit helper
 │   └── types.ts                 # 会话状态类型
 └── pipeline/
     ├── index.ts                 # runPipeline 导出
     ├── runner.ts                # 管线执行逻辑
     └── types.ts                 # 管线类型
 ```
+
+当前判断：
+- `session` 已经把一部分外围职责从 `index.ts` 拆出，但实时核心仍然集中在 `ConnectionSession`
+- 这些 helper 的意义主要是收口边界、降低误改概率，不代表实时状态机已经彻底简单化
