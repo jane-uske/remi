@@ -215,4 +215,144 @@ describe("prompt memory retrieval with episode store", () => {
       restore();
     }
   });
+
+  it("keeps the top-ranked active episode without backfilling a lower-ranked core", async () => {
+    const referenced = [];
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode({
+              id: "episode-2",
+              title: "睡眠",
+              summary: "睡眠：昨晚又没睡好。",
+              topics: ["睡眠"],
+              recurrence_count: 2,
+              relationship_weight: 0.64,
+              unresolved: true,
+              status: "active",
+            }),
+            score: 0.93,
+          },
+          {
+            episode: makeEpisode({
+              id: "episode-1",
+              title: "工作",
+              summary: "工作：那次被误解之后，这条线一直拖着。",
+              topics: ["工作", "睡眠"],
+              recurrence_count: 4,
+              relationship_weight: 0.82,
+              unresolved: false,
+              status: "cooling",
+            }),
+            score: 0.81,
+          },
+        ],
+        markReferenced: async (episodeId) => {
+          referenced.push(episodeId);
+        },
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      let diagnostics = null;
+      const memories = await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "我昨晚又没睡好",
+        slowBrainSnapshot: makeSnapshot(),
+        maxEntries: 2,
+        diagnostics: (meta) => {
+          diagnostics = meta;
+        },
+      });
+      await Promise.resolve();
+
+      assert.deepEqual(memories, [
+        {
+          key: "当前未完主线",
+          value: "睡眠：睡眠：昨晚又没睡好。",
+        },
+      ]);
+      assert.deepEqual(referenced, ["episode-2"]);
+      assert.deepEqual(diagnostics, {
+        episodeRecallSource: "episode_store",
+        episodeRecallIds: ["episode-2"],
+        episodeReferenceApplied: true,
+        episodeRecallFallback: false,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not promote a low-weight mixed-topic active episode into long-term core memory", async () => {
+    const referenced = [];
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode({
+              id: "episode-2",
+              title: "工作",
+              summary: "游戏：上次你提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
+              topics: ["工作", "游戏"],
+              recurrence_count: 2,
+              relationship_weight: 0.54,
+              unresolved: true,
+              status: "active",
+            }),
+            score: 0.93,
+          },
+          {
+            episode: makeEpisode({
+              id: "episode-1",
+              title: "工作",
+              summary: "工作：那次被误解之后，这条线一直拖着。",
+              topics: ["工作", "睡眠"],
+              recurrence_count: 4,
+              relationship_weight: 0.82,
+              unresolved: false,
+              status: "cooling",
+            }),
+            score: 0.81,
+          },
+        ],
+        markReferenced: async (episodeId) => {
+          referenced.push(episodeId);
+        },
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      let diagnostics = null;
+      const memories = await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "我手里差不多有两年半积蓄，但还欠花呗两万五",
+        slowBrainSnapshot: makeSnapshot(),
+        maxEntries: 2,
+        diagnostics: (meta) => {
+          diagnostics = meta;
+        },
+      });
+      await Promise.resolve();
+
+      assert.deepEqual(memories, [
+        {
+          key: "当前未完主线",
+          value: "工作：游戏：上次你提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
+        },
+      ]);
+      assert.deepEqual(referenced, ["episode-2"]);
+      assert.deepEqual(diagnostics, {
+        episodeRecallSource: "episode_store",
+        episodeRecallIds: ["episode-2"],
+        episodeReferenceApplied: true,
+        episodeRecallFallback: false,
+      });
+    } finally {
+      restore();
+    }
+  });
 });

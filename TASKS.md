@@ -220,7 +220,8 @@
 
 - [ ] Memory V2 真实质量审计
   - 目标：不只确认 `episodes` 会写，还要确认“写得像同一条关系主线”
-  - 当前状态：已补 `memory:v2:audit` 脚本与启发式指标，但还缺真实用户抽样、人工复核与阈值基线
+  - 当前状态：`memory:v2:audit` 入口现已可直接吃 `.env`；第一轮真实样本已暴露 `episode` 过度合并与 repeated resurfacing，随后已补写入口守门、召回反统治和 core 判定收紧。主样本 `repeatedResurfaceRate` 已从 `0.923` 降到 `0`
+  - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；这条任务现在卡的不是“没有指标”，而是“还缺人工复核 + 存量治理策略”
   - 验收标准：至少一批真实样本产出审计报告，并能回答错合并 / 漏召回 / 重复回捞 / unresolved 命中四类问题的量级
 - [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
   - 当前状态：已补一轮正向浏览器文本样本，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`

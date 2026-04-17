@@ -275,6 +275,141 @@ describe("episode_store", () => {
     }
   });
 
+  it("ingest does not merge a new discrete topic into an overly broad episode", async () => {
+    const calls = {
+      insert: [],
+      update: [],
+    };
+    const existing = makeEpisode({
+      title: "工作",
+      summary: "工作：最近总在继续聊工作",
+      topics: ["工作", "美食", "音乐", "影视动漫", "感情", "游戏"],
+      recurrence_count: 16,
+      centroid_embedding: makeVector([10, 0]),
+      origin_moment_summaries: [
+        "最近工作压力还是很大",
+        "昨天又聊到想吃火锅",
+        "今天分享了最近在听的歌",
+        "还提到了最近在追的动漫",
+      ],
+      salience: 0.8,
+    });
+    const insertResult = makeEpisode({
+      id: "episode-new",
+      title: "旅游",
+      summary: "旅游：准备去海边散心",
+      topics: ["旅游"],
+      recurrence_count: 1,
+      centroid_embedding: makeVector([10, 1]),
+      origin_moment_summaries: ["准备去海边散心"],
+    });
+    const { episodeStore, restore } = loadEpisodeStore({
+      embeddingClient: {
+        embed: async () => makeVector([10, 1]),
+      },
+      episodeRepository: {
+        insertEpisode: async (params) => {
+          calls.insert.push(params);
+          return insertResult;
+        },
+        updateEpisode: async (id, params) => {
+          calls.update.push({ id, params });
+          return existing;
+        },
+        findSimilarEpisodes: async () => [existing],
+        getUnresolvedEpisodes: async () => [],
+      },
+    });
+
+    try {
+      const episode = await episodeStore.ingest({
+        userId: "user-1",
+        summary: "准备去海边散心",
+        topic: "旅游",
+        mood: "excited",
+        kind: "plan",
+        salience: 0.7,
+        unresolved: false,
+      });
+
+      assert.equal(calls.update.length, 0);
+      assert.equal(calls.insert.length, 1);
+      assert.equal(calls.insert[0].title, "旅游");
+      assert.equal(episode, insertResult);
+    } finally {
+      restore();
+    }
+  });
+
+  it("ingest still merges same-topic moments into a narrow episode", async () => {
+    const calls = {
+      insert: 0,
+      update: [],
+    };
+    const existing = makeEpisode({
+      title: "工作",
+      summary: "工作：这个项目最近有点卡",
+      topics: ["工作"],
+      recurrence_count: 2,
+      unresolved: false,
+      status: "cooling",
+      centroid_embedding: makeVector([10, 0]),
+      origin_moment_summaries: ["这个项目最近有点卡", "这周工作压力有点大"],
+    });
+    const updatedResult = makeEpisode({
+      title: "工作",
+      summary: "工作：今天开会还是在聊项目进度",
+      topics: ["工作"],
+      recurrence_count: 3,
+      unresolved: false,
+      status: "cooling",
+      centroid_embedding: makeVector([10, 1 / 3]),
+      origin_moment_summaries: ["这个项目最近有点卡", "这周工作压力有点大", "今天开会还是在聊项目进度"],
+      mood: "stressed",
+      salience: 0.8,
+      relationship_weight: 0.8,
+    });
+    const { episodeStore, restore } = loadEpisodeStore({
+      embeddingClient: {
+        embed: async () => makeVector([10, 1]),
+      },
+      episodeRepository: {
+        insertEpisode: async () => {
+          calls.insert += 1;
+          return null;
+        },
+        updateEpisode: async (id, params) => {
+          calls.update.push({ id, params });
+          return updatedResult;
+        },
+        findSimilarEpisodes: async () => [existing],
+        getUnresolvedEpisodes: async () => [],
+      },
+    });
+
+    try {
+      const episode = await episodeStore.ingest({
+        userId: "user-1",
+        summary: "今天开会还是在聊项目进度",
+        topic: "工作",
+        mood: "stressed",
+        kind: "routine",
+        salience: 0.8,
+        unresolved: false,
+      });
+
+      assert.equal(calls.insert, 0);
+      assert.equal(calls.update.length, 1);
+      assert.equal(calls.update[0].id, "episode-1");
+      assert.equal(calls.update[0].params.recurrenceCount, 3);
+      assert.deepEqual(calls.update[0].params.topics, ["工作"]);
+      assert.equal(calls.update[0].params.summary, "工作：今天开会还是在聊项目进度");
+      assert.equal(episode, updatedResult);
+    } finally {
+      restore();
+    }
+  });
+
   it("findRelevant ranks episodes by blended score", async () => {
     const realDateNow = Date.now;
     Date.now = () => new Date("2026-04-12T00:00:00.000Z").getTime();
@@ -321,6 +456,67 @@ describe("episode_store", () => {
       );
       assert.equal(ranked[0].score > ranked[1].score, true);
       assert.equal(ranked[1].score > ranked[2].score, true);
+    } finally {
+      Date.now = realDateNow;
+      restore();
+    }
+  });
+
+  it("findRelevant demotes wide recently referenced episodes on weakly anchored queries", async () => {
+    const realDateNow = Date.now;
+    Date.now = () => new Date("2026-04-12T06:00:00.000Z").getTime();
+    const { episodeStore, restore } = loadEpisodeStore({
+      embeddingClient: {
+        embed: async () => makeVector([1, 0]),
+      },
+      episodeRepository: {
+        insertEpisode: async () => null,
+        updateEpisode: async () => null,
+        findSimilarEpisodes: async () => [
+          makeEpisode({
+            id: "wide-recent",
+            title: "工作",
+            summary: "工作：最近总在继续聊工作",
+            topics: ["工作", "美食", "音乐", "影视动漫", "感情", "游戏"],
+            salience: 0.95,
+            recurrence_count: 12,
+            unresolved: false,
+            last_seen_at: new Date("2026-04-12T05:00:00.000Z"),
+            last_referenced_at: new Date("2026-04-12T04:30:00.000Z"),
+            centroid_embedding: makeVector([1, 0]),
+            origin_moment_summaries: [
+              "最近工作压力还是很大",
+              "昨天又聊到想吃火锅",
+              "今天分享了最近在听的歌",
+              "还提到了最近在追的动漫",
+            ],
+          }),
+          makeEpisode({
+            id: "sleep-line",
+            title: "睡眠",
+            summary: "睡眠：昨晚又没睡好。",
+            topics: ["睡眠"],
+            salience: 0.55,
+            recurrence_count: 2,
+            unresolved: false,
+            last_seen_at: new Date("2026-04-08T00:00:00.000Z"),
+            last_referenced_at: new Date("2026-04-01T00:00:00.000Z"),
+            centroid_embedding: makeVector([0.6, 0.4]),
+            origin_moment_summaries: ["昨晚又没睡好", "这周一直浅睡"],
+          }),
+        ],
+        getUnresolvedEpisodes: async () => [],
+      },
+    });
+
+    try {
+      const ranked = await episodeStore.findRelevant("user-1", "我昨晚又没睡好");
+
+      assert.deepEqual(
+        ranked.map((entry) => entry.episode.id),
+        ["sleep-line", "wide-recent"],
+      );
+      assert.equal(ranked[0].score > ranked[1].score, true);
     } finally {
       Date.now = realDateNow;
       restore();

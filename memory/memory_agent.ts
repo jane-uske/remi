@@ -220,6 +220,11 @@ type RecalledEpisodeSelection = {
   fallbackUsed: boolean;
 };
 
+type RankedRecalledEpisode = {
+  entry: RecalledEpisode;
+  score: number;
+};
+
 function recallEpisodesFromSnapshot(
   slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
   userMessage: string,
@@ -304,7 +309,10 @@ function mapPersistentEpisodeToRecalledEpisode(
   const layer: RecalledEpisode["layer"] =
     entry.relationship_weight >= 0.72 ||
     entry.recurrence_count >= 3 ||
-    (entry.topics?.length ?? 0) >= 2
+    (
+      (entry.topics?.length ?? 0) >= 2 &&
+      (entry.recurrence_count >= 3 || entry.relationship_weight >= 0.68)
+    )
       ? "core"
       : "active";
   return {
@@ -313,6 +321,37 @@ function mapPersistentEpisodeToRecalledEpisode(
     summary: entry.summary,
     layer,
     status,
+  };
+}
+
+function selectEpisodeStoreEpisodes(
+  ranked: RankedRecalledEpisode[],
+): Pick<RecalledEpisodeSelection, "core" | "active" | "episodeIds"> | null {
+  const primary = ranked[0]?.entry;
+  if (!primary) return null;
+
+  if (primary.layer === "core") {
+    const active = ranked
+      .slice(1)
+      .find((item) => item.entry.status === "active" && item.entry.id !== primary.id)
+      ?.entry;
+    return {
+      core: primary,
+      active,
+      episodeIds: [primary.id, active?.id].filter(Boolean) as string[],
+    };
+  }
+
+  if (primary.status === "active") {
+    return {
+      active: primary,
+      episodeIds: [primary.id],
+    };
+  }
+
+  return {
+    core: { ...primary, layer: "core" },
+    episodeIds: [primary.id],
   };
 }
 
@@ -327,41 +366,20 @@ export async function recallEpisodes(
     try {
       const ranked = await findRelevantEpisodes(options.userId, userMessage, 4);
       if (ranked.length > 0) {
-        const persistentEpisodes = ranked.map(({ episode }) =>
-          mapPersistentEpisodeToRecalledEpisode(episode),
-        );
-        const core = persistentEpisodes.find((entry) => entry.layer === "core");
-        const active = persistentEpisodes.find((entry) =>
-          entry.status === "active" &&
-          entry.id !== core?.id,
-        );
-        const selectedIds = [core?.id, active?.id].filter(Boolean) as string[];
-        if (options.markReferenced !== false && selectedIds.length > 0) {
-          void Promise.allSettled(selectedIds.map((id) => markReferencedEpisode(id)));
+        const persistentEpisodes = ranked.map(({ episode, score }) => ({
+          entry: mapPersistentEpisodeToRecalledEpisode(episode),
+          score,
+        }));
+        const selection = selectEpisodeStoreEpisodes(persistentEpisodes);
+        if (selection && options.markReferenced !== false && selection.episodeIds.length > 0) {
+          void Promise.allSettled(selection.episodeIds.map((id) => markReferencedEpisode(id)));
         }
-        if (core || active) {
+        if (selection) {
           return {
-            core,
-            active,
+            core: selection.core,
+            active: selection.active,
             source: "episode_store",
-            episodeIds: selectedIds,
-            fallbackUsed: false,
-          };
-        }
-        const first = persistentEpisodes[0];
-        if (first) {
-          const fallbackSelection: RecalledEpisode = first.layer === "core"
-            ? first
-            : { ...first, layer: "core" };
-          if (options.markReferenced !== false) {
-            const firstIds = [fallbackSelection.id];
-            void Promise.allSettled(firstIds.map((id) => markReferencedEpisode(id)));
-          }
-          return {
-            core: fallbackSelection,
-            active: first.status === "active" ? first : undefined,
-            source: "episode_store",
-            episodeIds: [fallbackSelection.id],
+            episodeIds: selection.episodeIds,
             fallbackUsed: false,
           };
         }

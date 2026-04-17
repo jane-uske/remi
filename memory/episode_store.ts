@@ -1,4 +1,5 @@
 import { embed } from "../llm/embedding_client";
+import { extractKeywords, normalizeText } from "./prompt_memory_support";
 import {
   insertEpisode,
   updateEpisode,
@@ -11,6 +12,14 @@ const MERGE_THRESHOLD = 0.85;
 const MAX_ORIGIN_SUMMARIES = 8;
 const RELEVANCE_TOP_K = 5;
 const RECENT_REFERENCE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const RECENT_REFERENCE_BASE_PENALTY = 0.18;
+const RECENT_REFERENCE_STRONG_PENALTY = 0.32;
+const WIDE_EPISODE_RELEVANCE_PENALTY = 0.12;
+const MAX_MERGEABLE_TOPICS = 3;
+const WIDE_EPISODE_RECURRENCE_FLOOR = 6;
+const WIDE_EPISODE_SUMMARY_FLOOR = 3;
+const LOW_COHESION_SCORE = 0.12;
+const LOW_ANCHOR_COVERAGE = 0.45;
 
 export type EpisodeLifecycleStatus = "active" | "cooling" | "resolved";
 
@@ -102,6 +111,133 @@ function computeUpdatedCentroid(
   return centroid;
 }
 
+function buildEpisodeAnchorText(
+  episode: Pick<DbEpisode, "title" | "summary" | "topics" | "origin_moment_summaries">,
+): string {
+  return [
+    episode.title,
+    episode.summary,
+    ...(episode.topics ?? []),
+    ...((episode.origin_moment_summaries ?? []).slice(-3)),
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function uniqueNormalizedTexts(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeText(value ?? ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function overlapScore(left: string[], right: string[]): number {
+  if (left.length === 0 || right.length === 0) return 0;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  let overlap = 0;
+  for (const keyword of leftSet) {
+    if (rightSet.has(keyword)) overlap += 1;
+  }
+  return overlap / Math.max(1, Math.min(leftSet.size, rightSet.size));
+}
+
+function pairwiseAverage(values: number[]): number {
+  if (values.length === 0) return 1;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function introducesDiscreteTopic(existing: DbEpisode, moment: MomentInput): boolean {
+  const nextTopic = normalizeText(moment.topic);
+  if (!nextTopic) return false;
+  const knownTopics = new Set(uniqueNormalizedTexts([existing.title, ...(existing.topics ?? [])]));
+  return !knownTopics.has(nextTopic);
+}
+
+function isTooWideForCrossTopicMerge(existing: DbEpisode): boolean {
+  const topicCount = uniqueNormalizedTexts([existing.title, ...(existing.topics ?? [])]).length;
+  const summaryCount = existing.origin_moment_summaries?.length ?? 0;
+  return (
+    topicCount > MAX_MERGEABLE_TOPICS ||
+    (topicCount >= 3 && (
+      existing.recurrence_count >= WIDE_EPISODE_RECURRENCE_FLOOR ||
+      summaryCount >= WIDE_EPISODE_SUMMARY_FLOOR
+    ))
+  );
+}
+
+function hasWeakAnchor(existing: DbEpisode): boolean {
+  const summaries = existing.origin_moment_summaries ?? [];
+  if (summaries.length < 3) return false;
+
+  const summaryKeywords = summaries.map((summary) => extractKeywords(summary));
+  const anchorKeywords = [
+    ...extractKeywords(existing.title),
+    ...(existing.topics ?? []).flatMap((topic) => extractKeywords(topic)),
+  ];
+
+  if (anchorKeywords.length === 0) return true;
+
+  const pairScores: number[] = [];
+  for (let index = 0; index < summaryKeywords.length; index += 1) {
+    for (let cursor = index + 1; cursor < summaryKeywords.length; cursor += 1) {
+      pairScores.push(overlapScore(summaryKeywords[index], summaryKeywords[cursor]));
+    }
+  }
+
+  const cohesionScore = pairwiseAverage(pairScores);
+  const anchorCoverage = pairwiseAverage(
+    summaryKeywords.map((keywords) => overlapScore(keywords, anchorKeywords)),
+  );
+  return cohesionScore < LOW_COHESION_SCORE && anchorCoverage < LOW_ANCHOR_COVERAGE;
+}
+
+function matchesEpisodeAnchor(existing: DbEpisode, moment: MomentInput): boolean {
+  const anchorKeywords = [
+    ...extractKeywords(existing.title),
+    ...(existing.topics ?? []).flatMap((topic) => extractKeywords(topic)),
+  ];
+  const momentKeywords = extractKeywords([moment.topic, moment.summary].filter(Boolean).join(" "));
+  return overlapScore(momentKeywords, anchorKeywords) > 0;
+}
+
+function shouldMergeIntoExisting(existing: DbEpisode, moment: MomentInput): boolean {
+  if (!introducesDiscreteTopic(existing, moment)) {
+    return true;
+  }
+
+  if (isTooWideForCrossTopicMerge(existing) || hasWeakAnchor(existing)) {
+    return false;
+  }
+
+  return matchesEpisodeAnchor(existing, moment);
+}
+
+function textIncludesAnchor(
+  text: string,
+  anchors: Array<string | null | undefined>,
+): boolean {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  return uniqueNormalizedTexts(anchors).some((anchor) => normalized.includes(anchor));
+}
+
+function getRecallAnchorStrength(episode: DbEpisode, userMessage: string): {
+  lexicalOverlap: number;
+  topicAnchorHit: boolean;
+} {
+  const anchorKeywords = extractKeywords(buildEpisodeAnchorText(episode));
+  const messageKeywords = extractKeywords(userMessage);
+  return {
+    lexicalOverlap: overlapScore(anchorKeywords, messageKeywords),
+    topicAnchorHit: textIncludesAnchor(userMessage, [episode.title, ...(episode.topics ?? [])]),
+  };
+}
+
 export async function ingest(moment: MomentInput): Promise<DbEpisode> {
   const momentEmbedding = await embed(buildEmbeddingText(moment));
   const similarEpisodes = await findSimilarEpisodes(moment.userId, momentEmbedding, 3);
@@ -112,7 +248,7 @@ export async function ingest(moment: MomentInput): Promise<DbEpisode> {
   }
 
   const similarity = cosineSimilarity(momentEmbedding, topEpisode.centroid_embedding);
-  if (similarity >= MERGE_THRESHOLD) {
+  if (similarity >= MERGE_THRESHOLD && shouldMergeIntoExisting(topEpisode, moment)) {
     return mergeIntoEpisode(topEpisode, moment, momentEmbedding);
   }
 
@@ -207,16 +343,31 @@ export async function findRelevant(
         : episode.last_referenced_at
           ? new Date(episode.last_referenced_at).getTime()
           : 0;
+      const { lexicalOverlap, topicAnchorHit } = getRecallAnchorStrength(episode, userMessage);
+      const lexicalBoost = Math.min(
+        0.12,
+        (lexicalOverlap * 0.08) + (topicAnchorHit ? 0.04 : 0),
+      );
       const recentReferencePenalty =
         lastReferencedAtMs > 0 && now - lastReferencedAtMs < RECENT_REFERENCE_WINDOW_MS
-          ? 0.18
+          ? topicAnchorHit || lexicalOverlap >= 0.34
+            ? RECENT_REFERENCE_BASE_PENALTY
+            : RECENT_REFERENCE_STRONG_PENALTY
+          : 0;
+      const breadthPenalty =
+        (isTooWideForCrossTopicMerge(episode) || hasWeakAnchor(episode)) &&
+        !topicAnchorHit &&
+        lexicalOverlap < 0.34
+          ? WIDE_EPISODE_RELEVANCE_PENALTY
           : 0;
       const score =
         (0.6 * cosine) +
         (0.2 * episode.salience) +
         (0.1 * recencyScore) +
-        (0.1 * unresolvedBoost) -
-        recentReferencePenalty;
+        (0.1 * unresolvedBoost) +
+        lexicalBoost -
+        recentReferencePenalty -
+        breadthPenalty;
       return {
         episode,
         score,
