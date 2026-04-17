@@ -263,11 +263,26 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 | `message_router.ts` | 按 type 分发 WS 消息，并解析 RAUD/legacy PCM binary frame |
 | `continuity.ts` / `developer.ts` | 负责 silence nudge、relationship continuity 持久化、dev preset/reset helpers |
 | `voice_submit.ts` / `turn_state_protocol.ts` / `duplex_audio.ts` | 负责 voice final 提交、turn_state 协议发布、duplex raw-buffer/no-vad helper |
+| `prediction.ts` / `text_chat.ts` / `tts_transport.ts` | 负责 partial prediction、文本回合提交、不同 client 的 TTS transport 解析 |
+| `audio_resample.ts` / `turn_taking_predictor.ts` | 负责非 16k ingress 归一化、heuristic predictor 门控 |
 
 当前判断：
 - `server/session/index.ts` 仍然是高风险热点，但已经不再同时承载 bootstrap/history/cleanup/turn_state protocol/dev preset 这些外围层。
 - 真正的实时复杂度仍然主要在 VAD event flow、prediction、duplex state machine、turn-taking 决策。
 - 远程接入语义也比以前清楚：远程域名默认要求 JWT，本机回环地址允许无 token 调试；iOS v0 当前优先走 JWT，dev-key 只保留开发兜底链路。
+- 当前 voice runtime 已经不再是“VAD 起了就一路串到底”的简单串行链：
+  - `speech_end / duplex_stop` 会先冻结 immutable `DuplexUtteranceJob`
+  - STT decode 运行在独立 `sttChain`
+  - final 提交再回到 assistant `pipelineChain`
+  - `utteranceSeq / sttJobSeq` 用来明确丢弃晚到 stale STT，而不是继续污染新回合
+- `interrupt.active` 和“客户端其实还在播旧音频”现在也被拆开：
+  - server 维护 `assistantPlaybackActive / playbackGenerationId`
+  - 前端在 playback drain / clear 时回传 `playback_end`
+  - 所以即使服务端 generation 已结束，只要客户端还在播，后续强语音依然可以真正停播
+- open-mic 长空闲后的 runtime 也多了一层 `idle guard`
+  - 先挡住低价值环境噪声
+  - 再决定哪些 job 值得进 STT
+  - 避免 idle 噪声先占住 `sttChain`，把后面真实语句一起拖慢
 
 ### 3. Pipeline — `server/pipeline/`
 
@@ -280,6 +295,11 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 | 消息持久化 | DB 可用时保存 user 消息；assistant 仅在非中断完成态保存 |
 | Avatar 动作 | 从回复文本检测动作并推送 |
 | 情绪衰减 | 回复后调用 `decayEmotion()` |
+
+当前补充：
+- `runPipeline()` 现在不会在 abort 后继续傻等未 settle 的 TTS / avatar intent promise
+- stream TTS 已恢复 `voice_pcm_chunk` 主路径，但 Edge consumer 当前实际依赖服务端 MP3 -> PCM 实时转码
+- `llm_first_raw_chunk`、`llm_first_reasoning_chunk`、`llm_first_visible_content` 已分开打点；对当前 Doubao 路线来说，“开始流”不等于“开始说正文”
 
 ### 4. Server 入口 — `server/server.ts` (~80 行)
 
@@ -302,6 +322,7 @@ HTTP + Next.js + WebSocket 网关层，负责创建服务器、连接升级和�
 { type: "audio_stream", audio: base64 }          // 兼容回退路径
 { type: "duplex_stop" }                          // 结束实时语音
 { type: "playback_start", generationId?: number } // 客户端确认本地播放开始
+{ type: "playback_end", generationId?: number }   // 客户端确认本地播放结束 / 清队列
 
 // 服务端 → 客户端
 { type: "emotion", emotion: string }
@@ -547,7 +568,7 @@ OpenAI 兼容的流式聊天客户端。
 | 模式 | 说明 |
 |------|------|
 | 旧版 WebM | `feed(chunk)` + `end()` — 收集 WebM 块后一次性识别 |
-| 双工 PCM | `feedPcm(base64)` + `endPcm()` — 实时 PCM 流，VAD 触发后识别 |
+| 双工 PCM | `feedPcm(base64)` + `transcribePcmSnapshot()` — 实时 PCM 流，VAD / duplex stop 冻结快照后识别 |
 
 | 后端 | 说明 |
 |------|------|
@@ -561,6 +582,19 @@ OpenAI 兼容的流式聊天客户端。
 - 超过阈值连续 N 帧 → `speech_start` 事件
 - 低于阈值连续 M 帧 → `speech_end` 事件
 - 语音开始时可触发管线打断
+
+当前补充：
+- duplex 主路径现在不是“边录边直接 endPcm”，而是：
+  - 先冻结 immutable utterance snapshot
+  - 进入独立 `sttChain`
+  - 再做 `stt_final -> assistant_entering -> runPipeline()`
+- 非 16k ingress 会先在服务端归一化到 16k 再进入 VAD/STT
+- open-mic 长空闲后新增 `idle guard`
+  - 低价值噪声会在进入 STT 之前被挡掉
+  - 低价值 job 还可以在 `before / during transcribe` 被高价值语句抢占
+- `whisper-server` 现在带 request-level degraded window：
+  - timeout / abort 后短时间内低价值 job 直接 skip
+  - 高价值 job 才允许走 degraded fallback
 
 ### 11. 语音输出 — `voice/tts.ts` + `voice/tts_stream.ts` + `voice/tts_emotion.ts`
 
@@ -586,6 +620,13 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 - Piper：情绪状态 → length_scale + noise_scale
 - OpenAI：情绪状态 → speed
 - `synthesize` 支持 emotion 参数透传
+
+当前补充：
+- Edge consumer 端点当前拒绝 PCM `outputFormat`，所以流式 TTS 的现实实现是：
+  - 请求 Edge 支持的 MP3 流
+  - 服务端实时解码成 `pcm16le`
+  - 再推送 `voice_pcm_chunk`
+- 这意味着当前 TTS 首音的主要风险点已经不是前端协议，而是上游端点支持范围和运行时稳定性
 
 ### 12. 打断控制 — `voice/interrupt_controller.ts`
 
@@ -717,7 +758,7 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 |------|------|
 | `auth.ts` | JWT 认证中间件 + generateToken / verifyToken / wsAuthenticateOnce |
 | `rate_limiter.ts` | HTTP 限流（100/min per IP）+ WebSocket 限流（30/10s per conn） |
-| `logger.ts` | pino 结构化日志，开发模式 pretty-print，createLogger(module) |
+| `logger.ts` | pino 结构化日志；开发模式默认同时 pretty-print 到终端并自动落盘到 `artifacts/live/dev_server_*.log`，便于任何 agent/线程直接复盘 live service log |
 | `emotion_logger.ts` | 情绪日志环形缓冲区（1000 条），log / getHistory / getStats |
 
 ### 18. 部署 — `Dockerfile` + `docker-compose.yml`

@@ -145,6 +145,11 @@ Remi 的终极目标，是成为一个跨终端持续在线、具备人格连续
 
 不要一上来就翻 archive，不要只盯一条报错就下结论。
 
+补充约定：
+- `artifacts/live/dev_server_*.log` 现在是开发环境默认自动落盘的 live service log，不再依赖“必须由当前 agent 自己起服务”才能拿到日志
+- 任何 agent 做当前 localhost triage 时，都应优先读这批 live logs；只有当它们缺失或明显过期时，才退回老的 `rem-ai.log` / `codex-turn-log.log`
+- 也就是说，日志可见性的标准入口已经是“共享的 live file sink”，不是某个特定线程绑定的终端 stdout
+
 ### 2. 语音延迟 / duplex / turn-taking 专项
 
 如果用户是在说：
@@ -162,6 +167,10 @@ Remi 的终极目标，是成为一个跨终端持续在线、具备人格连续
 - 看哪些 report 字段
 - 从哪些日志标签取真实浏览器证据
 - synthetic 报告和真实浏览器实采之间的边界
+
+补充约定：
+- 任何 agent 在分析当前语音问题前，都应该先确认最新 `artifacts/live/dev_server_*.log` 是否仍在写入
+- 如果 live log 正常滚动，就不应再把“看不到日志”归因为没有附着到启动服务的那个 terminal
 
 ### 3. 两者同时涉及时
 

@@ -102,6 +102,34 @@
 - 最新一轮又把“长时间 open-mic 空闲后再开口变慢”的 runtime 堵点往前移了一层：session 现在有 `idle guard`，长时间空闲后先挡住低价值环境噪声，不再让它们轻易形成 STT job；同时 STT job 新增 `high|low` 优先级、可中断抢占和 request-level degraded window，`whisper-server` 一旦超时/abort，低价值 job 会直接 skip，高价值 job 才允许走 degraded CLI 路径，避免 idle 噪声先把 `sttChain` 和 CLI fallback 一起拖爆。latency trace 也补了 `sttPath / sttFallbackReason / sttJobPriority / sttQueueBlockedByPriorJob / idleGuardActive / sttPreemptReason / sttRequestDegraded`，但这仍然只是代码与 regression 层收口，不代表 localhost 长时间开麦实测已经过线
 - 下一阶段的主要瓶颈，已经不只是语音本身，而是语音如何和人格记忆层共同工作
 
+### 当前剩余待优化点
+
+这些是已经被日志和真实样本证明、但还没收口的剩余瓶颈：
+
+1. **STT job priority 仍然不够准**
+- `idle guard` 已经能挡住一部分弱噪声
+- 但已经进入 `speech_buffer` 的 job 里，仍有不少会被过早标成 `high`
+- 一旦 `whisper-server` 超时，这些 job 还是会继续占住 degraded / CLI 路径
+
+2. **进入 CLI fallback 前的“值不值得继续转”仲裁还不够硬**
+- 现在最伤体感的情况不是单条语句慢，而是坏 job 先跑进 CLI，把后面真实语句拖成 `10s+`
+- 需要继续把“before / during transcribe”的抢占和 skip 做得更保守
+
+3. **`speech_end -> stt_final` 仍然偏慢**
+- 当前已经不是最混乱时的 `10s+` 常态
+- 但在真实 localhost 场景里，这一段仍经常是最大的单段瓶颈之一
+
+4. **`llm_first -> tts_first_audio` 还是大拖点**
+- 当前文本和语音的主观体感里，TTS 首音波动仍明显
+- 这已经不是 turn-taking 的锅，而是下一阶段要单独打的关键路径
+
+5. **真实 noisy localhost 仍未验收通过**
+- 当前代码和 regression 已经比之前更接近正确
+- 但项目阶段仍然只是：
+  - `单路径可用`
+  - 不是 `多场景稳定`
+  - 更不是 `生产可用`
+
 ---
 
 ## 实时交互层设计原则

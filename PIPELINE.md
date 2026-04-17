@@ -22,6 +22,10 @@ user input (text/audio)
     ↓
 interrupt check (InterruptController)
     ↓
+voice snapshot / sttChain (voice only)
+    ↓
+assistant pipelineChain
+    ↓
 runPipeline()
     ↓
 updateEmotion(runtime)
@@ -141,6 +145,13 @@ slow brain (background only)
    - 检查是否需要打断当前 generation
    - 如果是，发出真正语义上的 `interrupt`
 
+1.5. **Voice Snapshot / STT Chain**
+   - 只对语音回合生效
+   - `speech_end / duplex_stop` 先冻结 immutable utterance snapshot
+   - STT decode 在独立 `sttChain` 上运行，而不是继续挂在 assistant `pipelineChain`
+   - `stt_final` / `assistant_entering` 可以更早发出，避免上一轮 LLM/TTS 收尾把 STT 排队放大
+   - `utteranceSeq / sttJobSeq` 用来明确丢弃晚到 stale STT
+
 2. **Emotion Update**
    - 根据用户输入更新情绪状态
    - 情绪会影响表达风格、语音参数和 avatar 状态
@@ -172,10 +183,18 @@ slow brain (background only)
 8. **TTS**
    - 逐句合成语音
    - 带情绪与语调参数
+   - 当前 `voice_pcm_chunk` 已恢复，但 Edge consumer 现实实现依赖服务端 MP3 -> PCM 实时转码
 
 9. **Audio Stream**
    - 将音频与文本流同步推给客户端
    - generation / playback 状态要保持可观察
+
+9.5. **Playback State**
+   - `chat_end` 只表示文本流结束
+   - 客户端本地播放 drain 完成后才真正进入 `confirmed_end`
+   - 前端会回传 `playback_start / playback_end`
+   - server 单独维护 `assistantPlaybackActive / playbackGenerationId`
+   - 所以即使服务端 generation 已结束，只要客户端还在播，后续强语音仍然可以真正停播
 
 10. **Slow Brain**
    - 只在后台异步执行
@@ -204,8 +223,24 @@ slow brain (background only)
   - 验证主页、`/health` 和一轮最小 WebSocket chat
 - `infra/latency_tracer.ts`
   - 固定输出 `speech_end_to_stt_final`、`stt_final_to_llm_first`、`llm_first_to_tts_first`、`tts_first_to_playback` 等指标
+  - 现在还会输出 `llm_first_raw_chunk`、`llm_first_reasoning_chunk`、`llm_first_visible_content`
+  - duplex runtime 也额外带 `sttPath`、`sttFallbackReason`、`sttJobPriority`、`idleGuardActive`、`sttPreemptReason`
 - `test/server/session/duplex_harness.ts`
   - 固定语音链路场景，用于前后版本回归比较
+
+### 当前语音 runtime 的真实状态
+
+已经成立的部分：
+- voice final 提交已从 assistant 串行链中拆开
+- `interrupt.active` 与客户端仍在播放的语义已拆开
+- open-mic 长空闲后有 `idle guard` 挡低价值噪声
+- `whisper-server` 请求失败后有 request-level degraded window，避免每条 idle 噪声都先白等 8 秒
+
+还没完成的部分：
+- noisy localhost 场景还没达到“多场景稳定”
+- `speech_end -> stt_final` 仍然是更大的现实瓶颈之一
+- `llm_first -> tts_first_audio` 仍是当前用户体感上的大拖点
+- 所以当前阶段只能算“单路径回归已收口”，还不是生产可用
 
 观测性的意义不只是工程调试。
 它是判断 Remi 有没有更像活人的证据基础。
