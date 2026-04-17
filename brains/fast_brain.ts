@@ -8,6 +8,35 @@ import type { PersonaState } from "../persona";
 
 const logger = createLogger("fast_brain");
 
+const FAST_BRAIN_REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "default",
+  "provider_default",
+  "off",
+]);
+
+function getFastBrainReasoningEffort(): string | undefined {
+  const raw = (
+    process.env.REMI_FAST_BRAIN_REASONING_EFFORT ??
+    process.env.REM_FAST_BRAIN_REASONING_EFFORT
+  )
+    ?.trim()
+    .toLowerCase();
+  if (!raw || raw === "default" || raw === "provider_default" || raw === "off") {
+    return undefined;
+  }
+  if (FAST_BRAIN_REASONING_EFFORTS.has(raw)) {
+    return raw;
+  }
+  logger.warn("忽略未知 fast-brain reasoning effort 配置", { value: raw });
+  return undefined;
+}
+
 function isAbortLikeError(err: unknown): boolean {
   const error = err as { name?: string; message?: string };
   const name = error?.name ?? "";
@@ -50,6 +79,9 @@ export interface FastBrainInput {
   strategyHints?: string;
   slowBrainContext?: string;
   signal?: AbortSignal;
+  onFirstLlmChunk?: () => void;
+  onFirstLlmReasoningChunk?: () => void;
+  onFirstLlmVisibleContent?: () => void;
   /** Optional structured persona state for v1 personality system */
   persona?: PersonaState;
 }
@@ -61,6 +93,7 @@ export interface FastBrainInput {
 export async function* fastBrainStream(
   input: FastBrainInput,
 ): AsyncGenerator<string> {
+  const reasoningEffort = getFastBrainReasoningEffort();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
   );
@@ -101,6 +134,7 @@ export async function* fastBrainStream(
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
     priorityChars: priorityContext?.length ?? 0,
+    reasoningEffort: reasoningEffort ?? "provider_default",
   });
 
   const configured =
@@ -113,7 +147,20 @@ export async function* fastBrainStream(
 
   let hasContent = false;
   try {
-    for await (const token of streamTokens(messages, input.signal)) {
+    for await (const token of streamTokens(
+      messages,
+      input.signal,
+      input.onFirstLlmChunk ||
+        input.onFirstLlmReasoningChunk ||
+        input.onFirstLlmVisibleContent
+        ? {
+            onFirstChunk: input.onFirstLlmChunk,
+            onFirstReasoningChunk: input.onFirstLlmReasoningChunk,
+            onFirstVisibleContent: input.onFirstLlmVisibleContent,
+          }
+        : undefined,
+      reasoningEffort ? { reasoningEffort } : undefined,
+    )) {
       hasContent = true;
       yield token;
     }
@@ -154,6 +201,7 @@ export async function* fastBrainStream(
 export async function fastBrainPredictOnly(
   input: FastBrainInput,
 ): Promise<string> {
+  const reasoningEffort = getFastBrainReasoningEffort();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
   );
@@ -194,6 +242,7 @@ export async function fastBrainPredictOnly(
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
     priorityChars: priorityContext?.length ?? 0,
+    reasoningEffort: reasoningEffort ?? "provider_default",
   });
 
   const configured =
@@ -205,7 +254,20 @@ export async function fastBrainPredictOnly(
 
   let fullReply = "";
   try {
-    for await (const token of streamTokens(messages, input.signal)) {
+    for await (const token of streamTokens(
+      messages,
+      input.signal,
+      input.onFirstLlmChunk ||
+        input.onFirstLlmReasoningChunk ||
+        input.onFirstLlmVisibleContent
+        ? {
+            onFirstChunk: input.onFirstLlmChunk,
+            onFirstReasoningChunk: input.onFirstLlmReasoningChunk,
+            onFirstVisibleContent: input.onFirstLlmVisibleContent,
+          }
+        : undefined,
+      reasoningEffort ? { reasoningEffort } : undefined,
+    )) {
       fullReply += token;
     }
     if (!fullReply.trim()) {

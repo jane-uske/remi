@@ -8,6 +8,21 @@
 const TARGET_RATE = 16000;
 const TARGET_FRAME_SAMPLES = 320; // 20 ms @ 16 kHz
 const WORKLET_URL = "/audio/pcm-capture-worklet.js";
+const CONTEXT_RECOVERY_GRACE_MS = 420;
+
+export type PcmCaptureErrorReason =
+  | "context-closed"
+  | "context-create-failed"
+  | "context-not-running"
+  | "context-resume-failed"
+  | "processor-error"
+  | "track-ended";
+
+export interface PcmCaptureErrorDetail {
+  reason: PcmCaptureErrorReason;
+  state?: string;
+  message?: string;
+}
 
 export interface PcmCapture {
   stop: () => void;
@@ -16,17 +31,11 @@ export interface PcmCapture {
 
 export interface PcmCaptureOptions {
   onStateChange?: (state: string) => void;
-  onError?: (detail: {
-    reason:
-      | "context-closed"
-      | "context-create-failed"
-      | "context-not-running"
-      | "context-resume-failed"
-      | "processor-error"
-      | "track-ended";
-    state?: string;
-    message?: string;
-  }) => void;
+  onError?: (detail: PcmCaptureErrorDetail) => void;
+}
+
+export function isRecoverableAudioContextState(state: string): boolean {
+  return state === "suspended" || state === "interrupted";
 }
 
 export async function startPcmCapture(
@@ -46,8 +55,17 @@ export async function startPcmCapture(
     throw error instanceof Error ? error : new Error("AudioContext creation failed");
   }
   let stopped = false;
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  let recoveryInFlight = false;
   const tracks = stream.getAudioTracks();
+  const clearRecoveryTimer = () => {
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    }
+  };
   const cleanupInitFailure = async () => {
+    clearRecoveryTimer();
     for (const track of tracks) {
       track.removeEventListener("ended", handleTrackEnded);
     }
@@ -62,12 +80,7 @@ export async function startPcmCapture(
     }
   };
   const reportError = (
-    reason:
-      | "context-closed"
-      | "context-not-running"
-      | "context-resume-failed"
-      | "processor-error"
-      | "track-ended",
+    reason: Exclude<PcmCaptureErrorReason, "context-create-failed">,
     message?: string,
   ) => {
     if (stopped) return;
@@ -81,6 +94,28 @@ export async function startPcmCapture(
   for (const track of tracks) {
     track.addEventListener("ended", handleTrackEnded);
   }
+  const tryRecoverContext = async () => {
+    if (stopped || recoveryInFlight) return;
+    recoveryInFlight = true;
+    try {
+      if (ctx.state === "running" || ctx.state === "closed") return;
+      try {
+        await ctx.resume();
+      } catch (error) {
+        reportError(
+          "context-resume-failed",
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+      const resumedState = String(ctx.state);
+      if (resumedState !== "running" && resumedState !== "closed") {
+        reportError("context-not-running", `unexpected-state:${resumedState}`);
+      }
+    } finally {
+      recoveryInFlight = false;
+    }
+  };
 
   if (ctx.state !== "running") {
     try {
@@ -104,8 +139,19 @@ export async function startPcmCapture(
     if (stopped) return;
     const nextState = String(ctx.state);
     options.onStateChange?.(nextState);
+    clearRecoveryTimer();
     if (nextState === "closed") {
       reportError("context-closed");
+      return;
+    }
+    if (nextState === "running") {
+      return;
+    }
+    if (isRecoverableAudioContextState(nextState)) {
+      recoveryTimer = setTimeout(() => {
+        recoveryTimer = null;
+        void tryRecoverContext();
+      }, CONTEXT_RECOVERY_GRACE_MS);
       return;
     }
     if (nextState !== "running") {
@@ -152,6 +198,7 @@ export async function startPcmCapture(
     stop() {
       if (stopped) return;
       stopped = true;
+      clearRecoveryTimer();
       processor.port.onmessage = null;
       processor.onprocessorerror = null;
       ctx.onstatechange = null;

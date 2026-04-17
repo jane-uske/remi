@@ -15,7 +15,7 @@ async function waitFor(predicate, timeoutMs = 500): Promise<void> {
   throw new Error(`timeout after ${timeoutMs}ms`);
 }
 
-function loadMockedRunner({ chatStream, saveMessage }) {
+function loadMockedRunner({ chatStream, saveMessage, ttsStream, ttsModule, inferAvatarIntentFromReply }) {
   const runnerPath = path.resolve(__dirname, "../../../server/pipeline/runner.ts");
   const conversationAgentPath = path.resolve(__dirname, "../../../agents/conversation_agent.ts");
   const messageRepositoryPath = path.resolve(
@@ -24,12 +24,16 @@ function loadMockedRunner({ chatStream, saveMessage }) {
   );
   const avatarIntentPath = path.resolve(__dirname, "../../../agents/avatar_intent_agent.ts");
   const appStatePath = path.resolve(__dirname, "../../../infra/app_state.ts");
+  const ttsStreamPath = path.resolve(__dirname, "../../../voice/tts_stream.ts");
+  const ttsPath = path.resolve(__dirname, "../../../voice/tts.ts");
 
   const appState = require(appStatePath);
 
   const originalConversationAgentModule = require.cache[conversationAgentPath];
   const originalMessageRepositoryModule = require.cache[messageRepositoryPath];
   const originalAvatarIntentModule = require.cache[avatarIntentPath];
+  const originalTtsStreamModule = require.cache[ttsStreamPath];
+  const originalTtsModule = require.cache[ttsPath];
   const previousDbReady = appState.isDbReady();
 
   require.cache[conversationAgentPath] = {
@@ -48,8 +52,27 @@ function loadMockedRunner({ chatStream, saveMessage }) {
     id: avatarIntentPath,
     filename: avatarIntentPath,
     loaded: true,
-    exports: { inferAvatarIntentFromReply: async () => null },
+    exports: {
+      inferAvatarIntentFromReply:
+        inferAvatarIntentFromReply ?? (async () => null),
+    },
   };
+  if (ttsStream) {
+    require.cache[ttsStreamPath] = {
+      id: ttsStreamPath,
+      filename: ttsStreamPath,
+      loaded: true,
+      exports: ttsStream,
+    };
+  }
+  if (ttsModule) {
+    require.cache[ttsPath] = {
+      id: ttsPath,
+      filename: ttsPath,
+      loaded: true,
+      exports: ttsModule,
+    };
+  }
   appState.setDbReady(true);
 
   delete require.cache[runnerPath];
@@ -72,6 +95,16 @@ function loadMockedRunner({ chatStream, saveMessage }) {
         require.cache[avatarIntentPath] = originalAvatarIntentModule;
       } else {
         delete require.cache[avatarIntentPath];
+      }
+      if (originalTtsStreamModule) {
+        require.cache[ttsStreamPath] = originalTtsStreamModule;
+      } else {
+        delete require.cache[ttsStreamPath];
+      }
+      if (originalTtsModule) {
+        require.cache[ttsPath] = originalTtsModule;
+      } else {
+        delete require.cache[ttsPath];
       }
       appState.setDbReady(previousDbReady);
       delete require.cache[runnerPath];
@@ -136,6 +169,116 @@ describe("pipeline interruption persistence", () => {
         [["user", "继续说"]],
       );
       assert.equal(ctx.lastInterruptedReply, "我先说一半");
+    } finally {
+      restore();
+    }
+  });
+
+  it("releases the pipeline promptly after abort even if TTS does not settle", async () => {
+    const { runPipeline, restore } = loadMockedRunner({
+      chatStream: async function* () {
+        yield "我先说一句完整的话。";
+      },
+      saveMessage: async () => ({
+        id: "msg-1",
+        session_id: "session-1",
+        role: "user",
+        content: "继续说",
+        created_at: new Date(),
+      }),
+      ttsStream: {
+        isTtsEnabled: () => true,
+        synthesize: async () => new Promise(() => {}),
+      },
+      ttsModule: {
+        canStreamTextToSpeech: () => false,
+        streamTextToSpeech: async () => {},
+      },
+    });
+
+    try {
+      const ws = new FakeWebSocket();
+      const ctx = new RemiSessionContext("conn-test");
+      const ic = new InterruptController();
+      const avatar = new AvatarController();
+      const pipelinePromise = runPipeline(
+        ws,
+        "继续说",
+        ic,
+        avatar,
+        "session-1",
+        ctx,
+        1,
+        "trace-early-abort",
+      );
+
+      await waitFor(() =>
+        ws.parsedMessages().some((msg) => msg && msg.type === "chat_chunk"),
+      );
+      ic.interrupt();
+
+      await Promise.race([
+        pipelinePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("pipeline did not release after abort")), 200),
+        ),
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("releases the pipeline promptly after abort even if avatar intent is still pending", async () => {
+    let releaseAvatarIntent = () => {};
+    const pendingAvatarIntent = new Promise((resolve) => {
+      releaseAvatarIntent = resolve;
+    });
+    const { runPipeline, restore } = loadMockedRunner({
+      chatStream: async function* () {
+        yield "我先说一句完整的话。";
+      },
+      saveMessage: async () => ({
+        id: "msg-1",
+        session_id: "session-1",
+        role: "user",
+        content: "继续说",
+        created_at: new Date(),
+      }),
+      inferAvatarIntentFromReply: async () => {
+        await pendingAvatarIntent;
+        return null;
+      },
+    });
+
+    try {
+      const ws = new FakeWebSocket();
+      const ctx = new RemiSessionContext("conn-test");
+      const ic = new InterruptController();
+      const avatar = new AvatarController();
+      const pipelinePromise = runPipeline(
+        ws,
+        "继续说",
+        ic,
+        avatar,
+        "session-1",
+        ctx,
+        1,
+        "trace-avatar-intent-abort",
+      );
+
+      await waitFor(() =>
+        ws.parsedMessages().some((msg) => msg && msg.type === "chat_chunk"),
+      );
+      ic.interrupt();
+
+      await Promise.race([
+        pipelinePromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("pipeline still blocked by avatar intent after abort")), 200),
+        ),
+      ]);
+
+      releaseAvatarIntent();
     } finally {
       restore();
     }

@@ -422,6 +422,23 @@ export async function* routeMessage(
       : slowBrainContext;
 
   let fullReply = "";
+  const onFirstLlmChunk =
+    latencyTracer && traceId
+      ? () => {
+          const now = Date.now();
+          latencyTracer.set("llm_first_raw_chunk", now, traceId);
+          latencyTracer.set("llm_stream_first_chunk", now, traceId);
+        }
+      : undefined;
+  const onFirstLlmReasoningChunk =
+    latencyTracer && traceId
+      ? () => latencyTracer.set("llm_first_reasoning_chunk", Date.now(), traceId)
+      : undefined;
+  const onFirstLlmVisibleContent =
+    latencyTracer && traceId
+      ? () => latencyTracer.set("llm_first_visible_content", Date.now(), traceId)
+      : undefined;
+
   if (pregeneratedReply) {
     if (latencyTracer && traceId) {
       latencyTracer.mark("llm_request_start", traceId);
@@ -444,6 +461,9 @@ export async function* routeMessage(
       slowBrainContext: slowBrainContextForPrompt,
       strategyHints: strategyHintsForPrompt,
       signal,
+      onFirstLlmChunk,
+      onFirstLlmReasoningChunk,
+      onFirstLlmVisibleContent,
       persona: ctx.persona,
     })) {
       fullReply += token;

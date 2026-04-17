@@ -29,10 +29,23 @@ function listLatestSyntheticReports(soakDir) {
     .slice(0, 5);
 }
 
+function listLatestLiveLogs(repoRoot) {
+  const liveDir = path.resolve(repoRoot, "artifacts/live");
+  if (!fileExists(liveDir)) return [];
+  return fs
+    .readdirSync(liveDir)
+    .filter((name) => /^dev_server_.*\.log$/.test(name))
+    .map((name) => path.resolve(liveDir, name))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+    .slice(0, 5);
+}
+
 function main() {
   const repoRoot = process.cwd();
   const soakDir = path.resolve(repoRoot, "artifacts/soak");
+  const liveLogs = listLatestLiveLogs(repoRoot);
   const browserLogs = [
+    ...liveLogs,
     path.resolve(repoRoot, "rem-ai.log"),
     path.resolve(repoRoot, "codex-turn-log.log"),
   ].filter(fileExists);
@@ -76,7 +89,7 @@ function main() {
     suggestedCommands: [
       "npm run duplex:data-entry",
       "node -e \"const fs=require('fs');const p=process.argv[1];console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')).latencySummary,null,2));\" /abs/path/to/latest.json",
-      "rg -n \"\\[Latency\\]|\\[TurnTaking\\]|\\[TurnState\\]|\\[TurnTiming\\]\" rem-ai.log codex-turn-log.log",
+      "rg -n \"\\[Latency\\]|\\[TurnTaking\\]|\\[TurnState\\]|\\[TurnTiming\\]\" artifacts/live/dev_server_*.log rem-ai.log codex-turn-log.log",
       "rg -n \"false_early_release|resume_missed|interrupt_missed|state_stuck_or_duplicate\" artifacts/soak/*.md artifacts/soak/*.json",
     ],
     caveats: [

@@ -146,6 +146,10 @@ export function turnTakingConfirmedStableMs(): number {
   return parseNonNegativeMs(process.env.TURN_TAKING_CONFIRMED_STABLE_MS, 1100);
 }
 
+export function turnProsodyEnabled(): boolean {
+  return parseBooleanFlag(process.env.TURN_PROSODY_ENABLED, true);
+}
+
 export function voiceBackchannelEnabled(): boolean {
   const raw = (process.env.VOICE_BACKCHANNEL_ENABLED ?? "1").trim().toLowerCase();
   return raw !== "0" && raw !== "false";
@@ -163,6 +167,63 @@ export function duplexInterruptMinSpeechMs(): number {
   return parseNonNegativeMs(process.env.DUPLEX_INTERRUPT_MIN_SPEECH_MS, 260);
 }
 
+export function duplexFallbackInterruptMinSpeechMs(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_SPEECH_MS, 320);
+}
+
+export function duplexFallbackInterruptMinRms(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_RMS, 0.045);
+}
+
+export function duplexFallbackInterruptMinStrongRatio(): number {
+  const raw = process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_STRONG_RATIO;
+  if (raw === undefined || raw === "") return 0.22;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0.22;
+  return Math.max(0, Math.min(1, n));
+}
+
+export function duplexFallbackInterruptMinPreviewChars(): number {
+  return Math.max(
+    1,
+    Math.floor(parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_PREVIEW_CHARS, 3)),
+  );
+}
+
+export function duplexAssistantNoPreviewInterruptMinSpeechMs(): number {
+  return parseNonNegativeMs(
+    process.env.DUPLEX_ASSISTANT_NO_PREVIEW_INTERRUPT_MIN_SPEECH_MS,
+    900,
+  );
+}
+
+export function duplexIdleGuardAfterMs(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_AFTER_MS, 8000);
+}
+
+export function duplexIdleGuardMeaningfulPreviewChars(): number {
+  return Math.max(
+    1,
+    Math.floor(parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MEANINGFUL_PREVIEW_CHARS, 3)),
+  );
+}
+
+export function duplexIdleGuardMinSpeechMs(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MIN_SPEECH_MS, 480);
+}
+
+export function duplexIdleGuardMinRms(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MIN_RMS, 0.045);
+}
+
+export function duplexIdleGuardMinStrongRatio(): number {
+  const raw = process.env.DUPLEX_IDLE_GUARD_MIN_STRONG_RATIO;
+  if (raw === undefined || raw === "") return 0.22;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0.22;
+  return Math.max(0, Math.min(1, n));
+}
+
 export function fallbackNoiseSuppressMaxMs(): number {
   return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SUPPRESS_MS, 900);
 }
@@ -175,6 +236,13 @@ export function fallbackNoiseTinyTextMaxChars(): number {
   return Math.max(
     1,
     Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_TINY_TEXT_MAX_CHARS, 1)),
+  );
+}
+
+export function fallbackNoiseShortTextMaxChars(): number {
+  return Math.max(
+    1,
+    Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SHORT_TEXT_MAX_CHARS, 5)),
   );
 }
 

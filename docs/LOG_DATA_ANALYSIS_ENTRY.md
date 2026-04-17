@@ -34,8 +34,13 @@ npm run duplex:data-entry
 ## 3. 主日志入口
 
 优先看：
+- `/Users/rare/Desktop/remi-ai/artifacts/live/dev_server_*.log`
 - `/Users/rare/Desktop/remi-ai/rem-ai.log`
 - `/Users/rare/Desktop/remi-ai/codex-turn-log.log`
+
+说明：
+- `artifacts/live/dev_server_*.log` 现在是开发环境默认自动落盘的 live service log，优先级高于老的 `rem-ai.log`
+- `rem-ai.log` / `codex-turn-log.log` 仍然可能存在，但很多情况下已经不是当前正在跑的那条 localhost 实例
 
 次级历史日志：
 - `codex-stage1.log`
@@ -78,14 +83,14 @@ npm run logs:data-entry
 高信号日志扫描：
 
 ```bash
-rg -n "\[Latency\]|\[TurnTaking\]|\[TurnState\]|\[TurnTiming\]|\[Duplex\]|\[VAD\]|\[STT\]" rem-ai.log codex-turn-log.log
+rg -n "\[Latency\]|\[TurnTaking\]|\[TurnState\]|\[TurnTiming\]|\[Duplex\]|\[VAD\]|\[STT\]" artifacts/live/dev_server_*.log rem-ai.log codex-turn-log.log
 ```
 
 看最近日志尾部：
 
 ```bash
+tail -n 200 artifacts/live/dev_server_*.log
 tail -n 200 rem-ai.log
-tail -n 200 codex-turn-log.log
 ```
 
 语音延迟专项：

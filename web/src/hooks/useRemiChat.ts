@@ -18,6 +18,7 @@ import {
 } from "./useRemiChatTurnState";
 import {
   arrayBufferToBase64,
+  buildClientContextPayload,
   encodePcmAudioFrame,
   INITIAL_BROWSER_IDENTITY,
   isListeningFallbackText,
@@ -28,12 +29,28 @@ import {
   REM_WS_RECONNECT_DELAY_MS,
   resolveCurrentUserId,
   resolveIsDefaultDevUser,
+  resolveLegacyMessageStorageKey,
   resolveMessageStorageKey,
   resolveWsTargetLabel,
   type BrowserIdentityState,
   uid,
 } from "./useRemiChatHelpers";
-import { startPcmCapture, type PcmCapture } from "@/lib/pcmCapture";
+import {
+  parseGenerationId,
+  parseServerHistoryPage,
+  parseServerTurnState,
+} from "./useRemiChatProtocol";
+import { resolveDuplexInputPlaceholder } from "@/lib/duplex_ui_state";
+import {
+  startPcmCapture,
+  type PcmCapture,
+  type PcmCaptureErrorDetail,
+} from "@/lib/pcmCapture";
+import {
+  getMicAccessErrorMessage,
+  getMicCaptureFaultMessage,
+} from "@/lib/micCaptureErrors";
+import { getRemWsUrl } from "@/lib/wsUrl";
 import { deriveAvatarIntent } from "@/lib/rem3d/avatarIntent";
 import {
   mergeAvatarRuntimeSnapshot,
@@ -47,6 +64,7 @@ export type RemiConnectionPhase = "connecting" | "open" | "closed";
 
 const INITIAL_HISTORY_DISPLAY_LIMIT = 15;
 const USER_SPEAKING_END_DEBOUNCE_MS = 260;
+const DUPLEX_AWAITING_COMMIT_TIMEOUT_MS = 5000;
 const STT_USER_MERGE_WINDOW_MS = 2200;
 const MIC_TX_LOG_INTERVAL_MS = 900;
 const CHAT_END_PLAYBACK_GRACE_MS = 220;
@@ -93,6 +111,7 @@ export function useRemiChat() {
   const [recording, setRecording] = useState(false);
   const [duplex, setDuplex] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
+  const [awaitingSpeechCommit, setAwaitingSpeechCommit] = useState(false);
   const messageStorageKey = useMemo(() => resolveMessageStorageKey(), []);
   const [browserIdentity, setBrowserIdentity] =
     useState<BrowserIdentityState>(INITIAL_BROWSER_IDENTITY);
@@ -107,8 +126,11 @@ export function useRemiChat() {
   const duplexRef = useRef(false);
   const pcmRef = useRef<PcmCapture | null>(null);
   const recordingRef = useRef(false);
+  const userSpeakingRef = useRef(false);
+  const awaitingSpeechCommitRef = useRef(false);
   const resumeDuplexAfterReconnectRef = useRef(false);
   const userSpeakingEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const awaitingSpeechCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUserTranscriptAtRef = useRef(0);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamingBufRef = useRef("");
@@ -259,6 +281,55 @@ export function useRemiChat() {
     }
   }, []);
 
+  const clearAwaitingSpeechCommitTimer = useCallback(() => {
+    if (awaitingSpeechCommitTimerRef.current) {
+      clearTimeout(awaitingSpeechCommitTimerRef.current);
+      awaitingSpeechCommitTimerRef.current = null;
+    }
+  }, []);
+
+  const syncInputPlaceholder = useCallback(
+    (
+      overrides?: Partial<{
+        recording: boolean;
+        userSpeaking: boolean;
+        awaitingSpeechCommit: boolean;
+      }>,
+    ) => {
+      setInputPlaceholder(
+        resolveDuplexInputPlaceholder({
+          recording: overrides?.recording ?? recordingRef.current,
+          userSpeaking: overrides?.userSpeaking ?? userSpeakingRef.current,
+          awaitingSpeechCommit:
+            overrides?.awaitingSpeechCommit ?? awaitingSpeechCommitRef.current,
+        }),
+      );
+    },
+    [],
+  );
+
+  const setAwaitingSpeechCommitState = useCallback(
+    (next: boolean) => {
+      awaitingSpeechCommitRef.current = next;
+      setAwaitingSpeechCommit(next);
+      clearAwaitingSpeechCommitTimer();
+      if (!next) return;
+      awaitingSpeechCommitTimerRef.current = setTimeout(() => {
+        awaitingSpeechCommitTimerRef.current = null;
+        awaitingSpeechCommitRef.current = false;
+        setAwaitingSpeechCommit(false);
+        if (recordingRef.current && !userSpeakingRef.current) {
+          syncInputPlaceholder({
+            recording: true,
+            userSpeaking: false,
+            awaitingSpeechCommit: false,
+          });
+        }
+      }, DUPLEX_AWAITING_COMMIT_TIMEOUT_MS);
+    },
+    [clearAwaitingSpeechCommitTimer, syncInputPlaceholder],
+  );
+
   const clearAvatarIntentSchedule = useCallback(() => {
     for (const timer of avatarBeatTimersRef.current) clearTimeout(timer);
     avatarBeatTimersRef.current = [];
@@ -275,7 +346,7 @@ export function useRemiChat() {
   }, [markHistoryMutation]);
 
   const handleMicCaptureFault = useCallback(
-    (detail: { reason: string; state?: string; message?: string }) => {
+    (detail: PcmCaptureErrorDetail) => {
       const now = Date.now();
       pushAvatarDevtoolsLog("system", "mic capture fault", detail);
       if (now - lastMicFaultAtRef.current < 1500) return;
@@ -302,15 +373,27 @@ export function useRemiChat() {
       setRecording(false);
       recordingRef.current = false;
       clearUserSpeakingEndTimer();
+      userSpeakingRef.current = false;
       setUserSpeaking(false);
-      setInputPlaceholder("说点什么…");
+      setAwaitingSpeechCommitState(false);
+      syncInputPlaceholder({
+        recording: false,
+        userSpeaking: false,
+        awaitingSpeechCommit: false,
+      });
       appendLiveMessage({
         id: uid(),
         role: "error",
-        text: "音频设备异常，请重新开启麦克风",
+        text: getMicCaptureFaultMessage(detail),
       });
     },
-    [appendLiveMessage, clearGenerationState, clearUserSpeakingEndTimer],
+    [
+      appendLiveMessage,
+      clearGenerationState,
+      clearUserSpeakingEndTimer,
+      setAwaitingSpeechCommitState,
+      syncInputPlaceholder,
+    ],
   );
 
   const triggerIntentGestureAction = useCallback((intent: AvatarIntent | null) => {
@@ -384,16 +467,6 @@ export function useRemiChat() {
     }
   }, []);
 
-  const parseGenerationId = useCallback((raw: unknown): number | null => {
-    if (raw == null) return null;
-    if (typeof raw === "number" && Number.isFinite(raw)) return Math.floor(raw);
-    if (typeof raw === "string") {
-      const n = Number(raw);
-      if (Number.isFinite(n)) return Math.floor(n);
-    }
-    return null;
-  }, []);
-
   const rememberLoggedVoiceGeneration = useCallback((id: number | null): boolean => {
     if (id == null) return false;
     const seen = loggedVoiceGenerationsRef.current;
@@ -438,6 +511,16 @@ export function useRemiChat() {
     ws.send(JSON.stringify(payload));
   }, []);
 
+  const handlePlaybackEnd = useCallback((generationId: number | null) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const payload: Record<string, unknown> = { type: "playback_end" };
+    if (typeof generationId === "number") {
+      payload.generationId = generationId;
+    }
+    ws.send(JSON.stringify(payload));
+  }, []);
+
   const {
     enqueueBase64,
     enqueuePcmChunk,
@@ -449,6 +532,7 @@ export function useRemiChat() {
   } =
     useAudioBase64Queue({
       onPlaybackStart: handlePlaybackStart,
+      onPlaybackEnd: handlePlaybackEnd,
     });
 
   useEffect(() => {
@@ -571,6 +655,7 @@ export function useRemiChat() {
     void unlockPlayback();
 
     let stream: MediaStream | null = null;
+    let captureInitFault = false;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -630,6 +715,7 @@ export function useRemiChat() {
             pushAvatarDevtoolsLog("system", "mic context state", { state });
           },
           onError: (detail) => {
+            captureInitFault = true;
             handleMicCaptureFault(detail);
           },
         },
@@ -646,20 +732,44 @@ export function useRemiChat() {
       setDuplex(true);
       setRecording(true);
       recordingRef.current = true;
-      setInputPlaceholder("全双工语音 — 随时说话…");
-    } catch {
+      setAwaitingSpeechCommitState(false);
+      syncInputPlaceholder({
+        recording: true,
+        userSpeaking: false,
+        awaitingSpeechCommit: false,
+      });
+    } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       resumeDuplexAfterReconnectRef.current = false;
       duplexRef.current = false;
       setDuplex(false);
       setRecording(false);
       recordingRef.current = false;
-      setInputPlaceholder("说点什么…");
-      appendLiveMessage({ id: uid(), role: "error", text: "无法访问麦克风" });
+      setAwaitingSpeechCommitState(false);
+      syncInputPlaceholder({
+        recording: false,
+        userSpeaking: false,
+        awaitingSpeechCommit: false,
+      });
+      if (!captureInitFault) {
+        appendLiveMessage({
+          id: uid(),
+          role: "error",
+          text: getMicAccessErrorMessage(error),
+        });
+      }
     } finally {
       startingDuplexRef.current = false;
     }
-  }, [appendLiveMessage, clearPendingChatEnd, clearQueue, handleMicCaptureFault, unlockPlayback]);
+  }, [
+    appendLiveMessage,
+    clearPendingChatEnd,
+    clearQueue,
+    handleMicCaptureFault,
+    setAwaitingSpeechCommitState,
+    syncInputPlaceholder,
+    unlockPlayback,
+  ]);
 
   const stopVoiceSession = useCallback((options?: { preserveAutoResume?: boolean }) => {
     const ws = wsRef.current;
@@ -692,9 +802,20 @@ export function useRemiChat() {
     setRecording(false);
     recordingRef.current = false;
     clearUserSpeakingEndTimer();
+    userSpeakingRef.current = false;
     setUserSpeaking(false);
-    setInputPlaceholder("说点什么…");
-  }, [clearGenerationState, clearUserSpeakingEndTimer]);
+    setAwaitingSpeechCommitState(false);
+    syncInputPlaceholder({
+      recording: false,
+      userSpeaking: false,
+      awaitingSpeechCommit: false,
+    });
+  }, [
+    clearGenerationState,
+    clearUserSpeakingEndTimer,
+    setAwaitingSpeechCommitState,
+    syncInputPlaceholder,
+  ]);
 
   const toggleMic = useCallback(() => {
     if (recordingRef.current) {
@@ -757,6 +878,7 @@ export function useRemiChat() {
       setConnectionPhase("open");
       setReconnectDeadline(null);
       setConnLabel("在线");
+      ws.send(JSON.stringify(buildClientContextPayload()));
       pushAvatarDevtoolsLog("system", "ws open", { url });
       if (!hasAnnouncedConnectedRef.current) {
         hasAnnouncedConnectedRef.current = true;
@@ -784,27 +906,31 @@ export function useRemiChat() {
 
       switch (t) {
         case "turn_state": {
-          const nextState = data.state as RemiTurnState | undefined;
-          const reason = data.reason as RemiTurnStateReason | undefined;
-          const preview =
-            typeof data.preview === "string" && data.preview.trim()
-              ? data.preview.trim()
-              : null;
-          const nextInterruptionType =
-            data.interruptionType === "continuation" ||
-            data.interruptionType === "correction" ||
-            data.interruptionType === "topic_switch" ||
-            data.interruptionType === "emotional_interrupt" ||
-            data.interruptionType === "unknown"
-              ? (data.interruptionType as InterruptionType)
-              : null;
-          if (nextState && reason) {
-            commitTurnState(nextState, reason, {
-              preview,
-              interruptionType: nextInterruptionType,
-              generationId: parseGenerationId(data.generationId),
+          const nextTurnState = parseServerTurnState(data);
+          if (nextTurnState) {
+            commitTurnState(nextTurnState.state, nextTurnState.reason, {
+              preview: nextTurnState.preview,
+              interruptionType: nextTurnState.interruptionType,
+              generationId: nextTurnState.generationId,
               kind: "ws",
             });
+            if (recordingRef.current) {
+              if (nextTurnState.state === "listening_active") {
+                setAwaitingSpeechCommitState(false);
+              } else if (
+                !userSpeakingRef.current &&
+                (nextTurnState.state === "listening_hold" ||
+                  nextTurnState.state === "likely_end" ||
+                  nextTurnState.state === "confirmed_end")
+              ) {
+                setAwaitingSpeechCommitState(true);
+                syncInputPlaceholder({
+                  recording: true,
+                  userSpeaking: false,
+                  awaitingSpeechCommit: true,
+                });
+              }
+            }
           }
           break;
         }
@@ -818,31 +944,8 @@ export function useRemiChat() {
           break;
 
         case "history_page": {
-          const mode = data.mode === "prepend" ? "prepend" : "replace";
-          const rawMessages = Array.isArray(data.messages) ? data.messages : [];
-          const pageMessages: ChatMessage[] = rawMessages
-            .map((message): ChatMessage | null => {
-              if (!message || typeof message !== "object") return null;
-              const id = typeof message.id === "string" ? message.id : "";
-              const role = message.role === "assistant" ? "rem" : message.role === "user" ? "user" : null;
-              const text = typeof message.content === "string" ? message.content : "";
-              const createdAt = typeof message.createdAt === "string" ? message.createdAt : undefined;
-              if (!id || !role || !text) return null;
-              return { id, role, text, createdAt };
-            })
-            .filter((message): message is ChatMessage => message !== null);
-
-          const rawNextCursor =
-            data.nextCursor && typeof data.nextCursor === "object"
-              ? (data.nextCursor as Record<string, unknown>)
-              : null;
-          const nextCursor = rawNextCursor
-            ? {
-                id: typeof rawNextCursor.id === "string" ? rawNextCursor.id : "",
-                createdAt:
-                  typeof rawNextCursor.createdAt === "string" ? rawNextCursor.createdAt : "",
-              }
-            : null;
+          const { mode, messages: pageMessages, nextCursor, hasMore } =
+            parseServerHistoryPage(data);
 
           const shouldAdoptServerHistory =
             mode === "prepend" || pageMessages.length > 0 || historyMessages.length === 0;
@@ -851,7 +954,7 @@ export function useRemiChat() {
             historySourceRef.current = "server";
             historyCursorRef.current =
               nextCursor && nextCursor.id && nextCursor.createdAt ? nextCursor : null;
-            setHistoryHasMore(Boolean(data.hasMore));
+            setHistoryHasMore(hasMore);
           }
           historyLoadingMoreRef.current = false;
           setHistoryLoadingMore(false);
@@ -880,6 +983,7 @@ export function useRemiChat() {
               kind: "ws",
             });
           }
+          setAwaitingSpeechCommitState(false);
           setSttPartialText("");
           setTyping(false);
           appendStreaming(String(data.content ?? ""));
@@ -1120,9 +1224,15 @@ export function useRemiChat() {
 
         case "vad_start":
           clearUserSpeakingEndTimer();
+          setAwaitingSpeechCommitState(false);
           setSttPartialText((prev) => (isListeningFallbackText(prev) ? "" : prev));
+          userSpeakingRef.current = true;
           setUserSpeaking(true);
-          setInputPlaceholder("正在听…");
+          syncInputPlaceholder({
+            recording: recordingRef.current,
+            userSpeaking: true,
+            awaitingSpeechCommit: false,
+          });
           commitTurnState("listening_active", "speech_start", {
             kind: "ws",
           });
@@ -1132,9 +1242,13 @@ export function useRemiChat() {
           clearUserSpeakingEndTimer();
           userSpeakingEndTimerRef.current = setTimeout(() => {
             userSpeakingEndTimerRef.current = null;
+            userSpeakingRef.current = false;
             setUserSpeaking(false);
             if (recordingRef.current) {
-              setInputPlaceholder("全双工语音 — 随时说话…");
+              syncInputPlaceholder({
+                recording: true,
+                userSpeaking: false,
+              });
             }
           }, USER_SPEAKING_END_DEBOUNCE_MS);
           commitTurnState("listening_hold", "semantic_hold", {
@@ -1158,7 +1272,9 @@ export function useRemiChat() {
           const content = String(data.content ?? "");
           activeGenerationRef.current = null;
           clearUserSpeakingEndTimer();
+          userSpeakingRef.current = false;
           setUserSpeaking(false);
+          setAwaitingSpeechCommitState(false);
           setSttPartialText("");
           appendUserTranscript(content);
           setInputPlaceholder("说点什么…");
@@ -1178,7 +1294,9 @@ export function useRemiChat() {
           setHistoryLoadingMore(false);
           clearPendingChatEnd();
           clearUserSpeakingEndTimer();
+          userSpeakingRef.current = false;
           setUserSpeaking(false);
+          setAwaitingSpeechCommitState(false);
           setTyping(false);
           setSttPartialText("");
           resetStreaming();
@@ -1197,7 +1315,9 @@ export function useRemiChat() {
         case "dev_state_reset": {
           clearPendingChatEnd();
           clearUserSpeakingEndTimer();
+          userSpeakingRef.current = false;
           setUserSpeaking(false);
+          setAwaitingSpeechCommitState(false);
           setTyping(false);
           setSttPartialText("");
           resetStreaming();
@@ -1304,6 +1424,7 @@ export function useRemiChat() {
       mountedRef.current = false;
       clearAvatarIntentSchedule();
       clearUserSpeakingEndTimer();
+      clearAwaitingSpeechCommitTimer();
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       wsRef.current?.close();
     };
@@ -1364,6 +1485,7 @@ export function useRemiChat() {
       clearAvatarIntentSchedule();
       setAvatarIntentOverride(null);
       setSttPartialText("");
+      setAwaitingSpeechCommitState(false);
       sttPredictionPreviewRef.current = null;
       setSttPredictionPreview(null);
       interruptionTypeRef.current = null;
@@ -1390,7 +1512,17 @@ export function useRemiChat() {
       setTyping(true);
       resetStreaming();
     },
-    [appendLiveMessage, blockGeneration, clearAvatarIntentSchedule, clearPendingChatEnd, clearQueue, commitTurnState, resetStreaming, unlockPlayback],
+    [
+      appendLiveMessage,
+      blockGeneration,
+      clearAvatarIntentSchedule,
+      clearPendingChatEnd,
+      clearQueue,
+      commitTurnState,
+      resetStreaming,
+      setAwaitingSpeechCommitState,
+      unlockPlayback,
+    ],
   );
 
   const loadMoreHistory = useCallback(() => {
@@ -1476,6 +1608,7 @@ export function useRemiChat() {
     recording,
     duplex,
     userSpeaking,
+    awaitingSpeechCommit,
     listeningHint: recording && userSpeaking && !sttPartialText,
     voiceActive,
     /** TTS 音量包络 0–1，供 3D 口型同步 */

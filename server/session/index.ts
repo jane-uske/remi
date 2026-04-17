@@ -3,6 +3,10 @@ import { randomUUID } from "crypto";
 import type { IncomingMessage } from "http";
 
 import { SttStream } from "../../voice/stt_stream";
+import type {
+  SttTranscribeMeta,
+  SttTranscribeOptions,
+} from "../../voice/stt_stream";
 import { VadDetector } from "../../voice/vad_detector";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
@@ -13,10 +17,7 @@ import { RemiSessionContext } from "../../brains/remi_session_context";
 import { runPipeline } from "../pipeline";
 import { send } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
-import { fastBrainPredictOnly } from "../../brains/fast_brain";
-import { analyzeTurn, type TurnAnalysisBundle } from "../../brain/turn_interpreter";
-import { retrievePromptMemory } from "../../memory/memory_agent";
-import { trimHistoryToTokenBudget } from "../../brains/history_budget";
+import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
 import {
   decideTurnTaking,
@@ -24,6 +25,7 @@ import {
   getMeaningfulTurnPreview,
   isTentativeSpeechText,
   shouldSuppressFallbackNoiseUtterance,
+  shouldSuppressRecoveredFallbackUtterance,
   shouldSuppressStrictNoPreviewUtterance,
   strongFrameRatio,
   type TurnTakingState,
@@ -53,12 +55,23 @@ import { parseHistoryCursor, sendSessionHistoryPage } from "./history";
 import { cleanupSessionResources, attachSessionCloseHandlers } from "./lifecycle";
 import { attachSessionMessageHandlers } from "./message_router";
 import {
+  duplexAssistantNoPreviewInterruptMinSpeechMs,
+  duplexIdleGuardAfterMs,
+  duplexIdleGuardMeaningfulPreviewChars,
+  duplexIdleGuardMinRms,
+  duplexIdleGuardMinSpeechMs,
+  duplexIdleGuardMinStrongRatio,
   duplexInterruptMinSpeechMs,
+  duplexFallbackInterruptMinPreviewChars,
+  duplexFallbackInterruptMinRms,
+  duplexFallbackInterruptMinSpeechMs,
+  duplexFallbackInterruptMinStrongRatio,
   effectiveUtteranceGapMs,
   fallbackMinStrongFrames,
   fallbackMinStrongRatio,
   fallbackNoiseSuppressMaxMs,
   fallbackNoiseSuppressMinRms,
+  fallbackNoiseShortTextMaxChars,
   fallbackNoiseTinyTextMaxChars,
   fallbackStrongFramePeak,
   fallbackStrongFrameRms,
@@ -88,6 +101,7 @@ import {
   turnTakingEnabled,
   turnTakingGrowthHoldMs,
   turnTakingLikelyStableMs,
+  turnProsodyEnabled,
   type PredictionBudgetConfig,
   voiceBackchannelCooldownMs,
   voiceBackchannelEnabled,
@@ -102,12 +116,95 @@ import {
   type PartialShapeSample,
   type PredictionGate,
 } from "./turn_runtime";
+import {
+  appendProsodySample,
+  summarizeProsody,
+  type ProsodySample,
+} from "../../voice/prosody_detector";
+import {
+  classifyNonSpeechTranscript,
+  heuristicTurnTakingPredictor,
+  type PredictorScores,
+} from "./turn_taking_predictor";
 import { publishSessionTurnState } from "./turn_state_protocol";
-import { submitVoicePipelineTurn } from "./voice_submit";
+import {
+  prepareVoicePipelineTurn,
+  runPreparedVoicePipelineTurn,
+  submitVoicePipelineTurn,
+} from "./voice_submit";
+import { computeSessionPrediction } from "./prediction";
+import { handleSessionTextChat } from "./text_chat";
+import {
+  normalizeClientContextTtsTransport,
+  resolveSessionTransportFromRequest,
+  type ClientContextTtsTransport,
+  type SessionClientFamily,
+  type SessionTtsTransport,
+} from "./tts_transport";
+import { normalizeDuplexPcm16Mono } from "./audio_resample";
 
 const logger = createLogger("session");
 const HISTORY_PAGE_SIZE = 15;
 const DUPLEX_RAW_FALLBACK_MAX_MS = 15_000;
+const DUPLEX_SUPPRESSED_FALLBACK_MAX_MS = 4_000;
+const DUPLEX_TARGET_SAMPLE_RATE = 16_000;
+const DUPLEX_PENDING_COMMIT_FALLBACK_RESTART_IGNORE_MS = 320;
+type DuplexInputMode = "duplex" | "push_to_talk";
+type DuplexIngressTransport = "binary" | "json";
+type DuplexUtteranceSource =
+  | "speech_buffer"
+  | "duplex_stop_buffer"
+  | "duplex_stop_suppressed_fallback"
+  | "duplex_stop_no_vad";
+type SttJobPriority = "high" | "low";
+type DuplexNoVadReason =
+  | "true_silence"
+  | "non_16k_normalized_still_no_vad"
+  | "weak_low_energy_audio"
+  | "speech_shape_not_confirmed";
+
+interface DuplexUtteranceJob {
+  utteranceSeq: number;
+  sttJobSeq: number;
+  traceId: string;
+  source: DuplexUtteranceSource;
+  enqueuedAt: number;
+  sampleRate: number;
+  pcm: Buffer;
+  durationMs: number;
+  previewText: string;
+  vadMode: string | null;
+  utteranceFrameCount: number;
+  utteranceStrongFrames: number;
+  utteranceMaxRms: number;
+  utteranceMaxPeak: number;
+  rawFrameCount: number;
+  rawStrongFrames: number;
+  rawMaxRms: number;
+  ingressSampleRate: number;
+  normalizedSampleRate: number;
+  transport: DuplexIngressTransport;
+  usedNoVadFallback: boolean;
+  speechEndedAt: number;
+  priority: SttJobPriority;
+  idleGuardActive: boolean;
+  allowCliFallback: boolean;
+}
+
+interface DeferredDuplexTranscript {
+  job: DuplexUtteranceJob;
+  text: string;
+  deferredAt: number;
+}
+
+interface ActiveSttJob {
+  utteranceSeq: number;
+  sttJobSeq: number;
+  traceId: string;
+  priority: SttJobPriority;
+  abortController: AbortController;
+  preemptReason: string | null;
+}
 
 export class ConnectionSession {
   readonly connId: string;
@@ -118,20 +215,34 @@ export class ConnectionSession {
   readonly interrupt: InterruptController;
   readonly avatar: AvatarController;
   readonly storageUserId: string;
+  readonly clientFamily: SessionClientFamily;
+  private readonly resolvedTtsTransport: SessionTtsTransport;
+  private readonly handshakeTtsTransportRaw: string | null;
+  private clientContextTtsTransport: ClientContextTtsTransport | null = null;
 
   sessionId: string | null = null;
   pipelineChain: Promise<void> = Promise.resolve();
+  private sttChain: Promise<void> = Promise.resolve();
   duplexActive: boolean = false;
   speechBuffer: Buffer[] = [];
   private speechBufferBytes: number = 0;
   private duplexRawChunks: Buffer[] = [];
   private duplexRawBytes = 0;
   private duplexRawStrongFrames = 0;
+  private suppressedFallbackChunks: Buffer[] = [];
+  private suppressedFallbackBytes = 0;
+  private suppressedFallbackFrameCount = 0;
+  private suppressedFallbackStrongFrames = 0;
+  private suppressedFallbackMaxRms = 0;
+  private suppressedFallbackMaxPeak = 0;
+  private suppressedFallbackLastSpeechEndAt = 0;
+  private suppressedFallbackSegments = 0;
 
   /** Last ~VAD_PRE_ROLL_MS of PCM before speech_start (same chunks client sends). */
   private preRollChunks: Buffer[] = [];
   private preRollBytes = 0;
   private duplexSampleRate = 16000;
+  private duplexInputMode: DuplexInputMode = "duplex";
   /** After injecting pre-roll, skip one push — current chunk is already in pre-roll. */
   private suppressNextSpeechChunk = false;
 
@@ -144,6 +255,7 @@ export class ConnectionSession {
   private previewInFlight = false;
   private lastPreviewAt = 0;
   private lastPreviewText = "";
+  private lastPreviewCandidateText = "";
   private lastPartialEmitAt = 0;
   private lastPartialContent = "";
   private generationSeq = 0;
@@ -151,6 +263,27 @@ export class ConnectionSession {
   private traceSeq = 0;
   private pendingVoiceTraceId: string | null = null;
   private activeTraceId: string | null = null;
+  private utteranceSeq = 0;
+  private lastAcceptedUtteranceSeq = 0;
+  private lastConfirmedInterruptAt = 0;
+  private lastAcceptedSpeechAt = 0;
+  private lastMeaningfulSpeechAt = 0;
+  private sttJobSeq = 0;
+  private pendingSttUtteranceSeqs = new Set<number>();
+  private pendingSttJobPriority = new Map<number, SttJobPriority>();
+  private pendingSttJobTrace = new Map<number, string>();
+  private preemptedSttJobs = new Map<number, string>();
+  private activeSttJob: ActiveSttJob | null = null;
+  private deferredDuplexTranscripts = new Map<number, DeferredDuplexTranscript>();
+  private duplexIngressSampleRate = DUPLEX_TARGET_SAMPLE_RATE;
+  private duplexNormalizedSampleRate = DUPLEX_TARGET_SAMPLE_RATE;
+  private duplexIngressTransport: DuplexIngressTransport = "binary";
+  private lastUnexpectedSampleRateLogAt = 0;
+  private pendingVadStartSignal = false;
+  private activeVadStartSignal = false;
+  private ignoredFallbackRestartActive = false;
+  private duplexIdleGuardActive = false;
+  private duplexIdleSince = 0;
 
   /** 连续对话相关配置 */
   private lastInteractionAt: number = 0;
@@ -178,6 +311,8 @@ export class ConnectionSession {
   private recentPartialPlateauCount = 0;
   private partialShapeSamples: PartialShapeSample[] = [];
   private readonly PARTIAL_SHAPE_MAX_SAMPLES = 6;
+  private prosodySamples: ProsodySample[] = [];
+  private readonly PROSODY_MAX_SAMPLES = 10;
   private lastPredictionIssuedAt = 0;
   private lastPredictionIssuedText = "";
   private turnState: RemiTurnState = "confirmed_end";
@@ -189,6 +324,8 @@ export class ConnectionSession {
   private lastSttFinalAt = 0;
   private lastAssistantEnterAt = 0;
   private lastPlaybackStartAt = 0;
+  private assistantPlaybackActive = false;
+  private playbackGenerationId: number | null = null;
   private lastInterruptionType: InterruptionType | null = null;
   private lastBackchannelAt = 0;
   private backchannelSentThisTurn = false;
@@ -211,6 +348,37 @@ export class ConnectionSession {
   private suppressedNoiseCooldownUntil = 0;
   private lastSuppressedNoiseLogAt = 0;
 
+  private duplexStopDebugMeta(extra?: Record<string, unknown>): Record<string, unknown> {
+    return {
+      connId: this.connId,
+      clientFamily: this.clientFamily,
+      ttsTransport: this.resolvedTtsTransport,
+      timeZone: this.brain.getClientTimeZone(),
+      locale: this.brain.getClientLocale(),
+      duplexActive: this.duplexActive,
+      duplexInputMode: this.duplexInputMode,
+      utteranceSeq: this.utteranceSeq,
+      sampleRate: this.duplexSampleRate,
+      ingressSampleRate: this.duplexIngressSampleRate,
+      normalizedSampleRate: this.duplexNormalizedSampleRate,
+      transport: this.duplexIngressTransport,
+      speechBufferChunks: this.speechBuffer.length,
+      speechBufferBytes: this.speechBufferBytes,
+      rawChunks: this.duplexRawChunks.length,
+      rawBytes: this.duplexRawBytes,
+      suppressedFallbackChunks: this.suppressedFallbackChunks.length,
+      suppressedFallbackBytes: this.suppressedFallbackBytes,
+      suppressedFallbackSegments: this.suppressedFallbackSegments,
+      rawFrames: this.duplexRxFrames,
+      rawMaxRms: Number(this.duplexRxMaxRms.toFixed(4)),
+      rawLastPeak: Number(this.duplexRxLastPeak.toFixed(4)),
+      vadStarts: this.duplexRxVadStarts,
+      lastVadStartMode: this.lastVadStartMode,
+      previewText: this.lastMeaningfulPartialText || this.lastPreviewText || "",
+      ...extra,
+    };
+  }
+
   constructor(ws: WebSocket, req: IncomingMessage) {
     this.connId = randomUUID();
     this.brain = new RemiSessionContext(this.connId);
@@ -220,6 +388,10 @@ export class ConnectionSession {
     this.interrupt = new InterruptController();
     this.avatar = new AvatarController();
     this.storageUserId = resolveRequestUserId(req);
+    const transportMeta = resolveSessionTransportFromRequest(req);
+    this.clientFamily = transportMeta.clientFamily;
+    this.resolvedTtsTransport = transportMeta.ttsTransport;
+    this.handshakeTtsTransportRaw = transportMeta.rawTtsTransport;
     this.brain.setUserId(this.storageUserId);
 
     this.setupVadEvents();
@@ -242,7 +414,12 @@ export class ConnectionSession {
   }
 
   async initializeAsync(): Promise<void> {
-    logger.info("[Remi] 新客户端已连接", { connId: this.connId, userId: this.storageUserId });
+    logger.info("[Remi] 新客户端已连接", {
+      connId: this.connId,
+      userId: this.storageUserId,
+      clientFamily: this.clientFamily,
+      ttsTransport: this.resolvedTtsTransport,
+    });
     await initializeSessionStorage({
       connId: this.connId,
       storageUserId: this.storageUserId,
@@ -263,6 +440,605 @@ export class ConnectionSession {
   private clearSpeechBuffer(): void {
     this.speechBuffer = [];
     this.speechBufferBytes = 0;
+  }
+
+  private nextUtteranceSeq(): number {
+    this.utteranceSeq += 1;
+    return this.utteranceSeq;
+  }
+
+  private nextSttJobSeq(): number {
+    this.sttJobSeq += 1;
+    return this.sttJobSeq;
+  }
+
+  private classifyNoVadStopReason(): DuplexNoVadReason {
+    if (this.duplexIngressSampleRate !== DUPLEX_TARGET_SAMPLE_RATE) {
+      return "non_16k_normalized_still_no_vad";
+    }
+    if (this.duplexRxMaxRms <= 0.002 && this.duplexRawStrongFrames === 0) {
+      return "true_silence";
+    }
+    if (
+      this.duplexRxMaxRms < fallbackNoiseSuppressMinRms() ||
+      this.duplexRawStrongFrames < fallbackMinStrongFrames()
+    ) {
+      return "weak_low_energy_audio";
+    }
+    return "speech_shape_not_confirmed";
+  }
+
+  private createDuplexUtteranceJob(input: {
+    utteranceSeq: number;
+    source: DuplexUtteranceSource;
+    pcm: Buffer;
+    durationMs: number;
+    previewText: string;
+    vadMode: string | null;
+    usedNoVadFallback: boolean;
+    utteranceFrameCount?: number;
+    utteranceStrongFrames?: number;
+    utteranceMaxRms?: number;
+    utteranceMaxPeak?: number;
+    rawFrameCount?: number;
+    rawStrongFrames?: number;
+    rawMaxRms?: number;
+    speechEndedAt?: number;
+  }): DuplexUtteranceJob {
+    const traceId = this.takeVoiceTrace();
+    const tracer = getLatencyTracer(this.connId);
+    const speechEndedAt = input.speechEndedAt ?? Date.now();
+    if (tracer.get("vad_speech_end", traceId) === undefined) {
+      tracer.set("vad_speech_end", speechEndedAt, traceId);
+    }
+    const idleGuardActive = input.source === "speech_buffer" && this.duplexIdleGuardActive;
+    const priority = this.resolveSttJobPriority({
+      source: input.source,
+      previewText: input.previewText,
+      speechDurationMs: input.durationMs,
+      utteranceFrameCount: input.utteranceFrameCount ?? this.utteranceFrameCount,
+      utteranceStrongFrames: input.utteranceStrongFrames ?? this.utteranceStrongFrames,
+      utteranceMaxRms: input.utteranceMaxRms ?? this.utteranceMaxRms,
+      idleGuardActive,
+    });
+    const job: DuplexUtteranceJob = {
+      utteranceSeq: input.utteranceSeq,
+      sttJobSeq: this.nextSttJobSeq(),
+      traceId,
+      source: input.source,
+      enqueuedAt: Date.now(),
+      sampleRate: this.duplexSampleRate,
+      pcm: input.pcm,
+      durationMs: input.durationMs,
+      previewText: input.previewText,
+      vadMode: input.vadMode,
+      utteranceFrameCount: input.utteranceFrameCount ?? this.utteranceFrameCount,
+      utteranceStrongFrames: input.utteranceStrongFrames ?? this.utteranceStrongFrames,
+      utteranceMaxRms: input.utteranceMaxRms ?? this.utteranceMaxRms,
+      utteranceMaxPeak: input.utteranceMaxPeak ?? this.utteranceMaxPeak,
+      rawFrameCount: input.rawFrameCount ?? this.duplexRxFrames,
+      rawStrongFrames: input.rawStrongFrames ?? this.duplexRawStrongFrames,
+      rawMaxRms: input.rawMaxRms ?? this.duplexRxMaxRms,
+      ingressSampleRate: this.duplexIngressSampleRate,
+      normalizedSampleRate: this.duplexNormalizedSampleRate,
+      transport: this.duplexIngressTransport,
+      usedNoVadFallback: input.usedNoVadFallback,
+      speechEndedAt,
+      priority,
+      idleGuardActive,
+      allowCliFallback: priority === "high",
+    };
+    this.annotateTrace(traceId, {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      usedNoVadFallback: job.usedNoVadFallback,
+      previewText: job.previewText || null,
+      idleGuardActive: job.idleGuardActive,
+      sttJobPriority: job.priority,
+    });
+    return job;
+  }
+
+  private resolveStaleDuplexUtteranceReason(job: DuplexUtteranceJob): string | null {
+    if (job.utteranceSeq < this.lastAcceptedUtteranceSeq) {
+      return "older_than_last_accepted";
+    }
+    if (job.utteranceSeq < this.utteranceSeq) {
+      if (
+        this.lastConfirmedInterruptAt > 0 &&
+        job.speechEndedAt <= this.lastConfirmedInterruptAt
+      ) {
+        return "interrupt_replaced_by_newer_utterance";
+      }
+      return "newer_utterance_started";
+    }
+    return null;
+  }
+
+  private deferStaleDuplexUtterance(job: DuplexUtteranceJob, text: string, stage: string): void {
+    this.deferredDuplexTranscripts.set(job.utteranceSeq, {
+      job,
+      text,
+      deferredAt: Date.now(),
+    });
+    logger.info("[STT] defer stale utterance awaiting newer resolution", {
+      connId: this.connId,
+      traceId: job.traceId,
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      source: job.source,
+      stage,
+      currentUtteranceSeq: this.utteranceSeq,
+      lastAcceptedUtteranceSeq: this.lastAcceptedUtteranceSeq,
+    });
+  }
+
+  private dropStaleDuplexUtterance(job: DuplexUtteranceJob, droppedReason: string, stage: string): void {
+    this.annotateTrace(job.traceId, {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      droppedReason,
+    });
+    logger.info("[STT] dropped_stale_utterance", {
+      connId: this.connId,
+      traceId: job.traceId,
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      source: job.source,
+      stage,
+      droppedReason,
+      currentUtteranceSeq: this.utteranceSeq,
+      lastAcceptedUtteranceSeq: this.lastAcceptedUtteranceSeq,
+      lastConfirmedInterruptAt: this.lastConfirmedInterruptAt || undefined,
+    });
+    getLatencyTracer(this.connId).log(job.traceId);
+  }
+
+  private discardDeferredDuplexUtterances(reason: string, upToUtteranceSeq = Number.POSITIVE_INFINITY): void {
+    for (const [utteranceSeq, deferred] of [...this.deferredDuplexTranscripts.entries()]) {
+      if (utteranceSeq > upToUtteranceSeq) continue;
+      this.deferredDuplexTranscripts.delete(utteranceSeq);
+      this.dropStaleDuplexUtterance(deferred.job, reason, "deferred_resolution");
+    }
+  }
+
+  private hasPendingNewerSttJob(utteranceSeq: number, ignoreUtteranceSeq?: number): boolean {
+    for (const pendingSeq of this.pendingSttUtteranceSeqs) {
+      if (pendingSeq === ignoreUtteranceSeq) continue;
+      if (pendingSeq > utteranceSeq) return true;
+    }
+    return false;
+  }
+
+  private async maybeRecoverDeferredDuplexUtterance(triggerUtteranceSeq: number): Promise<void> {
+    if (this.vad.speaking || this.pendingUtteranceTimer !== null) return;
+
+    let candidate: DeferredDuplexTranscript | null = null;
+    for (const deferred of this.deferredDuplexTranscripts.values()) {
+      if (deferred.job.utteranceSeq >= triggerUtteranceSeq) continue;
+      if (deferred.job.utteranceSeq <= this.lastAcceptedUtteranceSeq) continue;
+      if (this.hasPendingNewerSttJob(deferred.job.utteranceSeq, triggerUtteranceSeq)) continue;
+      if (!candidate || deferred.job.utteranceSeq > candidate.job.utteranceSeq) {
+        candidate = deferred;
+      }
+    }
+
+    if (!candidate) return;
+    this.deferredDuplexTranscripts.delete(candidate.job.utteranceSeq);
+    logger.info("[STT] recover deferred utterance after newer rejection", {
+      connId: this.connId,
+      traceId: candidate.job.traceId,
+      utteranceSeq: candidate.job.utteranceSeq,
+      sttJobSeq: candidate.job.sttJobSeq,
+      triggerUtteranceSeq,
+      currentUtteranceSeq: this.utteranceSeq,
+    });
+    await this.handleResolvedDuplexTranscript(candidate.job, candidate.text, {
+      allowDeferredStale: false,
+    });
+  }
+
+  private enqueueDuplexSttJob(job: DuplexUtteranceJob): void {
+    this.maybePreemptSttJob(job);
+    this.pendingSttUtteranceSeqs.add(job.utteranceSeq);
+    this.pendingSttJobPriority.set(job.utteranceSeq, job.priority);
+    this.pendingSttJobTrace.set(job.utteranceSeq, job.traceId);
+    this.sttChain = this.sttChain
+      .then(async () => {
+        await this.processDuplexSttJob(job);
+      })
+      .catch((err) => logger.error("[sttChain]", { error: err, connId: this.connId }))
+      .finally(() => {
+        this.pendingSttUtteranceSeqs.delete(job.utteranceSeq);
+        this.pendingSttJobPriority.delete(job.utteranceSeq);
+        this.pendingSttJobTrace.delete(job.utteranceSeq);
+        this.preemptedSttJobs.delete(job.utteranceSeq);
+      });
+  }
+
+  private async handleResolvedDuplexTranscript(
+    job: DuplexUtteranceJob,
+    text: string,
+    options?: { allowDeferredStale?: boolean },
+  ): Promise<void> {
+    const allowDeferredStale = options?.allowDeferredStale !== false;
+
+    if (!text) {
+      logger.info("[Duplex] no transcript after STT", {
+        ...this.duplexStopDebugMeta({
+          traceId: job.traceId,
+          utteranceSeq: job.utteranceSeq,
+          sttJobSeq: job.sttJobSeq,
+          source: job.source,
+          reason: "empty_text_after_stt",
+          speechMs: Math.round(job.durationMs),
+        }),
+      });
+      await this.maybeRecoverDeferredDuplexUtterance(job.utteranceSeq);
+      return;
+    }
+
+    const predictorScores = heuristicTurnTakingPredictor.score({
+      previewText: job.previewText,
+      recognizedText: text,
+      speechDurationMs: job.durationMs,
+      utteranceMaxRms: job.utteranceMaxRms,
+      utteranceFrameCount: job.utteranceFrameCount,
+      utteranceStrongFrames: job.utteranceStrongFrames,
+      assistantSpeaking: this.turnState === "assistant_speaking",
+    });
+    const nonSpeechDecision = classifyNonSpeechTranscript(text);
+    const predictorRejectAsNoisePhrase =
+      !nonSpeechDecision.reject &&
+      !getMeaningfulTurnPreview(job.previewText) &&
+      nonSpeechDecision.normalizedTranscript.length > 0 &&
+      nonSpeechDecision.normalizedTranscript.length <= 6 &&
+      predictorScores.pNonSpeechMedia >= 0.9 &&
+      predictorScores.pUserSpeech <= 0.25;
+    const rejectedReason =
+      nonSpeechDecision.reason ??
+      (predictorRejectAsNoisePhrase ? "noise_phrase_rejected" : null);
+    if (rejectedReason) {
+      logger.info("[STT] reject non-speech transcript", {
+        ...this.duplexStopDebugMeta({
+          traceId: job.traceId,
+          utteranceSeq: job.utteranceSeq,
+          sttJobSeq: job.sttJobSeq,
+          source: job.source,
+          mode: job.vadMode,
+          speechMs: Math.round(job.durationMs),
+          text,
+          rejectedReason,
+        }),
+      });
+      this.annotateTrace(job.traceId, {
+        utteranceSeq: job.utteranceSeq,
+        sttJobSeq: job.sttJobSeq,
+        ingressSampleRate: job.ingressSampleRate,
+        normalizedSampleRate: job.normalizedSampleRate,
+        rejectedReason,
+        rejectedTranscript: text,
+        rejectedSource: job.source,
+      });
+      this.armSuppressedNoiseCooldown("stt_rejected_non_speech", job.vadMode);
+      await this.maybeRecoverDeferredDuplexUtterance(job.utteranceSeq);
+      return;
+    }
+
+    const shouldSuppressNoise =
+      this.shouldApplyDuplexNoiseSuppression() &&
+      (job.source === "duplex_stop_suppressed_fallback"
+        ? shouldSuppressRecoveredFallbackUtterance({
+            vadMode: job.vadMode,
+            previewText: job.previewText,
+            speechDurationMs: job.durationMs,
+            suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+            utteranceMaxRms: job.utteranceMaxRms,
+            minUtteranceRms: fallbackNoiseSuppressMinRms(),
+            utteranceFrameCount: job.utteranceFrameCount,
+            utteranceStrongFrames: job.utteranceStrongFrames,
+            minStrongFrames: fallbackMinStrongFrames(),
+            minStrongRatio: fallbackMinStrongRatio(),
+            recognizedText: text,
+            tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
+            userSpeechScore: predictorScores.pUserSpeech,
+            nonSpeechMediaScore: predictorScores.pNonSpeechMedia,
+          })
+        : shouldSuppressFallbackNoiseUtterance({
+            vadMode: job.vadMode,
+            previewText: job.previewText,
+            speechDurationMs: job.durationMs,
+            suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+            utteranceMaxRms: job.utteranceMaxRms,
+            minUtteranceRms: fallbackNoiseSuppressMinRms(),
+            utteranceFrameCount: job.utteranceFrameCount,
+            utteranceStrongFrames: job.utteranceStrongFrames,
+            minStrongFrames: fallbackMinStrongFrames(),
+            minStrongRatio: fallbackMinStrongRatio(),
+            recognizedText: text,
+            tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
+            shortTextMaxChars: fallbackNoiseShortTextMaxChars(),
+          }) ||
+            shouldSuppressStrictNoPreviewUtterance({
+              vadMode: job.usedNoVadFallback ? "strict" : job.vadMode,
+              previewText: job.previewText,
+              utteranceFrameCount: job.usedNoVadFallback ? job.rawFrameCount : job.utteranceFrameCount,
+              utteranceStrongFrames: job.usedNoVadFallback ? job.rawStrongFrames : job.utteranceStrongFrames,
+              minStrongFrames: strictCandidateMinStrongFrames(),
+              minStrongRatio: strictCandidateMinStrongRatio(),
+              recognizedText: text,
+            }));
+    if (shouldSuppressNoise) {
+      logger.info(
+        job.source === "duplex_stop_suppressed_fallback"
+          ? "[STT] suppress recovered fallback utterance"
+          : job.usedNoVadFallback
+            ? "[STT] suppress no-vad duplex fallback utterance"
+            : "[STT] suppress noise utterance",
+        {
+          ...this.duplexStopDebugMeta({
+            traceId: job.traceId,
+            utteranceSeq: job.utteranceSeq,
+            sttJobSeq: job.sttJobSeq,
+            source: job.source,
+            mode: job.vadMode,
+            speechMs: Math.round(job.durationMs),
+            utteranceMaxRms: Number(job.utteranceMaxRms.toFixed(4)),
+            strongFrames: job.usedNoVadFallback ? job.rawStrongFrames : job.utteranceStrongFrames,
+            totalFrames: job.usedNoVadFallback ? job.rawFrameCount : job.utteranceFrameCount,
+            text,
+          }),
+        },
+      );
+      this.armSuppressedNoiseCooldown(
+        job.source === "duplex_stop_suppressed_fallback"
+          ? "duplex_stop_recovered_fallback_post_stt"
+          : job.usedNoVadFallback
+            ? "duplex_stop_post_stt"
+            : "stt_post_buffer",
+        job.vadMode,
+      );
+      await this.maybeRecoverDeferredDuplexUtterance(job.utteranceSeq);
+      return;
+    }
+
+    if (this.duplexActive && isTentativeSpeechText(text)) {
+      logger.info("[STT] suppress tentative duplex utterance", {
+        ...this.duplexStopDebugMeta({
+          traceId: job.traceId,
+          utteranceSeq: job.utteranceSeq,
+          sttJobSeq: job.sttJobSeq,
+          source: job.source,
+          reason: "tentative_text_suppressed",
+          text,
+        }),
+      });
+      await this.maybeRecoverDeferredDuplexUtterance(job.utteranceSeq);
+      return;
+    }
+
+    const staleAfterTranscribe = this.resolveStaleDuplexUtteranceReason(job);
+    if (staleAfterTranscribe) {
+      if (staleAfterTranscribe === "newer_utterance_started") {
+        if (allowDeferredStale) {
+          this.deferStaleDuplexUtterance(job, text, "after_transcribe");
+          return;
+        }
+      } else {
+        this.dropStaleDuplexUtterance(job, staleAfterTranscribe, "after_transcribe");
+        return;
+      }
+    }
+
+    this.lastAcceptedUtteranceSeq = Math.max(this.lastAcceptedUtteranceSeq, job.utteranceSeq);
+    this.markAcceptedSpeechActivity("accepted_stt_final");
+    this.discardDeferredDuplexUtterances(
+      "superseded_by_accepted_newer_turn",
+      job.utteranceSeq - 1,
+    );
+    this.annotateTrace(job.traceId, {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      usedNoVadFallback: job.usedNoVadFallback,
+      finalTranscript: text,
+      rejectedReason: null,
+      rejectedTranscript: null,
+      rejectedSource: null,
+      droppedReason: null,
+    });
+    const preparedTurn = prepareVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
+      text,
+      traceId: job.traceId,
+      allowPredictionReuse: job.source === "speech_buffer",
+      clearPredictionAfterRun: job.source === "speech_buffer",
+      markSttFinalTimestamp: job.source === "speech_buffer" ? undefined : false,
+      logPrefix:
+        job.source === "duplex_stop_no_vad"
+          ? "[用户·语音 fallback/no-vad]"
+          : job.source === "duplex_stop_suppressed_fallback"
+            ? "[用户·语音 fallback/recovered]"
+            : undefined,
+      logMeta:
+        job.source === "duplex_stop_no_vad"
+          ? {
+              speechMs: Math.round(job.durationMs),
+              strongFrames: job.rawStrongFrames,
+              totalFrames: job.rawFrameCount,
+            }
+          : job.source === "duplex_stop_suppressed_fallback"
+            ? {
+                speechMs: Math.round(job.durationMs),
+                strongFrames: job.utteranceStrongFrames,
+                totalFrames: job.utteranceFrameCount,
+              }
+            : undefined,
+    });
+
+    const nextPipeline = this.pipelineChain
+      .then(async () => {
+        await runPreparedVoicePipelineTurn(this.buildVoiceSubmitRuntime(), preparedTurn);
+      })
+      .catch((err) => {
+        logger.error("[pipeline]", { error: err, connId: this.connId });
+        send(this.ws, { type: "error", content: "语音转写失败，请重试" });
+      });
+    this.pipelineChain = nextPipeline;
+  }
+
+  private async processDuplexSttJob(job: DuplexUtteranceJob): Promise<void> {
+    const preemptReason = this.preemptedSttJobs.get(job.utteranceSeq);
+    if (preemptReason) {
+      this.annotateTrace(job.traceId, {
+        utteranceSeq: job.utteranceSeq,
+        sttJobSeq: job.sttJobSeq,
+        ingressSampleRate: job.ingressSampleRate,
+        normalizedSampleRate: job.normalizedSampleRate,
+        sttJobPriority: job.priority,
+        sttPreemptReason: preemptReason,
+      });
+      logger.info("[STT] skip preempted low-value utterance", {
+        connId: this.connId,
+        traceId: job.traceId,
+        utteranceSeq: job.utteranceSeq,
+        sttJobSeq: job.sttJobSeq,
+        source: job.source,
+        preemptReason,
+      });
+      this.dropStaleDuplexUtterance(job, preemptReason, "before_transcribe");
+      return;
+    }
+    const queueWaitMs = Date.now() - job.enqueuedAt;
+    logger.info("[STT] queue separated", {
+      connId: this.connId,
+      traceId: job.traceId,
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      source: job.source,
+      queueWaitMs,
+      sttJobPriority: job.priority,
+      idleGuardActive: job.idleGuardActive,
+      sttQueueBlockedByPriorJob: queueWaitMs > 200,
+      pcmMs: Math.round(job.durationMs),
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      transport: job.transport,
+    });
+    this.annotateTrace(job.traceId, {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      sttJobPriority: job.priority,
+      sttQueueBlockedByPriorJob: queueWaitMs > 200,
+      idleGuardActive: job.idleGuardActive,
+    });
+
+    const staleBeforeTranscribe = this.resolveStaleDuplexUtteranceReason(job);
+    if (staleBeforeTranscribe && staleBeforeTranscribe !== "newer_utterance_started") {
+      this.dropStaleDuplexUtterance(job, staleBeforeTranscribe, "before_transcribe");
+      return;
+    }
+
+    const transcribeStartAt = Date.now();
+    const sttAbortController = new AbortController();
+    this.activeSttJob = {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      traceId: job.traceId,
+      priority: job.priority,
+      abortController: sttAbortController,
+      preemptReason: null,
+    };
+    logger.info("[STT] transcribe start", {
+      connId: this.connId,
+      traceId: job.traceId,
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      queueWaitMs,
+      sttJobPriority: job.priority,
+      idleGuardActive: job.idleGuardActive,
+      allowCliFallback: job.allowCliFallback,
+      pcmMs: Math.round(job.durationMs),
+      sampleRate: job.sampleRate,
+      source: job.source,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      transport: job.transport,
+    });
+
+    let text = "";
+    let transcribeMeta: SttTranscribeMeta | null = null;
+    let activePreemptReason: string | null = null;
+    try {
+      text = await this.stt.transcribePcmSnapshot(job.pcm, job.sampleRate, {
+        signal: sttAbortController.signal,
+        allowCliFallback: job.allowCliFallback,
+        jobPriority: job.priority,
+        traceId: job.traceId,
+      } satisfies SttTranscribeOptions);
+      transcribeMeta = this.stt.getLastTranscribeMeta();
+      activePreemptReason = this.activeSttJob?.preemptReason ?? null;
+    } finally {
+      if (this.activeSttJob?.utteranceSeq === job.utteranceSeq) {
+        this.activeSttJob = null;
+      }
+    }
+    const transcribeMs = Date.now() - transcribeStartAt;
+
+    logger.info("[STT] transcribe end", {
+      connId: this.connId,
+      traceId: job.traceId,
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      queueWaitMs,
+      transcribeMs,
+      sttJobPriority: job.priority,
+      sttPath: transcribeMeta?.path ?? null,
+      sttFallbackReason: transcribeMeta?.fallbackReason ?? null,
+      sttRequestDegraded: transcribeMeta?.requestDegraded ?? false,
+      sttPreemptReason: activePreemptReason ?? undefined,
+      pcmMs: Math.round(job.durationMs),
+      sampleRate: job.sampleRate,
+      source: job.source,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      transport: job.transport,
+      textChars: text.length,
+    });
+    this.annotateTrace(job.traceId, {
+      utteranceSeq: job.utteranceSeq,
+      sttJobSeq: job.sttJobSeq,
+      ingressSampleRate: job.ingressSampleRate,
+      normalizedSampleRate: job.normalizedSampleRate,
+      sttPath: transcribeMeta?.path ?? null,
+      sttFallbackReason: transcribeMeta?.fallbackReason ?? null,
+      sttJobPriority: job.priority,
+      sttRequestDegraded: transcribeMeta?.requestDegraded ?? false,
+      sttPreemptReason: activePreemptReason ?? null,
+      idleGuardActive: job.idleGuardActive,
+    });
+    if (activePreemptReason) {
+      logger.info("[STT] preempted low-value utterance during transcribe", {
+        connId: this.connId,
+        traceId: job.traceId,
+        utteranceSeq: job.utteranceSeq,
+        sttJobSeq: job.sttJobSeq,
+        preemptReason: activePreemptReason,
+      });
+      this.dropStaleDuplexUtterance(job, activePreemptReason, "during_transcribe");
+      return;
+    }
+    await this.handleResolvedDuplexTranscript(job, text);
+  }
+
+  private resetProsodyState(): void {
+    this.prosodySamples = [];
   }
 
   private clearPendingUtteranceTimer(): void {
@@ -308,6 +1084,7 @@ export class ConnectionSession {
     this.previewInFlight = false;
     this.lastPreviewAt = 0;
     this.lastPreviewText = "";
+    this.lastPreviewCandidateText = "";
     this.lastPartialEmitAt = 0;
     this.lastPartialContent = "";
     this.turnTakingState = "CONFIRMED_END";
@@ -317,6 +1094,7 @@ export class ConnectionSession {
     this.lastMeaningfulGrowthChars = 0;
     this.recentPartialPlateauCount = 0;
     this.partialShapeSamples = [];
+    this.resetProsodyState();
     this.lastPredictionIssuedAt = 0;
     this.lastPredictionIssuedText = "";
     // 同时取消正在进行的预判
@@ -324,25 +1102,33 @@ export class ConnectionSession {
     this.backchannelSentThisTurn = false;
     this.pendingDuplexInterrupt = false;
     this.pendingListeningPromotion = false;
+    this.ignoredFallbackRestartActive = false;
   }
 
   private maybeConfirmPendingDuplexInterrupt(): void {
     if (!this.pendingDuplexInterrupt) return;
-    if (!this.interrupt.active) {
+    if (!this.interrupt.active && !this.assistantPlaybackActive) {
       this.pendingDuplexInterrupt = false;
       return;
     }
     const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
     if (speechDurationMs < duplexInterruptMinSpeechMs()) return;
+    if (!this.hasReliableDuplexInterruptEvidence(speechDurationMs)) return;
     this.pendingDuplexInterrupt = false;
+    this.lastConfirmedInterruptAt = Date.now();
+    this.markMeaningfulSpeechActivity("accepted_interrupt", this.lastConfirmedInterruptAt);
     this.sendInterrupt();
     this.interrupt.interrupt();
+    if (this.assistantPlaybackActive) {
+      this.assistantPlaybackActive = false;
+      this.playbackGenerationId = null;
+    }
     logger.info("[VAD] → interrupted pipeline (confirmed duplex speech)", {
       connId: this.connId,
       speechMs: Math.round(speechDurationMs),
     });
     this.publishTurnState("interrupted_by_user", "user_interrupt", {
-      generationId: this.activeGenerationId ?? undefined,
+      generationId: this.currentInterruptTargetGenerationId() ?? undefined,
       interruptionType: "emotional_interrupt",
       force: true,
     });
@@ -362,14 +1148,261 @@ export class ConnectionSession {
     this.utteranceStrongFrames = 0;
     this.utteranceMaxRms = 0;
     this.utteranceMaxPeak = 0;
+    this.resetProsodyState();
     this.lastVadStartMode = null;
     this.clearDuplexRawBuffer();
+    this.clearSuppressedFallbackBuffer();
+    this.resetVadSignalState();
   }
 
   private clearDuplexRawBuffer(): void {
     this.duplexRawChunks = [];
     this.duplexRawBytes = 0;
     this.duplexRawStrongFrames = 0;
+  }
+
+  private clearSuppressedFallbackBuffer(): void {
+    this.suppressedFallbackChunks = [];
+    this.suppressedFallbackBytes = 0;
+    this.suppressedFallbackFrameCount = 0;
+    this.suppressedFallbackStrongFrames = 0;
+    this.suppressedFallbackMaxRms = 0;
+    this.suppressedFallbackMaxPeak = 0;
+    this.suppressedFallbackLastSpeechEndAt = 0;
+    this.suppressedFallbackSegments = 0;
+  }
+
+  private resetVadSignalState(): void {
+    this.pendingVadStartSignal = false;
+    this.activeVadStartSignal = false;
+    this.ignoredFallbackRestartActive = false;
+  }
+
+  private clearIdleGuard(reason?: string): void {
+    if (this.duplexIdleGuardActive || this.duplexIdleSince > 0) {
+      logger.info("[Duplex] idle guard cleared", {
+        connId: this.connId,
+        reason: reason ?? "unspecified",
+      });
+    }
+    this.duplexIdleGuardActive = false;
+    this.duplexIdleSince = 0;
+  }
+
+  private markMeaningfulSpeechActivity(reason: string, at = Date.now()): void {
+    this.lastMeaningfulSpeechAt = Math.max(this.lastMeaningfulSpeechAt, at);
+    this.clearIdleGuard(reason);
+  }
+
+  private markAcceptedSpeechActivity(reason: string, at = Date.now()): void {
+    this.lastAcceptedSpeechAt = Math.max(this.lastAcceptedSpeechAt, at);
+    this.lastMeaningfulSpeechAt = Math.max(this.lastMeaningfulSpeechAt, at);
+    this.clearIdleGuard(reason);
+  }
+
+  private updateIdleGuard(now = Date.now()): boolean {
+    if (!this.duplexActive || this.isPushToTalkCapture()) {
+      this.duplexIdleGuardActive = false;
+      this.duplexIdleSince = 0;
+      return false;
+    }
+    const lastActiveAt = Math.max(
+      this.duplexRxStartedAt || 0,
+      this.lastMeaningfulSpeechAt || 0,
+      this.lastAcceptedSpeechAt || 0,
+      this.lastConfirmedInterruptAt || 0,
+    );
+    const idleForMs = lastActiveAt > 0 ? Math.max(0, now - lastActiveAt) : 0;
+    const shouldActivate = idleForMs >= duplexIdleGuardAfterMs();
+    if (shouldActivate && !this.duplexIdleGuardActive) {
+      this.duplexIdleGuardActive = true;
+      this.duplexIdleSince = now;
+      logger.info("[Duplex] idle guard active", {
+        connId: this.connId,
+        idleForMs: Math.round(idleForMs),
+      });
+    } else if (!shouldActivate && this.duplexIdleGuardActive) {
+      this.clearIdleGuard("recent_meaningful_activity");
+    }
+    if (!shouldActivate) {
+      this.duplexIdleSince = 0;
+    }
+    return this.duplexIdleGuardActive;
+  }
+
+  private shouldUseIdleGuard(): boolean {
+    return this.shouldApplyDuplexNoiseSuppression() && this.updateIdleGuard();
+  }
+
+  private shouldReleaseIdleGuard(speechDurationMs: number): boolean {
+    if (this.isPushToTalkCapture()) return true;
+    const preview = getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText);
+    if (preview.length >= duplexIdleGuardMeaningfulPreviewChars()) return true;
+    const strongRatio = strongFrameRatio(this.utteranceFrameCount, this.utteranceStrongFrames);
+    return (
+      speechDurationMs >= duplexIdleGuardMinSpeechMs() &&
+      this.utteranceMaxRms >= duplexIdleGuardMinRms() &&
+      strongRatio >= duplexIdleGuardMinStrongRatio()
+    );
+  }
+
+  private resolveSttJobPriority(input: {
+    source: DuplexUtteranceSource;
+    previewText: string;
+    speechDurationMs: number;
+    utteranceFrameCount: number;
+    utteranceStrongFrames: number;
+    utteranceMaxRms: number;
+    idleGuardActive: boolean;
+  }): SttJobPriority {
+    if (this.isPushToTalkCapture()) return "high";
+    if (getMeaningfulTurnPreview(input.previewText)) return "high";
+    if (input.source === "duplex_stop_suppressed_fallback" || input.source === "duplex_stop_no_vad") {
+      return "low";
+    }
+    const strongRatio = strongFrameRatio(input.utteranceFrameCount, input.utteranceStrongFrames);
+    if (
+      input.speechDurationMs >= duplexIdleGuardMinSpeechMs() &&
+      input.utteranceMaxRms >= duplexIdleGuardMinRms() &&
+      strongRatio >= duplexIdleGuardMinStrongRatio()
+    ) {
+      return "high";
+    }
+    return input.idleGuardActive ? "low" : "high";
+  }
+
+  private maybePreemptSttJob(job: DuplexUtteranceJob): void {
+    if (job.priority !== "high") return;
+    for (const [utteranceSeq, priority] of this.pendingSttJobPriority.entries()) {
+      if (utteranceSeq === job.utteranceSeq) continue;
+      if (utteranceSeq >= job.utteranceSeq) continue;
+      if (priority !== "low") continue;
+      this.preemptedSttJobs.set(utteranceSeq, "stt_preempted_by_newer_high_value_job");
+    }
+    if (
+      this.activeSttJob &&
+      this.activeSttJob.priority === "low" &&
+      this.activeSttJob.utteranceSeq < job.utteranceSeq
+    ) {
+      this.activeSttJob.preemptReason = "stt_preempted_by_newer_high_value_job";
+      try {
+        this.activeSttJob.abortController.abort();
+      } catch {
+        // best effort
+      }
+    }
+  }
+
+  private resetDeferredDuplexTranscripts(reason = "duplex_reset"): void {
+    if (!this.deferredDuplexTranscripts.size) return;
+    this.discardDeferredDuplexUtterances(reason);
+  }
+
+  private sendVadStartSignal(reason: string, vadMode: string | null): void {
+    this.pendingVadStartSignal = false;
+    if (this.activeVadStartSignal) return;
+    this.activeVadStartSignal = true;
+    logger.debug("[VAD] ui listening start", {
+      connId: this.connId,
+      reason,
+      vadMode: vadMode ?? undefined,
+    });
+    send(this.ws, { type: "vad_start" });
+  }
+
+  private maybeEmitDeferredVadStart(reason: string): void {
+    if (!this.pendingVadStartSignal) return;
+    this.sendVadStartSignal(reason, this.lastVadStartMode);
+  }
+
+  private sendVadEndSignal(reason: string): void {
+    this.pendingVadStartSignal = false;
+    if (!this.activeVadStartSignal) return;
+    this.activeVadStartSignal = false;
+    logger.debug("[VAD] ui listening end", {
+      connId: this.connId,
+      reason,
+      vadMode: this.lastVadStartMode ?? undefined,
+    });
+    send(this.ws, { type: "vad_end" });
+  }
+
+  private shouldDeferDuplexVadStart(
+    vadMode: string | null,
+    merging: boolean,
+  ): boolean {
+    return (
+      this.shouldApplyDuplexNoiseSuppression() &&
+      !merging &&
+      (vadMode === "fallback_energy" ||
+        this.duplexIdleGuardActive ||
+        this.turnState === "assistant_speaking" ||
+        this.interrupt.active)
+    );
+  }
+
+  private shouldIgnoreWeakFallbackRestartDuringPendingCommit(
+    vadMode: string | null,
+    energy?: number,
+  ): {
+    ignore: boolean;
+    preview: string;
+    interruptionType: InterruptionType | null;
+    sinceSpeechEndMs: number;
+  } {
+    const preview = getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText);
+    const interruptedReply =
+      this.brain.lastInterruptedReply?.trim() ||
+      this.brain.currentAssistantDraft?.trim() ||
+      null;
+    const interruptionType = preview
+      ? classifyInterruption(preview, interruptedReply)
+      : null;
+    const sinceSpeechEndMs =
+      this.lastSpeechEndAt > 0 ? Math.max(0, Date.now() - this.lastSpeechEndAt) : Number.POSITIVE_INFINITY;
+    const weakEnergy =
+      energy === undefined || !Number.isFinite(energy) || energy < fallbackNoiseSuppressMinRms();
+    const ignore =
+      this.shouldApplyDuplexNoiseSuppression() &&
+      this.pendingUtteranceTimer !== null &&
+      this.turnTakingState === "HOLD" &&
+      vadMode === "fallback_energy" &&
+      weakEnergy &&
+      sinceSpeechEndMs <= DUPLEX_PENDING_COMMIT_FALLBACK_RESTART_IGNORE_MS &&
+      !!preview &&
+      (interruptionType === "correction" ||
+        /不是那个意思|不对|我的意思是|我想说的是|我其实是想说/u.test(preview));
+    return {
+      ignore,
+      preview,
+      interruptionType,
+      sinceSpeechEndMs,
+    };
+  }
+
+  private captureSuppressedFallbackUtterance(speechEndedAt: number): void {
+    if (this.isPushToTalkCapture()) return;
+    if (this.lastVadStartMode !== "fallback_energy") return;
+    if (this.speechBufferBytes <= 0) return;
+
+    const pcm = Buffer.concat(this.speechBuffer);
+    const maxBytes = Math.floor((this.duplexSampleRate * 2 * DUPLEX_SUPPRESSED_FALLBACK_MAX_MS) / 1000);
+    if (this.suppressedFallbackBytes + pcm.length > maxBytes) {
+      this.clearSuppressedFallbackBuffer();
+    }
+
+    this.suppressedFallbackChunks.push(pcm);
+    this.suppressedFallbackBytes += pcm.length;
+    this.suppressedFallbackFrameCount += this.utteranceFrameCount;
+    this.suppressedFallbackStrongFrames += this.utteranceStrongFrames;
+    this.suppressedFallbackMaxRms = Math.max(this.suppressedFallbackMaxRms, this.utteranceMaxRms);
+    this.suppressedFallbackMaxPeak = Math.max(this.suppressedFallbackMaxPeak, this.utteranceMaxPeak);
+    this.suppressedFallbackLastSpeechEndAt = speechEndedAt;
+    this.suppressedFallbackSegments += 1;
+  }
+
+  private hasSuppressedFallbackCandidate(): boolean {
+    return !this.isPushToTalkCapture() && this.suppressedFallbackBytes > 0;
   }
 
   private appendDuplexRawChunk(pcm: Buffer): void {
@@ -398,6 +1431,23 @@ export class ConnectionSession {
     });
   }
 
+  private isPushToTalkCapture(): boolean {
+    return this.duplexInputMode === "push_to_talk";
+  }
+
+  private shouldApplyDuplexNoiseSuppression(): boolean {
+    return !this.isPushToTalkCapture();
+  }
+
+  private shouldAttemptStopTimeTranscriptionWithoutVad(): boolean {
+    if (!this.isPushToTalkCapture()) {
+      return this.shouldAttemptNoVadDuplexFallback();
+    }
+
+    const durationMs = (this.duplexRawBytes / 2 / this.duplexSampleRate) * 1000;
+    return this.speechBuffer.length === 0 && this.duplexRxFrames > 0 && durationMs >= minSpeechMs();
+  }
+
   private armSuppressedNoiseCooldown(reason: string, mode?: string | null): void {
     const cooldownMs = suppressedNoiseCooldownMs();
     if (cooldownMs <= 0) return;
@@ -417,6 +1467,10 @@ export class ConnectionSession {
     this.duplexRxLastLogAt = now;
     logger.info("[DuplexRx]", {
       connId: this.connId,
+      utteranceSeq: this.utteranceSeq,
+      ingressSampleRate: this.duplexIngressSampleRate,
+      normalizedSampleRate: this.duplexNormalizedSampleRate,
+      transport: this.duplexIngressTransport,
       frames: this.duplexRxFrames,
       bytes: this.duplexRxBytes,
       durationMs: now - this.duplexRxStartedAt,
@@ -453,17 +1507,192 @@ export class ConnectionSession {
     );
   }
 
+  private scoreCurrentUtterance(
+    previewText: string,
+    speechDurationMs: number,
+    recognizedText?: string,
+  ): PredictorScores {
+    return heuristicTurnTakingPredictor.score({
+      previewText,
+      recognizedText,
+      speechDurationMs,
+      utteranceMaxRms: this.utteranceMaxRms,
+      utteranceFrameCount: this.utteranceFrameCount,
+      utteranceStrongFrames: this.utteranceStrongFrames,
+      assistantSpeaking: this.turnState === "assistant_speaking" || this.interrupt.active,
+      prosody: turnProsodyEnabled() ? summarizeProsody(this.prosodySamples) : null,
+    });
+  }
+
+  private isAssistantSpeakingForDuplexGate(): boolean {
+    return this.turnState === "assistant_speaking" || this.interrupt.active || this.assistantPlaybackActive;
+  }
+
+  private currentInterruptTargetGenerationId(): number | null {
+    if (typeof this.activeGenerationId === "number") return this.activeGenerationId;
+    if (typeof this.playbackGenerationId === "number") return this.playbackGenerationId;
+    return null;
+  }
+
+  private hasProsodySpeechEvidence(
+    minVoicedRatio = 0.42,
+    minPitchConfidence = 0.55,
+  ): boolean {
+    if (!turnProsodyEnabled()) return false;
+    const prosody = summarizeProsody(this.prosodySamples);
+    if (!prosody?.reliable) return false;
+    if (prosody.voicedRatio < minVoicedRatio) return false;
+    return prosody.sustainedVoicedTail || prosody.pitchConfidence >= minPitchConfidence;
+  }
+
+  private shouldExternalizeSttPreview(content: string, speechDurationMs: number): boolean {
+    const preview = getMeaningfulTurnPreview(content);
+    if (!preview) return false;
+    if (classifyNonSpeechTranscript(preview).reject) return false;
+
+    const speakingAssistant = this.isAssistantSpeakingForDuplexGate();
+    const scores = this.scoreCurrentUtterance(preview, speechDurationMs, preview);
+    const previewChars = preview.replace(/\s+/g, "").length;
+    const strongShape = this.hasPromotableSpeechShape();
+    const prosodySpeech = this.hasProsodySpeechEvidence();
+    const strongRms = this.utteranceMaxRms >= duplexFallbackInterruptMinRms();
+
+    if (speakingAssistant) {
+      return (
+        previewChars >= duplexFallbackInterruptMinPreviewChars() &&
+        scores.pUserSpeech >= 0.58 &&
+        scores.pNonSpeechMedia <= 0.3 &&
+        (strongShape || strongRms || prosodySpeech)
+      );
+    }
+
+    if (this.lastVadStartMode !== "fallback_energy") {
+      return true;
+    }
+
+    return (
+      previewChars >= 2 &&
+      scores.pUserSpeech >= 0.42 &&
+      scores.pNonSpeechMedia <= 0.55 &&
+      (speechDurationMs >= strictCandidateMinSpeechMs() || strongShape || prosodySpeech)
+    );
+  }
+
+  private hasReliableListeningPromotionEvidence(speechDurationMs: number): boolean {
+    const preview = getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText);
+    const speakingAssistant = this.isAssistantSpeakingForDuplexGate();
+    const scores = this.scoreCurrentUtterance(preview, speechDurationMs, preview || undefined);
+    const strongShape = this.hasPromotableSpeechShape();
+    const strongRms = this.utteranceMaxRms >= fallbackNoiseSuppressMinRms();
+    const prosodySpeech = this.hasProsodySpeechEvidence();
+
+    if (preview) {
+      const previewChars = preview.replace(/\s+/g, "").length;
+      if (speakingAssistant) {
+        return (
+          previewChars >= duplexFallbackInterruptMinPreviewChars() &&
+          scores.pUserSpeech >= 0.58 &&
+          scores.pInterruptValid >= 0.58 &&
+          scores.pNonSpeechMedia <= 0.3 &&
+          (strongShape || strongRms || prosodySpeech)
+        );
+      }
+      if (this.lastVadStartMode !== "fallback_energy") {
+        return true;
+      }
+      return scores.pUserSpeech >= 0.46 && scores.pNonSpeechMedia <= 0.45;
+    }
+
+    if (speakingAssistant) {
+      return (
+        speechDurationMs >= duplexAssistantNoPreviewInterruptMinSpeechMs() &&
+        strongShape &&
+        strongRms &&
+        prosodySpeech &&
+        scores.pUserSpeech >= 0.62 &&
+        scores.pInterruptValid >= 0.62 &&
+        scores.pNonSpeechMedia <= 0.18
+      );
+    }
+
+    if (this.lastVadStartMode !== "fallback_energy") {
+      return strongShape;
+    }
+
+    return (
+      speechDurationMs >= strictCandidateMinSpeechMs() &&
+      strongShape &&
+      (strongRms || prosodySpeech) &&
+      scores.pUserSpeech >= 0.45 &&
+      scores.pNonSpeechMedia <= 0.4
+    );
+  }
+
+  private hasReliableDuplexInterruptEvidence(speechDurationMs: number): boolean {
+    const preview = getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText);
+    const speakingAssistant = this.isAssistantSpeakingForDuplexGate();
+    const scores = this.scoreCurrentUtterance(preview, speechDurationMs);
+
+    if (!speakingAssistant && this.lastVadStartMode !== "fallback_energy") {
+      return true;
+    }
+
+    if (!speakingAssistant && preview) {
+      return scores.pUserSpeech >= 0.42 && scores.pNonSpeechMedia <= 0.45;
+    }
+
+    const minSpeechMs = speakingAssistant
+      ? preview
+        ? duplexFallbackInterruptMinSpeechMs()
+        : duplexAssistantNoPreviewInterruptMinSpeechMs()
+      : strictCandidateMinSpeechMs();
+    if (speechDurationMs < minSpeechMs) return false;
+
+    if (!speakingAssistant) {
+      return this.hasReliableListeningPromotionEvidence(speechDurationMs);
+    }
+
+    const previewValid = preview.length >= duplexFallbackInterruptMinPreviewChars();
+    const strongRatio = strongFrameRatio(this.utteranceFrameCount, this.utteranceStrongFrames);
+    const strongShape =
+      strongRatio >=
+      (this.lastVadStartMode === "fallback_energy"
+        ? duplexFallbackInterruptMinStrongRatio()
+        : strictCandidateMinStrongRatio());
+    const strongRms = this.utteranceMaxRms >= duplexFallbackInterruptMinRms();
+    const scoresApprove = scores.pInterruptValid >= (previewValid ? 0.62 : 0.68);
+    const prosodySpeech = this.hasProsodySpeechEvidence();
+    if (previewValid) {
+      return (
+        scoresApprove &&
+        scores.pUserSpeech >= 0.58 &&
+        scores.pNonSpeechMedia <= 0.3 &&
+        (strongShape || strongRms || prosodySpeech)
+      );
+    }
+    return (
+      scoresApprove &&
+      strongShape &&
+      strongRms &&
+      prosodySpeech &&
+      scores.pUserSpeech >= 0.68 &&
+      scores.pNonSpeechMedia <= 0.18
+    );
+  }
+
   private maybePromoteListeningTurn(speechDurationMs: number): void {
     if (!this.pendingListeningPromotion) return;
     if (getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText)) {
       this.pendingListeningPromotion = false;
+      this.markMeaningfulSpeechActivity("meaningful_preview");
+      this.maybeEmitDeferredVadStart("meaningful_preview");
       return;
     }
-    if (speechDurationMs < strictCandidateMinSpeechMs()) return;
-    if (!this.hasPromotableSpeechShape()) return;
+    if (!this.hasReliableListeningPromotionEvidence(speechDurationMs)) return;
 
     this.pendingListeningPromotion = false;
     this.turnTakingState = "HOLD";
+    this.maybeEmitDeferredVadStart("promoted_speech_shape");
     this.publishTurnState("listening_active", "speech_start", { force: true });
   }
 
@@ -515,6 +1744,21 @@ export class ConnectionSession {
       reason,
       extras,
     );
+    const traceId =
+      typeof extras?.generationId === "number" &&
+      extras.generationId === this.activeGenerationId &&
+      this.activeTraceId
+        ? this.activeTraceId
+        : this.pendingVoiceTraceId ?? this.activeTraceId;
+    if (traceId) {
+      getLatencyTracer(this.connId).recordTurnState(traceId, {
+        state,
+        reason,
+        generationId: extras?.generationId,
+        preview: extras?.preview,
+        interruptionType: extras?.interruptionType ?? null,
+      });
+    }
   }
 
   private maybeSendBackchannel(input: {
@@ -645,88 +1889,28 @@ export class ConnectionSession {
     options?: { mode?: "full" | "short"; includeCarryForwardHint?: boolean },
   ): Promise<void> {
     if (!this.predictionEnabled || !text.trim()) return;
-    // 文本和当前partial不一致，已经过时了，跳过
     if (text !== this.currentPartialText) return;
-    // 取消之前的预判
     this.cancelPrediction();
     this.currentPartialText = text;
     const abort = new AbortController();
     this.predictionAbort = abort;
     const traceId = this.pendingVoiceTraceId ?? this.activeTraceId;
-    const latencyTracer = traceId ? getLatencyTracer(this.connId) : null;
     try {
       logger.debug("[预判] 开始预判", { text: text.slice(0, 30) });
-      // 和正常回复一样组装输入，但是不更新状态
-      if (latencyTracer && traceId) {
-        latencyTracer.mark("memory_recall_start", traceId);
-      }
-      const memory = await retrievePromptMemory(this.brain.memory, {
-        userId: this.brain.userId,
-        userMessage: text,
-        slowBrainSnapshot: this.brain.slowBrain.getSnapshot(),
-        maxEntries: options?.mode === "short" ? 4 : 5,
-      }).finally(() => {
-        if (latencyTracer && traceId) {
-          latencyTracer.mark("memory_recall_end", traceId);
-        }
-      });
-      const slowBrainContext = this.brain.slowBrain.synthesizeContext();
-      const historyForPrompt = trimHistoryToTokenBudget(
-        [...this.brain.history],
-        options?.mode === "short" ? 1000 : 1200,
-      );
-      const predictionHistory =
-        options?.mode === "short" ? historyForPrompt.slice(-4) : historyForPrompt;
-      if (latencyTracer && traceId) {
-        latencyTracer.mark("turn_analysis_start", traceId);
-      }
-      const analysis = await analyzeTurn({
-        userMessage: text,
-        history: predictionHistory,
-        slowBrainSnapshot: this.brain.slowBrain.getSnapshot(),
-        inputSource: "voice",
-        signal: abort.signal,
-      }).finally(() => {
-        if (latencyTracer && traceId) {
-          latencyTracer.mark("turn_analysis_end", traceId);
-        }
-      });
-      const interruptedReply =
-        this.brain.lastInterruptedReply?.trim() ||
-        this.brain.currentAssistantDraft?.trim() ||
-        null;
-      const carryForwardHint =
-        options?.includeCarryForwardHint !== false && interruptedReply
-        ? buildCarryForwardHint(classifyInterruption(text, interruptedReply), interruptedReply)
-        : undefined;
-      const guidance = this.brain.slowBrain.buildConversationGuidance(
+      const { reply, analysis } = await computeSessionPrediction({
+        connId: this.connId,
+        ws: this.ws,
+        brain: this.brain,
         text,
-        analysis?.used ? analysis : null,
-      );
-      const reply = await fastBrainPredictOnly({
-        userMessage: text,
-        emotion: this.brain.emotion.getEmotion(),
-        memory,
-        history: predictionHistory,
-        strategyHints: [
-          guidance.hints,
-          carryForwardHint,
-          options?.mode === "short" ? "【实时策略】当前是打断/修正语境，请优先用一句短承接。" : "",
-        ]
-          .filter((part): part is string => Boolean(part?.trim()))
-          .join("\n\n"),
-        slowBrainContext,
         signal: abort.signal,
-        persona: this.brain.persona,
+        traceId,
+        pushPrediction: this.predictionPushEnabled,
+        options,
       });
       if (abort.signal.aborted) return;
       this.predictedReply = reply;
-      this.predictedStructuredAnalysis = analysis?.used ? analysis : null;
+      this.predictedStructuredAnalysis = analysis;
       logger.debug("[预判] 完成", { preview: reply.slice(0, 30) });
-      // 如果开启推送，把预判结果推到前端（调试用）
-      if (this.predictionPushEnabled && reply) {
-        send(this.ws, { type: "stt_prediction", status: "finished", preview: reply.slice(0, 50) });
-      }
     } catch (err) {
       logger.debug("[预判] 失败", { error: (err as Error).message });
     } finally {
@@ -745,13 +1929,17 @@ export class ConnectionSession {
     if (traceId) {
       getLatencyTracer(this.connId).mark("stt_partial", traceId);
     }
+    const meaningfulPreview = getMeaningfulTurnPreview(content);
+    if (meaningfulPreview) {
+      this.maybeEmitDeferredVadStart("stt_partial");
+    }
     send(this.ws, { type: "stt_partial", content });
     this.lastPartialEmitAt = now;
     this.lastPartialContent = content;
     this.trackTurnTakingPartial(content);
     this.pendingListeningPromotion = false;
     this.publishTurnState("listening_active", "partial_growth", {
-      preview: getMeaningfulTurnPreview(content),
+      preview: meaningfulPreview,
     });
 
     // 开启预判功能的话，防抖触发预判
@@ -797,7 +1985,9 @@ export class ConnectionSession {
     return this.generationSeq;
   }
 
-  private sendInterrupt(generationId: number | null = this.activeGenerationId): void {
+  private sendInterrupt(
+    generationId: number | null = this.currentInterruptTargetGenerationId(),
+  ): void {
     if (typeof generationId === "number") {
       send(this.ws, { type: "interrupt", generationId });
       return;
@@ -812,13 +2002,56 @@ export class ConnectionSession {
   }
 
   private startTrace(traceId: string, source: "voice" | "text" | "silence_nudge", generationId?: number): void {
-    getLatencyTracer(this.connId).startTrace(traceId, { source, generationId });
+    getLatencyTracer(this.connId).startTrace(traceId, {
+      source,
+      generationId,
+      sessionId: this.sessionId,
+    });
+  }
+
+  private annotateTrace(traceId: string | null, context: {
+    scenarioKey?: string;
+    sessionId?: string | null;
+    releaseReason?: string;
+    releaseStableMs?: number | null;
+    usedNoVadFallback?: boolean;
+    utteranceSeq?: number | null;
+    sttJobSeq?: number | null;
+    ingressSampleRate?: number | null;
+    normalizedSampleRate?: number | null;
+    droppedReason?: string | null;
+    rejectedReason?: string | null;
+    rejectedTranscript?: string | null;
+    rejectedSource?: string | null;
+    prosodyApplied?: string | null;
+    previewText?: string | null;
+    finalTranscript?: string | null;
+    interruptionType?: string | null;
+    sttPath?: "server" | "cli" | "skipped" | null;
+    sttFallbackReason?: string | null;
+    sttJobPriority?: SttJobPriority | null;
+    sttQueueBlockedByPriorJob?: boolean | null;
+    idleGuardActive?: boolean | null;
+    sttPreemptReason?: string | null;
+    sttRequestDegraded?: boolean | null;
+  }): void {
+    if (!traceId) return;
+    getLatencyTracer(this.connId).annotateTrace(traceId, context);
+  }
+
+  getResolvedTtsTransport(): SessionTtsTransport {
+    return this.resolvedTtsTransport;
   }
 
   private ensureVoiceTrace(startMarkVad: boolean): string {
     if (!this.pendingVoiceTraceId) {
       this.pendingVoiceTraceId = this.createTraceId("voice");
       this.startTrace(this.pendingVoiceTraceId, "voice");
+      this.annotateTrace(this.pendingVoiceTraceId, {
+        utteranceSeq: this.utteranceSeq || null,
+        ingressSampleRate: this.duplexIngressSampleRate,
+        normalizedSampleRate: this.duplexNormalizedSampleRate,
+      });
     }
     if (startMarkVad) {
       getLatencyTracer(this.connId).mark("vad_speech_start", this.pendingVoiceTraceId);
@@ -830,6 +2063,11 @@ export class ConnectionSession {
     if (!this.pendingVoiceTraceId) {
       this.pendingVoiceTraceId = this.createTraceId("voice");
       this.startTrace(this.pendingVoiceTraceId, "voice");
+      this.annotateTrace(this.pendingVoiceTraceId, {
+        utteranceSeq: this.utteranceSeq || null,
+        ingressSampleRate: this.duplexIngressSampleRate,
+        normalizedSampleRate: this.duplexNormalizedSampleRate,
+      });
     }
     const traceId = this.pendingVoiceTraceId;
     this.pendingVoiceTraceId = null;
@@ -853,11 +2091,13 @@ export class ConnectionSession {
     state: TurnTakingState;
     gapMs: number;
     previewText: string;
+    primaryReason: string;
     stableMs: number | null;
     recentGrowth: boolean;
     semanticallyComplete: boolean;
     incompleteTail: boolean;
     interruptionType: InterruptionType | null;
+    prosodyApplied: string | null;
   } {
     const previewText = this.lastMeaningfulPartialText || this.lastPreviewText;
     const carryForwardPreview =
@@ -889,6 +2129,7 @@ export class ConnectionSession {
     const topicSwitchBias = interruptionPreviewType === "topic_switch";
     const now = Date.now();
     const partialShape = getPartialShapeAggregates(this.partialShapeSamples);
+    const prosody = turnProsodyEnabled() ? summarizeProsody(this.prosodySamples) : null;
     const growthPlateauMs =
       this.lastMeaningfulGrowthAt > 0 ? Math.max(0, now - this.lastMeaningfulGrowthAt) : null;
     const baseGap = continuityBias
@@ -908,6 +2149,8 @@ export class ConnectionSession {
         semanticallyComplete: false,
         incompleteTail: false,
         interruptionType: interruptionPreviewType,
+        primaryReason: "turn_taking_disabled",
+        prosodyApplied: null,
       };
     }
 
@@ -951,9 +2194,18 @@ export class ConnectionSession {
           ? Math.max(60, minGapMs - 20)
           : minGapMs,
       interruptionType: interruptionPreviewType,
+      prosody,
     });
 
     this.turnTakingState = decision.state;
+    const traceId = this.pendingVoiceTraceId ?? this.activeTraceId;
+    this.annotateTrace(traceId, {
+      releaseReason: decision.primaryReason,
+      releaseStableMs: decision.stableMs,
+      prosodyApplied: decision.prosodyApplied ?? null,
+      previewText: decision.previewText ?? null,
+      interruptionType: interruptionPreviewType ?? null,
+    });
     logger.info("[TurnTaking] decision", {
       connId: this.connId,
       decision: {
@@ -966,6 +2218,7 @@ export class ConnectionSession {
       preview: decision.previewText,
       reasons: decision.reasons,
       fallback: decision.usedFallback,
+      primaryReason: decision.primaryReason,
       stableMs: decision.stableMs ?? undefined,
       lastPartialUpdateAt: this.lastMeaningfulPartialAt || undefined,
       lastGrowthAt: this.lastMeaningfulGrowthAt || undefined,
@@ -977,6 +2230,23 @@ export class ConnectionSession {
       smallDeltaStreak: partialShape.smallDeltaStreak || undefined,
       semanticallyComplete: decision.semanticallyComplete,
       sentenceClosed: decision.sentenceClosed,
+      prosodyApplied: decision.prosodyApplied ?? undefined,
+      prosody:
+        prosody && prosody.reliable
+          ? {
+              voicedRatio: Number(prosody.voicedRatio.toFixed(2)),
+              voicedTailFrames: prosody.voicedTailFrames,
+              pitchFrames: prosody.pitchFrames,
+              pitchConfidence: Number(prosody.pitchConfidence.toFixed(2)),
+              pitchSlopeHz:
+                prosody.pitchSlopeHz !== null ? Number(prosody.pitchSlopeHz.toFixed(1)) : undefined,
+              tailEnergyDrop:
+                prosody.tailEnergyDrop !== null ? Number(prosody.tailEnergyDrop.toFixed(4)) : undefined,
+              risingTail: prosody.risingTail,
+              fallingTail: prosody.fallingTail,
+              sustainedVoicedTail: prosody.sustainedVoicedTail,
+            }
+          : undefined,
       continuityBias,
       correctionBias,
       emotionalInterruptBias,
@@ -1008,11 +2278,13 @@ export class ConnectionSession {
       state: decision.state,
       gapMs: decision.gapMs,
       previewText: decision.previewText ?? "",
+      primaryReason: decision.primaryReason,
       stableMs: decision.stableMs,
       recentGrowth: decision.recentGrowth,
       semanticallyComplete: decision.semanticallyComplete,
       incompleteTail: decision.incompleteTail,
       interruptionType: interruptionPreviewType,
+      prosodyApplied: decision.prosodyApplied ?? null,
     };
   }
 
@@ -1042,19 +2314,30 @@ export class ConnectionSession {
     this.lastPreviewAt = Date.now();
     try {
       const pcm = this.speechBufferBytes > 0 ? Buffer.concat(this.speechBuffer) : Buffer.alloc(0);
+      const durMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
       const preview = await this.stt.previewPcmBuffer(pcm, this.duplexSampleRate, sttPreviewWindowMs());
       if (!this.duplexActive || !this.vad.speaking) return;
 
       const text = typeof preview === "string" ? preview.trim() : "";
       if (text) {
-        if (text !== this.lastPreviewText) {
+        if (text !== this.lastPreviewCandidateText) {
+          this.lastPreviewCandidateText = text;
+        }
+        if (text !== this.lastPreviewText && this.shouldExternalizeSttPreview(text, durMs)) {
           this.lastPreviewText = text;
+          this.markMeaningfulSpeechActivity("stt_preview");
           this.emitSttPartial(text);
+        } else if (text !== this.lastPreviewText) {
+          logger.debug("[STT preview] suppress low-confidence preview", {
+            connId: this.connId,
+            mode: this.lastVadStartMode ?? undefined,
+            speechMs: Math.round(durMs),
+            text,
+          });
         }
         return;
       }
 
-      const durMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
       if (!this.lastPreviewText) {
         this.emitSttPartial(`录音中… ${(durMs / 1000).toFixed(1)}s`);
       }
@@ -1105,85 +2388,46 @@ export class ConnectionSession {
   private enqueueSttFromSpeechBuffer(): void {
     const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
     const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
-    const utteranceMaxRms = this.utteranceMaxRms;
-    const utteranceFrameCount = this.utteranceFrameCount;
-    const utteranceStrongFrames = this.utteranceStrongFrames;
     this.stt.cancelPreview();
-    for (const chunk of this.speechBuffer) {
-      this.stt.feedPcm(chunk);
-    }
+    const pcm = this.speechBufferBytes > 0 ? Buffer.concat(this.speechBuffer) : Buffer.alloc(0);
     this.clearSpeechBuffer();
-
-    this.pipelineChain = this.pipelineChain
-      .then(async () => {
-        const traceId = this.takeVoiceTrace();
-        try {
-          const text = await this.stt.endPcm();
-          if (!text) return;
-          if (shouldSuppressFallbackNoiseUtterance({
-            vadMode: this.lastVadStartMode,
-            previewText: turnPreview,
-            speechDurationMs,
-            suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
-            utteranceMaxRms,
-            minUtteranceRms: fallbackNoiseSuppressMinRms(),
-            utteranceFrameCount,
-            utteranceStrongFrames,
-            minStrongFrames: fallbackMinStrongFrames(),
-            minStrongRatio: fallbackMinStrongRatio(),
-            recognizedText: text,
-            tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
-          }) || shouldSuppressStrictNoPreviewUtterance({
-            vadMode: this.lastVadStartMode,
-            previewText: turnPreview,
-            utteranceFrameCount,
-            utteranceStrongFrames,
-            minStrongFrames: strictCandidateMinStrongFrames(),
-            minStrongRatio: strictCandidateMinStrongRatio(),
-            recognizedText: text,
-          })) {
-            logger.info("[STT] suppress noise utterance", {
-              connId: this.connId,
-              mode: this.lastVadStartMode,
-              speechMs: Math.round(speechDurationMs),
-              utteranceMaxRms: Number(utteranceMaxRms.toFixed(4)),
-              utteranceFrameCount,
-              utteranceStrongFrames,
-              text,
-            });
-            this.pendingVoiceTraceId = null;
-            this.resetPreviewState();
-            this.resetSpeechConfidenceMetrics();
-            this.armSuppressedNoiseCooldown("stt_post_buffer", this.lastVadStartMode);
-            return;
-          }
-          if (this.duplexActive && isTentativeSpeechText(text)) {
-            logger.info("[STT] suppress tentative duplex utterance", {
-              connId: this.connId,
-              text,
-            });
-            this.pendingVoiceTraceId = null;
-            this.resetPreviewState();
-            return;
-          }
-          await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
-            text,
-            traceId,
-            allowPredictionReuse: true,
-            clearPredictionAfterRun: true,
-          });
-        } catch (err) {
-          logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });
-          send(this.ws, { type: "error", content: "语音识别失败：" + (err as Error).message });
-        }
-      })
-      .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
+    this.clearSuppressedFallbackBuffer();
+    const job = this.createDuplexUtteranceJob({
+      utteranceSeq: this.utteranceSeq,
+      source: "speech_buffer",
+      pcm,
+      durationMs: speechDurationMs,
+      previewText: turnPreview,
+      vadMode: this.lastVadStartMode,
+      usedNoVadFallback: false,
+      speechEndedAt: this.lastSpeechEndAt || Date.now(),
+    });
+    this.enqueueDuplexSttJob(job);
   }
 
   private setupVadEvents(): void {
     this.vad.on("speech_start", (meta?: { mode?: string; energy?: number; zcr?: number; crest?: number; activeRatio?: number }) => {
+      const nextVadMode = meta?.mode ?? null;
+      const merging = this.pendingUtteranceTimer !== null;
+      const pendingCommitFallback = this.shouldIgnoreWeakFallbackRestartDuringPendingCommit(
+        nextVadMode,
+        meta?.energy,
+      );
+      if (pendingCommitFallback.ignore) {
+        this.ignoredFallbackRestartActive = true;
+        logger.info("[VAD] ignore weak fallback restart during pending commit", {
+          connId: this.connId,
+          mode: nextVadMode ?? "unknown",
+          energy: meta?.energy !== undefined ? Number(meta.energy.toFixed(4)) : undefined,
+          sinceSpeechEndMs: Math.round(pendingCommitFallback.sinceSpeechEndMs),
+          preview: pendingCommitFallback.preview,
+          interruptionType: pendingCommitFallback.interruptionType ?? undefined,
+        });
+        return;
+      }
+
       this.lastSpeechStartAt = Date.now();
-      this.lastVadStartMode = meta?.mode ?? null;
+      this.lastVadStartMode = nextVadMode;
       this.resetSpeechConfidenceMetrics();
       logger.info("[VAD] speech_start", {
         connId: this.connId,
@@ -1198,24 +2442,32 @@ export class ConnectionSession {
         this.duplexRxVadStarts += 1;
       }
 
-      if (this.interrupt.active) {
+      if (this.interrupt.active || this.assistantPlaybackActive) {
         this.pendingDuplexInterrupt = true;
         logger.info("[VAD] pending duplex interrupt", {
           connId: this.connId,
           minSpeechMs: duplexInterruptMinSpeechMs(),
+          playbackActive: this.assistantPlaybackActive,
         });
       }
 
       this.resetPreviewState();
       this.pendingListeningPromotion = true;
-      if (this.interrupt.active) {
+      if (this.interrupt.active || this.assistantPlaybackActive) {
         this.pendingDuplexInterrupt = true;
       }
       this.stt.cancelPcm();
 
-      const merging = this.pendingUtteranceTimer !== null;
       this.clearPendingUtteranceTimer();
+      if (!merging) {
+        this.nextUtteranceSeq();
+      }
       this.ensureVoiceTrace(!merging);
+      this.annotateTrace(this.pendingVoiceTraceId, {
+        utteranceSeq: this.utteranceSeq,
+        ingressSampleRate: this.duplexIngressSampleRate,
+        normalizedSampleRate: this.duplexNormalizedSampleRate,
+      });
 
       if (merging) {
         // We are extending the same utterance after a short pause. Re-appending
@@ -1233,22 +2485,85 @@ export class ConnectionSession {
       this.preRollBytes = 0;
       this.suppressNextSpeechChunk = !merging;
 
-      send(this.ws, { type: "vad_start" });
+      if (this.shouldDeferDuplexVadStart(nextVadMode, merging)) {
+        this.pendingVadStartSignal = true;
+      } else {
+        this.sendVadStartSignal("speech_start", nextVadMode);
+      }
     });
 
     this.vad.on("speech_end", () => {
       this.lastSpeechEndAt = Date.now();
       logger.info("[VAD] speech_end", { connId: this.connId });
+      if (this.ignoredFallbackRestartActive) {
+        logger.info("[VAD] ignored fallback restart ended", {
+          connId: this.connId,
+          mode: this.lastVadStartMode ?? undefined,
+        });
+        this.ignoredFallbackRestartActive = false;
+        return;
+      }
       if (this.pendingVoiceTraceId) {
         getLatencyTracer(this.connId).mark("vad_speech_end", this.pendingVoiceTraceId);
       }
-      send(this.ws, { type: "vad_end" });
+      this.sendVadEndSignal("speech_end");
       this.clearPreviewTimer();
 
       const MIN_SPEECH_MS = minSpeechMs();
       const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
-      if (this.pendingDuplexInterrupt && speechDurationMs >= duplexInterruptMinSpeechMs()) {
+      const idleGuardActive = this.shouldUseIdleGuard();
+      if (idleGuardActive && !this.shouldReleaseIdleGuard(speechDurationMs)) {
+        logger.info("[Duplex] idle noise rejected before stt", {
+          connId: this.connId,
+          speechMs: Math.round(speechDurationMs),
+          utteranceMaxRms: Number(this.utteranceMaxRms.toFixed(4)),
+          strongFrames: this.utteranceStrongFrames,
+          totalFrames: this.utteranceFrameCount,
+          preview: getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText) || undefined,
+          idleSince: this.duplexIdleSince || undefined,
+        });
+        if (this.pendingVoiceTraceId) {
+          this.annotateTrace(this.pendingVoiceTraceId, {
+            utteranceSeq: this.utteranceSeq,
+            ingressSampleRate: this.duplexIngressSampleRate,
+            normalizedSampleRate: this.duplexNormalizedSampleRate,
+            rejectedReason: "idle_noise_rejected",
+            rejectedSource: "speech_buffer",
+            idleGuardActive: true,
+          });
+          getLatencyTracer(this.connId).log(this.pendingVoiceTraceId);
+        }
+        this.pendingVoiceTraceId = null;
+        this.pendingDuplexInterrupt = false;
+        this.pendingListeningPromotion = false;
+        this.clearSpeechBuffer();
+        this.resetPreviewState();
+        this.stt.cancelPcm();
+        this.resetSpeechConfidenceMetrics();
+        this.pendingVadStartSignal = false;
+        return;
+      }
+      if (idleGuardActive) {
+        this.markMeaningfulSpeechActivity("idle_guard_released", Date.now());
+        this.maybeEmitDeferredVadStart("idle_guard_released");
+      }
+      const canConfirmDuplexInterrupt =
+        this.pendingDuplexInterrupt &&
+        speechDurationMs >= duplexInterruptMinSpeechMs() &&
+        this.hasReliableDuplexInterruptEvidence(speechDurationMs);
+      if (canConfirmDuplexInterrupt) {
         this.maybeConfirmPendingDuplexInterrupt();
+      } else if (this.pendingDuplexInterrupt && speechDurationMs >= duplexInterruptMinSpeechMs()) {
+        logger.info("[VAD] weak_noise_interrupt_rejected", {
+          connId: this.connId,
+          mode: this.lastVadStartMode ?? undefined,
+          speechMs: Math.round(speechDurationMs),
+          maxRms: Number(this.utteranceMaxRms.toFixed(4)),
+          strongFrames: this.utteranceStrongFrames,
+          totalFrames: this.utteranceFrameCount,
+          preview: getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText) || undefined,
+        });
+        this.pendingDuplexInterrupt = false;
       } else if (this.pendingDuplexInterrupt && speechDurationMs < duplexInterruptMinSpeechMs()) {
         logger.info("[VAD] ignore tentative duplex interrupt", {
           connId: this.connId,
@@ -1258,31 +2573,37 @@ export class ConnectionSession {
         this.pendingDuplexInterrupt = false;
       }
       const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
-      if (shouldSuppressFallbackNoiseUtterance({
-        vadMode: this.lastVadStartMode,
-        previewText: turnPreview,
-        speechDurationMs,
-        suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
-        utteranceMaxRms: this.utteranceMaxRms,
-        minUtteranceRms: fallbackNoiseSuppressMinRms(),
-        utteranceFrameCount: this.utteranceFrameCount,
-        utteranceStrongFrames: this.utteranceStrongFrames,
-        minStrongFrames: fallbackMinStrongFrames(),
-        minStrongRatio: fallbackMinStrongRatio(),
-      }) || shouldSuppressStrictNoPreviewUtterance({
-        vadMode: this.lastVadStartMode,
-        previewText: turnPreview,
-        utteranceFrameCount: this.utteranceFrameCount,
-        utteranceStrongFrames: this.utteranceStrongFrames,
-        minStrongFrames: strictCandidateMinStrongFrames(),
-        minStrongRatio: strictCandidateMinStrongRatio(),
-      }) || (
-        this.lastVadStartMode === "fallback_energy" &&
-        speechDurationMs < fallbackWeakSpeechSuppressMaxMs() &&
-        this.utteranceStrongFrames < fallbackMinStrongFrames()
-      )) {
+      const shouldSuppressWeakSpeech =
+        this.shouldApplyDuplexNoiseSuppression() &&
+        (shouldSuppressFallbackNoiseUtterance({
+          vadMode: this.lastVadStartMode,
+          previewText: turnPreview,
+          speechDurationMs,
+          suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+          utteranceMaxRms: this.utteranceMaxRms,
+          minUtteranceRms: fallbackNoiseSuppressMinRms(),
+          utteranceFrameCount: this.utteranceFrameCount,
+          utteranceStrongFrames: this.utteranceStrongFrames,
+          minStrongFrames: fallbackMinStrongFrames(),
+          minStrongRatio: fallbackMinStrongRatio(),
+          shortTextMaxChars: fallbackNoiseShortTextMaxChars(),
+        }) || shouldSuppressStrictNoPreviewUtterance({
+          vadMode: this.lastVadStartMode,
+          previewText: turnPreview,
+          utteranceFrameCount: this.utteranceFrameCount,
+          utteranceStrongFrames: this.utteranceStrongFrames,
+          minStrongFrames: strictCandidateMinStrongFrames(),
+          minStrongRatio: strictCandidateMinStrongRatio(),
+        }) || (
+          this.lastVadStartMode === "fallback_energy" &&
+          speechDurationMs < fallbackWeakSpeechSuppressMaxMs() &&
+          this.utteranceStrongFrames < fallbackMinStrongFrames()
+        ));
+      if (shouldSuppressWeakSpeech) {
+        this.captureSuppressedFallbackUtterance(this.lastSpeechEndAt || Date.now());
         logger.info("[VAD] suppress fallback noise utterance", {
           connId: this.connId,
+          duplexInputMode: this.duplexInputMode,
           mode: this.lastVadStartMode,
           speechMs: Math.round(speechDurationMs),
           suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
@@ -1297,6 +2618,7 @@ export class ConnectionSession {
         this.pendingVoiceTraceId = null;
         this.stt.cancelPcm();
         this.resetSpeechConfidenceMetrics();
+        this.pendingVadStartSignal = false;
         this.armSuppressedNoiseCooldown("vad_suppress", this.lastVadStartMode);
         return;
       }
@@ -1356,7 +2678,8 @@ export class ConnectionSession {
       storageUserId: this.storageUserId,
       parseHistoryCursor,
       sendHistoryPage: (mode, cursor) => this.sendHistoryPage(mode, cursor),
-      handleAudioPcm: (pcm, sampleRate) => this.handleAudioPcm(pcm, sampleRate),
+      handleAudioPcm: (pcm, sampleRate, transport) =>
+        this.handleAudioPcm(pcm, sampleRate, transport),
       runDevApplyPreset: (data) => {
         this.runDevCommand(this.handleDevApplyPreset(data));
       },
@@ -1369,6 +2692,8 @@ export class ConnectionSession {
       handleAudioChunk: (data) => this.handleAudioChunk(data),
       handleAudioEnd: () => this.handleAudioEnd(),
       handlePlaybackStart: (data) => this.handlePlaybackStart(data),
+      handlePlaybackEnd: (data) => this.handlePlaybackEnd(data),
+      handleClientContext: (data) => this.handleClientContext(data),
       handleChat: (data) => this.handleChat(data),
     });
   }
@@ -1386,6 +2711,7 @@ export class ConnectionSession {
       clearSilenceNudgeTimer: () => this.clearSilenceNudgeTimer(),
       resetPreviewState: () => this.resetPreviewState(),
       clearSpeechBuffer: () => this.clearSpeechBuffer(),
+      resetDeferredDuplexTranscripts: () => this.resetDeferredDuplexTranscripts("dev_reset"),
       resetPreRoll: () => {
         this.preRollChunks = [];
         this.preRollBytes = 0;
@@ -1400,6 +2726,8 @@ export class ConnectionSession {
       clearActiveGeneration: () => {
         this.activeGenerationId = null;
         this.activeTraceId = null;
+        this.assistantPlaybackActive = false;
+        this.playbackGenerationId = null;
       },
       publishConfirmedEndTurnState: () => {
         this.publishTurnState("confirmed_end", "confirmed_end", { force: true });
@@ -1467,6 +2795,7 @@ export class ConnectionSession {
         traceId: string,
         source: "voice" | "text" | "silence_nudge",
       ) => this.bindActiveGeneration(generationId, traceId, source),
+      getResolvedTtsTransport: () => this.getResolvedTtsTransport(),
     };
   }
 
@@ -1503,14 +2832,20 @@ export class ConnectionSession {
         this.lastSttFinalAt = timestamp;
       },
       cancelPrediction: () => this.cancelPrediction(),
+      getResolvedTtsTransport: () => this.getResolvedTtsTransport(),
     };
   }
 
   private handleDuplexStart(data: any): void {
+    this.resetDeferredDuplexTranscripts("duplex_restart");
     this.duplexActive = true;
-    const rate = Number(data.sampleRate) || 16000;
-    this.duplexSampleRate = rate;
-    this.stt.setSampleRate(rate);
+    const rate = Number(data.sampleRate) || DUPLEX_TARGET_SAMPLE_RATE;
+    this.duplexInputMode = data?.mode === "push_to_talk" ? "push_to_talk" : "duplex";
+    this.duplexIngressSampleRate = rate;
+    this.duplexNormalizedSampleRate = DUPLEX_TARGET_SAMPLE_RATE;
+    this.duplexIngressTransport = "binary";
+    this.duplexSampleRate = DUPLEX_TARGET_SAMPLE_RATE;
+    this.stt.setSampleRate(this.duplexSampleRate);
     this.vad.reset();
     this.stt.reset();
     this.clearSpeechBuffer();
@@ -1521,41 +2856,43 @@ export class ConnectionSession {
     this.resetPreviewState();
     this.pendingVoiceTraceId = null;
     this.lastVadStartMode = null;
+    this.lastUnexpectedSampleRateLogAt = 0;
+    this.lastConfirmedInterruptAt = 0;
+    this.lastMeaningfulSpeechAt = Date.now();
+    this.lastAcceptedSpeechAt = this.lastMeaningfulSpeechAt;
+    this.duplexIdleGuardActive = false;
+    this.duplexIdleSince = 0;
     this.resetDuplexRxMetrics();
     // 启动双工前同步VAD阈值
     this.syncVadSilenceThreshold();
-    logger.info(`[Duplex] 已启动`, { connId: this.connId, sampleRate: rate });
+    logger.info(`[Duplex] 已启动`, {
+      connId: this.connId,
+      sampleRate: rate,
+      normalizedSampleRate: this.duplexSampleRate,
+      inputMode: this.duplexInputMode,
+    });
   }
 
   private handleDuplexStop(): void {
-    this.duplexActive = false;
-    this.vad.reset();
-    this.clearPendingUtteranceTimer();
-    this.resetPreviewState();
-    this.preRollChunks = [];
-    this.preRollBytes = 0;
-    this.suppressNextSpeechChunk = false;
-    this.lastVadStartMode = null;
-    this.logDuplexRxSummary(true);
-    if (this.duplexRxFrames === 0) {
-      logger.warn("[Duplex] stopped with no audio frames received", {
-        connId: this.connId,
-      });
-    } else if (this.duplexRxVadStarts === 0) {
-      logger.warn("[Duplex] received audio but never triggered VAD", {
-        connId: this.connId,
-        frames: this.duplexRxFrames,
-        bytes: this.duplexRxBytes,
-        maxRms: Number(this.duplexRxMaxRms.toFixed(4)),
-        lastPeak: Number(this.duplexRxLastPeak.toFixed(4)),
-      });
-    }
-
-    if (this.speechBuffer.length > 0) {
-      const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
-      const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
-      if (shouldSuppressFallbackNoiseUtterance({
-        vadMode: this.lastVadStartMode,
+    const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
+    const vadMode = this.lastVadStartMode;
+    const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
+    const suppressedFallbackDurationMs =
+      (this.suppressedFallbackBytes / 2 / this.duplexSampleRate) * 1000;
+    const rawDurationMs = (this.duplexRawBytes / 2 / this.duplexSampleRate) * 1000;
+    const speechPcm =
+      this.speechBufferBytes > 0 ? Buffer.concat(this.speechBuffer) : Buffer.alloc(0);
+    const rawPcm =
+      this.duplexRawBytes > 0 ? Buffer.concat(this.duplexRawChunks) : Buffer.alloc(0);
+    const rawFrameCount = this.duplexRxFrames;
+    const rawStrongFrames = this.duplexRawStrongFrames;
+    const rawMaxRms = this.duplexRxMaxRms;
+    const speechEndedAt = this.lastSpeechEndAt || Date.now();
+    const shouldSuppressStopBuffer =
+      this.speechBuffer.length > 0 &&
+      this.shouldApplyDuplexNoiseSuppression() &&
+      (shouldSuppressFallbackNoiseUtterance({
+        vadMode,
         previewText: turnPreview,
         speechDurationMs,
         suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
@@ -1565,169 +2902,149 @@ export class ConnectionSession {
         utteranceStrongFrames: this.utteranceStrongFrames,
         minStrongFrames: fallbackMinStrongFrames(),
         minStrongRatio: fallbackMinStrongRatio(),
-      }) || shouldSuppressStrictNoPreviewUtterance({
-        vadMode: this.lastVadStartMode,
-        previewText: turnPreview,
-        utteranceFrameCount: this.utteranceFrameCount,
-        utteranceStrongFrames: this.utteranceStrongFrames,
-        minStrongFrames: strictCandidateMinStrongFrames(),
-        minStrongRatio: strictCandidateMinStrongRatio(),
-      })) {
+        shortTextMaxChars: fallbackNoiseShortTextMaxChars(),
+      }) ||
+        shouldSuppressStrictNoPreviewUtterance({
+          vadMode,
+          previewText: turnPreview,
+          utteranceFrameCount: this.utteranceFrameCount,
+          utteranceStrongFrames: this.utteranceStrongFrames,
+          minStrongFrames: strictCandidateMinStrongFrames(),
+          minStrongRatio: strictCandidateMinStrongRatio(),
+        }));
+    const shouldAttemptNoVadFallback = this.shouldAttemptStopTimeTranscriptionWithoutVad();
+    const noVadReason = this.classifyNoVadStopReason();
+
+    this.duplexActive = false;
+    this.vad.reset();
+    this.clearPendingUtteranceTimer();
+    this.resetPreviewState();
+    this.stt.cancelPcm();
+    this.resetVadSignalState();
+    this.preRollChunks = [];
+    this.preRollBytes = 0;
+    this.suppressNextSpeechChunk = false;
+    this.lastVadStartMode = null;
+    this.clearIdleGuard("duplex_stop");
+    this.logDuplexRxSummary(true);
+    logger.info("[Duplex] stop requested", this.duplexStopDebugMeta());
+    if (this.duplexRxFrames === 0) {
+      logger.warn("[Duplex] stopped with no audio frames received", this.duplexStopDebugMeta({
+        reason: "no_audio_frames",
+      }));
+    } else if (this.duplexRxVadStarts === 0) {
+      logger.warn("[Duplex] received audio but never triggered VAD", this.duplexStopDebugMeta({
+        reason: "audio_without_vad",
+        diagnosis: noVadReason,
+      }));
+    }
+
+    if (this.speechBuffer.length > 0) {
+      if (shouldSuppressStopBuffer) {
+        this.captureSuppressedFallbackUtterance(speechEndedAt);
         logger.info("[Duplex] suppress fallback noise utterance on stop", {
-          connId: this.connId,
-          mode: this.lastVadStartMode,
-          speechMs: Math.round(speechDurationMs),
-          suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+          ...this.duplexStopDebugMeta({
+            reason: "suppressed_pre_stt",
+            mode: vadMode,
+            speechMs: Math.round(speechDurationMs),
+            suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
+          }),
         });
         this.clearSpeechBuffer();
         this.clearDuplexRawBuffer();
         this.pendingVoiceTraceId = null;
         this.stt.cancelPcm();
-        this.armSuppressedNoiseCooldown("duplex_stop_pre_stt", this.lastVadStartMode);
-        return;
+        this.lastVadStartMode = null;
+        this.resetSpeechConfidenceMetrics();
+        this.armSuppressedNoiseCooldown("duplex_stop_pre_stt", vadMode);
+      } else {
+        this.stt.cancelPreview();
+        this.clearSpeechBuffer();
+        this.clearDuplexRawBuffer();
+        this.clearSuppressedFallbackBuffer();
+        const utteranceSeq = this.utteranceSeq > 0 ? this.utteranceSeq : this.nextUtteranceSeq();
+        const job = this.createDuplexUtteranceJob({
+          utteranceSeq,
+          source: "duplex_stop_buffer",
+          pcm: speechPcm,
+          durationMs: speechDurationMs,
+          previewText: turnPreview,
+          vadMode,
+          usedNoVadFallback: false,
+          speechEndedAt,
+        });
+        this.lastVadStartMode = null;
+        this.resetSpeechConfidenceMetrics();
+        this.enqueueDuplexSttJob(job);
       }
+    } else if (this.hasSuppressedFallbackCandidate()) {
+      logger.info("[Duplex] attempting recovered suppressed fallback", this.duplexStopDebugMeta({
+        reason: "attempt_recovered_suppressed_fallback",
+        speechMs: Math.round(suppressedFallbackDurationMs),
+        suppressedSegments: this.suppressedFallbackSegments,
+      }));
       this.stt.cancelPreview();
-      for (const chunk of this.speechBuffer) this.stt.feedPcm(chunk);
-      this.clearSpeechBuffer();
       this.clearDuplexRawBuffer();
-
-      this.pipelineChain = this.pipelineChain
-        .then(async () => {
-          const traceId = this.takeVoiceTrace();
-          try {
-            const text = await this.stt.endPcm();
-            if (!text) return;
-            if (shouldSuppressFallbackNoiseUtterance({
-              vadMode: this.lastVadStartMode,
-              previewText: turnPreview,
-              speechDurationMs,
-              suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
-              utteranceMaxRms: this.utteranceMaxRms,
-              minUtteranceRms: fallbackNoiseSuppressMinRms(),
-              utteranceFrameCount: this.utteranceFrameCount,
-              utteranceStrongFrames: this.utteranceStrongFrames,
-              minStrongFrames: fallbackMinStrongFrames(),
-              minStrongRatio: fallbackMinStrongRatio(),
-              recognizedText: text,
-              tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
-            }) || shouldSuppressStrictNoPreviewUtterance({
-              vadMode: this.lastVadStartMode,
-              previewText: turnPreview,
-              utteranceFrameCount: this.utteranceFrameCount,
-              utteranceStrongFrames: this.utteranceStrongFrames,
-              minStrongFrames: strictCandidateMinStrongFrames(),
-              minStrongRatio: strictCandidateMinStrongRatio(),
-              recognizedText: text,
-            })) {
-              logger.info("[STT] suppress fallback noise utterance on duplex stop", {
-                connId: this.connId,
-                mode: this.lastVadStartMode,
-                speechMs: Math.round(speechDurationMs),
-                utteranceMaxRms: Number(this.utteranceMaxRms.toFixed(4)),
-                text,
-              });
-              this.pendingVoiceTraceId = null;
-              this.resetPreviewState();
-              this.resetSpeechConfidenceMetrics();
-              this.armSuppressedNoiseCooldown("duplex_stop_post_stt", this.lastVadStartMode);
-              return;
-            }
-            if (this.duplexActive && isTentativeSpeechText(text)) {
-              logger.info("[STT] suppress tentative duplex utterance", {
-                connId: this.connId,
-                text,
-              });
-              this.pendingVoiceTraceId = null;
-              this.resetPreviewState();
-              return;
-            }
-            await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
-              text,
-              traceId,
-              markSttFinalTimestamp: false,
-            });
-          } catch (err) {
-            logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });
-            send(this.ws, { type: "error", content: "语音转写失败，请重试" });
-          }
-        })
-        .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
-    } else if (this.shouldAttemptNoVadDuplexFallback()) {
-      const rawChunks = [...this.duplexRawChunks];
-      const rawDurationMs = (this.duplexRawBytes / 2 / this.duplexSampleRate) * 1000;
-      const rawFrameCount = this.duplexRxFrames;
-      const rawStrongFrames = this.duplexRawStrongFrames;
-      const rawMaxRms = this.duplexRxMaxRms;
+      const job = this.createDuplexUtteranceJob({
+        utteranceSeq: this.nextUtteranceSeq(),
+        source: "duplex_stop_suppressed_fallback",
+        pcm: Buffer.concat(this.suppressedFallbackChunks),
+        durationMs: suppressedFallbackDurationMs,
+        previewText: "",
+        vadMode: "fallback_energy",
+        usedNoVadFallback: false,
+        utteranceFrameCount: this.suppressedFallbackFrameCount,
+        utteranceStrongFrames: this.suppressedFallbackStrongFrames,
+        utteranceMaxRms: this.suppressedFallbackMaxRms,
+        utteranceMaxPeak: this.suppressedFallbackMaxPeak,
+        rawFrameCount: this.suppressedFallbackFrameCount,
+        rawStrongFrames: this.suppressedFallbackStrongFrames,
+        rawMaxRms: this.suppressedFallbackMaxRms,
+        speechEndedAt: this.suppressedFallbackLastSpeechEndAt || Date.now(),
+      });
+      this.lastVadStartMode = null;
+      this.resetSpeechConfidenceMetrics();
+      this.clearSuppressedFallbackBuffer();
+      this.enqueueDuplexSttJob(job);
+    } else if (shouldAttemptNoVadFallback) {
+      logger.info("[Duplex] attempting no-vad fallback", this.duplexStopDebugMeta({
+        reason: "attempt_no_vad_fallback",
+        diagnosis: noVadReason,
+      }));
       this.stt.cancelPreview();
-      for (const chunk of rawChunks) this.stt.feedPcm(chunk);
       this.clearDuplexRawBuffer();
-
-      this.pipelineChain = this.pipelineChain
-        .then(async () => {
-          const traceId = this.takeVoiceTrace();
-          try {
-            const text = await this.stt.endPcm();
-            if (!text) return;
-            if (
-              shouldSuppressStrictNoPreviewUtterance({
-                vadMode: "strict",
-                previewText: "",
-                utteranceFrameCount: rawFrameCount,
-                utteranceStrongFrames: rawStrongFrames,
-                minStrongFrames: strictCandidateMinStrongFrames(),
-                minStrongRatio: strictCandidateMinStrongRatio(),
-                recognizedText: text,
-              }) ||
-              shouldSuppressFallbackNoiseUtterance({
-                vadMode: "fallback_energy",
-                previewText: "",
-                speechDurationMs: rawDurationMs,
-                suppressionMaxMs: fallbackNoiseSuppressMaxMs(),
-                utteranceMaxRms: rawMaxRms,
-                minUtteranceRms: fallbackNoiseSuppressMinRms(),
-                utteranceFrameCount: rawFrameCount,
-                utteranceStrongFrames: rawStrongFrames,
-                minStrongFrames: fallbackMinStrongFrames(),
-                minStrongRatio: fallbackMinStrongRatio(),
-                recognizedText: text,
-                tinyTextMaxChars: fallbackNoiseTinyTextMaxChars(),
-              })
-            ) {
-              logger.info("[STT] suppress no-vad duplex fallback utterance", {
-                connId: this.connId,
-                speechMs: Math.round(rawDurationMs),
-                utteranceMaxRms: Number(rawMaxRms.toFixed(4)),
-                strongFrames: rawStrongFrames,
-                totalFrames: rawFrameCount,
-                text,
-              });
-              this.pendingVoiceTraceId = null;
-              this.resetPreviewState();
-              return;
-            }
-            await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
-              text,
-              traceId,
-              logPrefix: "[用户·语音 fallback/no-vad]",
-              logMeta: {
-                speechMs: Math.round(rawDurationMs),
-                strongFrames: rawStrongFrames,
-                totalFrames: rawFrameCount,
-              },
-              markSttFinalTimestamp: false,
-            });
-          } catch (err) {
-            logger.warn("[STT fallback/no-vad]", {
-              error: (err as Error).message,
-              connId: this.connId,
-            });
-            send(this.ws, { type: "error", content: "语音转写失败，请重试" });
-          }
-        })
-        .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
+      this.clearSuppressedFallbackBuffer();
+      const job = this.createDuplexUtteranceJob({
+        utteranceSeq: this.nextUtteranceSeq(),
+        source: "duplex_stop_no_vad",
+        pcm: rawPcm,
+        durationMs: rawDurationMs,
+        previewText: "",
+        vadMode: "fallback_energy",
+        usedNoVadFallback: true,
+        utteranceFrameCount: rawFrameCount,
+        utteranceStrongFrames: rawStrongFrames,
+        utteranceMaxRms: rawMaxRms,
+        utteranceMaxPeak: this.duplexRxLastPeak,
+        rawFrameCount,
+        rawStrongFrames,
+        rawMaxRms,
+        speechEndedAt: Date.now(),
+      });
+      this.lastVadStartMode = null;
+      this.resetSpeechConfidenceMetrics();
+      this.enqueueDuplexSttJob(job);
     } else {
       this.pendingVoiceTraceId = null;
+      this.clearSpeechBuffer();
       this.clearDuplexRawBuffer();
+      this.clearSuppressedFallbackBuffer();
+      this.lastVadStartMode = null;
+      this.resetSpeechConfidenceMetrics();
+      logger.info("[Duplex] skipped no-vad fallback", this.duplexStopDebugMeta({
+        reason: "skipped_no_vad_fallback",
+        diagnosis: noVadReason,
+      }));
     }
 
     logger.info("[Duplex] 已停止", { connId: this.connId });
@@ -1743,26 +3060,56 @@ export class ConnectionSession {
     );
   }
 
-  private handleAudioPcm(pcm: Buffer, rate: number): void {
+  private handleAudioPcm(
+    pcm: Buffer,
+    rate: number,
+    transport: DuplexIngressTransport = "binary",
+  ): void {
     if (!this.duplexActive) return;
-    const sampleRate = rate > 0 ? rate : this.duplexSampleRate;
+    const normalized = normalizeDuplexPcm16Mono(
+      pcm,
+      rate > 0 ? rate : this.duplexIngressSampleRate,
+      DUPLEX_TARGET_SAMPLE_RATE,
+    );
+    this.duplexIngressSampleRate = normalized.ingressSampleRate;
+    this.duplexNormalizedSampleRate = normalized.normalizedSampleRate;
+    this.duplexIngressTransport = transport;
+    const now = Date.now();
+    this.updateIdleGuard(now);
+    if (normalized.resampled && now - this.lastUnexpectedSampleRateLogAt > 1000) {
+      this.lastUnexpectedSampleRateLogAt = now;
+      logger.warn("[Duplex] unexpected_sample_rate", {
+        connId: this.connId,
+        utteranceSeq: this.utteranceSeq,
+        transport,
+        ingressSampleRate: normalized.ingressSampleRate,
+        normalizedSampleRate: normalized.normalizedSampleRate,
+        frameBytes: pcm.length,
+      });
+    }
+    const normalizedPcm = normalized.pcm;
+    const sampleRate = normalized.normalizedSampleRate;
     this.duplexSampleRate = sampleRate;
     this.stt.setSampleRate(sampleRate);
-    const rms = pcmRms(pcm);
-    const peak = pcmPeak(pcm);
+    const rms = pcmRms(normalizedPcm);
+    const peak = pcmPeak(normalizedPcm);
     this.duplexRxFrames += 1;
-    this.duplexRxBytes += pcm.length;
+    this.duplexRxBytes += normalizedPcm.length;
     this.duplexRxLastRms = rms;
     this.duplexRxLastPeak = peak;
     this.duplexRxMaxRms = Math.max(this.duplexRxMaxRms, rms);
-    this.appendDuplexRawChunk(pcm);
-    if (isNoVadFallbackSpeechLikeFrame(pcm, rms, peak)) {
+    this.appendDuplexRawChunk(normalizedPcm);
+    if (isNoVadFallbackSpeechLikeFrame(normalizedPcm, rms, peak)) {
       this.duplexRawStrongFrames += 1;
     }
     this.logDuplexRxSummary();
+    this.annotateTrace(this.pendingVoiceTraceId, {
+      utteranceSeq: this.utteranceSeq || null,
+      ingressSampleRate: this.duplexIngressSampleRate,
+      normalizedSampleRate: this.duplexNormalizedSampleRate,
+    });
 
-    this.appendPreRoll(pcm);
-    const now = Date.now();
+    this.appendPreRoll(normalizedPcm);
     if (
       !this.vad.speaking &&
       this.suppressedNoiseCooldownUntil > now &&
@@ -1783,14 +3130,26 @@ export class ConnectionSession {
         return;
       }
     }
-    this.vad.feed(pcm);
+    this.vad.feed(normalizedPcm);
 
     if (this.vad.speaking) {
+      if (this.ignoredFallbackRestartActive) {
+        return;
+      }
       this.trackSpeechConfidence(rms, peak);
+      if (turnProsodyEnabled()) {
+        this.prosodySamples = appendProsodySample(
+          this.prosodySamples,
+          normalizedPcm,
+          sampleRate,
+          this.PROSODY_MAX_SAMPLES,
+          now,
+        );
+      }
       if (this.suppressNextSpeechChunk) {
         this.suppressNextSpeechChunk = false;
       } else {
-        this.pushSpeechChunk(pcm);
+        this.pushSpeechChunk(normalizedPcm);
       }
 
       const durMs = (this.speechBufferBytes / 2 / sampleRate) * 1000;
@@ -1802,8 +3161,8 @@ export class ConnectionSession {
 
   private handleAudioStream(data: any): void {
     const pcm = Buffer.from(data.audio, "base64");
-    const rate = Number(data.sampleRate) || this.duplexSampleRate;
-    this.handleAudioPcm(pcm, rate);
+    const rate = Number(data.sampleRate) || this.duplexIngressSampleRate;
+    this.handleAudioPcm(pcm, rate, "json");
   }
 
   private handleAudioChunk(data: any): void {
@@ -1847,6 +3206,13 @@ export class ConnectionSession {
         : typeof rawGenerationId === "string" && rawGenerationId.trim()
           ? Number(rawGenerationId)
           : null;
+    const normalizedGenerationId =
+      generationId != null && Number.isFinite(generationId)
+        ? Math.floor(generationId)
+        : this.activeGenerationId;
+
+    this.assistantPlaybackActive = true;
+    this.playbackGenerationId = normalizedGenerationId ?? null;
 
     if (generationId != null && Number.isFinite(generationId)) {
       const traceId = tracer.findActiveTraceIdByGenerationId(Math.floor(generationId));
@@ -1869,86 +3235,110 @@ export class ConnectionSession {
     }
   }
 
-  private handleChat(data: any): void {
-    const content = data.content ?? "";
-    if (!content?.trim()) {
-      send(this.ws, { type: "error", content: "消息内容为空" });
+  private handlePlaybackEnd(data?: any): void {
+    const rawGenerationId = data?.generationId;
+    const generationId =
+      typeof rawGenerationId === "number"
+        ? Math.floor(rawGenerationId)
+        : typeof rawGenerationId === "string" && rawGenerationId.trim()
+          ? Math.floor(Number(rawGenerationId))
+          : null;
+
+    if (
+      generationId != null &&
+      this.playbackGenerationId != null &&
+      generationId !== this.playbackGenerationId
+    ) {
       return;
     }
-    logger.info(`[用户] ${content}`, { connId: this.connId });
-    this.touchUserActivity(content);
-    if (this.interrupt.active && this.brain.currentAssistantDraft?.trim()) {
-      this.brain.lastInterruptedReply = this.brain.currentAssistantDraft.trim();
+
+    this.assistantPlaybackActive = false;
+    this.playbackGenerationId = null;
+
+    if (!this.interrupt.active && this.turnState === "assistant_speaking") {
+      this.publishTurnState("confirmed_end", "confirmed_end", { force: true });
     }
-    const { interruptionType, carryForwardHint } = this.classifyCarryForward(content);
+  }
 
-    const interruptedGenerationId = this.activeGenerationId;
-    const interruptReactionEnabled = process.env.interrupt_reaction !== "0" && isTtsEnabled();
-    if (this.interrupt.active && interruptReactionEnabled) {
-      // 先播放打断反应音，再停止当前播放
-      void synthesize(randomInterruptReaction(), undefined, this.brain.emotion.getEmotion() as any)
-        .then((buf) => {
-          send(this.ws, {
-            type: "voice",
-            audio: buf.toString("base64"),
-            generationId: interruptedGenerationId ?? 0,
-          });
-          // 发送反应音后再通知客户端停止之前的播放
-          this.sendInterrupt(interruptedGenerationId ?? null);
-        })
-        .catch(() => {
-          // 合成失败直接发中断
-          this.sendInterrupt(interruptedGenerationId ?? null);
-        });
-      this.interrupt.interrupt();
-      logger.info("[Chat] → interrupted pipeline with reaction", { connId: this.connId });
-      this.publishTurnState("interrupted_by_user", "user_interrupt", {
-        generationId: interruptedGenerationId ?? undefined,
-        interruptionType: interruptionType ?? "unknown",
-        force: true,
-      });
-    } else {
-      if (this.interrupt.active) {
-        // 仅在确有在途 generation 时发送 interrupt，避免把正常 text send 伪装成真实打断。
-        this.sendInterrupt(interruptedGenerationId ?? null);
-        this.interrupt.interrupt();
-        this.publishTurnState("interrupted_by_user", "user_interrupt", {
-          generationId: interruptedGenerationId ?? undefined,
-          interruptionType: interruptionType ?? "unknown",
-          force: true,
-        });
-      }
-    }
-
-    const generationId = this.nextGenerationId();
-    const traceId = this.createTraceId("text", generationId);
-    this.bindActiveGeneration(generationId, traceId, "text");
-    getLatencyTracer(this.connId).mark("input_received", traceId);
-    this.publishTurnState("assistant_entering", "tts_prepare", {
-      generationId,
-      interruptionType,
-      force: true,
-    });
-
-    this.pipelineChain = this.pipelineChain
-      .then(() =>
-        runPipeline(
-          this.ws,
-          content,
-          this.interrupt,
-          this.avatar,
-          this.sessionId,
-          this.brain,
-          generationId,
-          traceId,
-          {
-            carryForwardHint,
-            interruptionType: interruptionType ?? undefined,
-            inputSource: "text",
+  private handleChat(data: any): void {
+    handleSessionTextChat(
+      {
+        ws: this.ws,
+        connId: this.connId,
+        brain: this.brain,
+        interrupt: this.interrupt,
+        avatar: this.avatar,
+        sessionId: this.sessionId,
+        activeGenerationId: this.activeGenerationId,
+        touchUserActivity: (userMessage?: string) => this.touchUserActivity(userMessage),
+        classifyCarryForward: (userText: string) => this.classifyCarryForward(userText),
+        sendInterrupt: (generationId?: number | null) => this.sendInterrupt(generationId),
+        nextGenerationId: () => this.nextGenerationId(),
+        createTraceId: (
+          source: "voice" | "text" | "silence_nudge",
+          generationId?: number,
+        ) => this.createTraceId(source, generationId),
+        bindActiveGeneration: (
+          generationId: number,
+          traceId: string,
+          source: "voice" | "text" | "silence_nudge",
+        ) => this.bindActiveGeneration(generationId, traceId, source),
+        publishTurnState: (
+          state: RemiTurnState,
+          reason: RemiTurnStateReason,
+          extras?: {
+            generationId?: number;
+            preview?: string;
+            interruptionType?: InterruptionType | null;
+            force?: boolean;
           },
-        ),
-      )
-      .catch((err) => logger.error("[pipeline]", { error: err, connId: this.connId }));
+        ) => this.publishTurnState(state, reason, extras),
+        setPipelineChain: (next: Promise<void>) => {
+          this.pipelineChain = next;
+        },
+        getPipelineChain: () => this.pipelineChain,
+        getResolvedTtsTransport: () => this.getResolvedTtsTransport(),
+      },
+      data,
+    );
+  }
+
+  private handleClientContext(data: any): void {
+    const rawTtsTransport =
+      typeof data?.ttsTransport === "string" ? data.ttsTransport : null;
+    const clientContextTtsTransport = normalizeClientContextTtsTransport(rawTtsTransport);
+    this.clientContextTtsTransport = clientContextTtsTransport;
+    this.brain.setClientContext({
+      timeZone: typeof data?.timeZone === "string" ? data.timeZone : null,
+      locale: typeof data?.locale === "string" ? data.locale : null,
+    });
+    if (rawTtsTransport && !clientContextTtsTransport) {
+      logger.warn("[ClientContext] ignored invalid tts transport", {
+        connId: this.connId,
+        rawTtsTransport,
+        clientFamily: this.clientFamily,
+        resolvedTtsTransport: this.resolvedTtsTransport,
+      });
+    } else if (
+      clientContextTtsTransport &&
+      clientContextTtsTransport !== this.resolvedTtsTransport
+    ) {
+      logger.warn("[ClientContext] tts transport mismatch", {
+        connId: this.connId,
+        clientFamily: this.clientFamily,
+        handshakeTtsTransportRaw: this.handshakeTtsTransportRaw,
+        resolvedTtsTransport: this.resolvedTtsTransport,
+        clientContextTtsTransport,
+      });
+    }
+    logger.debug("[ClientContext] updated", {
+      connId: this.connId,
+      clientFamily: this.clientFamily,
+      resolvedTtsTransport: this.resolvedTtsTransport,
+      clientContextTtsTransport: this.clientContextTtsTransport,
+      timeZone: this.brain.getClientTimeZone(),
+      locale: this.brain.getClientLocale(),
+    });
   }
 
   /** 全面的资源清理方法 */

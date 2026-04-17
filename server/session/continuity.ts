@@ -14,6 +14,7 @@ import {
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { runPipeline } from "../pipeline";
 import { proactivePlannerMainPathEnabled, silenceNudgeMs } from "./runtime_config";
+import type { SessionTtsTransport } from "./tts_transport";
 
 const logger = createLogger("session");
 
@@ -42,6 +43,7 @@ export interface SessionContinuityRuntime {
   nextGenerationId(): number;
   createTraceId(source: TraceSource, generationId?: number): string;
   bindActiveGeneration(generationId: number, traceId: string, source: TraceSource): void;
+  getResolvedTtsTransport(): SessionTtsTransport;
 }
 
 export function isContinuousConversation(runtime: SessionContinuityRuntime): boolean {
@@ -176,7 +178,10 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
         runtime.brain,
         generationId,
         traceId,
-        { silenceNudge: true },
+        {
+          silenceNudge: true,
+          ttsTransport: runtime.getResolvedTtsTransport(),
+        },
       );
 
       const completedWithoutInterrupt =

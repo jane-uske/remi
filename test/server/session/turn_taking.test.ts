@@ -7,9 +7,14 @@ const {
   evaluateBackchannelDecision,
   shouldOfferThinkingPauseBackchannel,
   shouldSuppressFallbackNoiseUtterance,
+  shouldSuppressRecoveredFallbackUtterance,
   shouldSuppressStrictNoPreviewUtterance,
   strongFrameRatio,
 } = require("../../../server/session/turn_taking");
+const {
+  classifyNonSpeechTranscript,
+  heuristicTurnTakingPredictor,
+} = require("../../../server/session/turn_taking_predictor");
 
 describe("turn taking stage2", () => {
   const baseInput = {
@@ -142,6 +147,31 @@ describe("turn taking stage2", () => {
     assert.equal(decision.state, "LIKELY_END");
     assert.equal(decision.gapMs, 80);
     assert.ok(decision.reasons.includes("carry_forward_cue"));
+  });
+
+  it("uses prosody fast release to target a ~480ms commit when the tail falls cleanly", () => {
+    const decision = decideTurnTaking({
+      ...baseInput,
+      previewText: "那我们今晚就这样吧",
+      lastPartialUpdateAt: 9_700,
+      lastGrowthAt: 9_120,
+      prosody: {
+        reliable: true,
+        voicedRatio: 0.72,
+        voicedTailFrames: 3,
+        pitchFrames: 5,
+        pitchConfidence: 0.78,
+        pitchSlopeHz: -18,
+        tailEnergyDrop: 0.015,
+        risingTail: false,
+        fallingTail: true,
+        sustainedVoicedTail: false,
+      },
+    });
+
+    assert.equal(decision.state, "LIKELY_END");
+    assert.equal(decision.gapMs, 180);
+    assert.equal(decision.prosodyApplied, "prosody_fast_release");
   });
 
   it("releases quickly for a stable correction cue after an interruption", () => {
@@ -377,6 +407,66 @@ describe("turn taking stage2", () => {
     );
   });
 
+  it("suppresses recovered fallback short phrases when they are weak and previewless", () => {
+    assert.equal(
+      shouldSuppressRecoveredFallbackUtterance({
+        vadMode: "fallback_energy",
+        previewText: "",
+        speechDurationMs: 1260,
+        suppressionMaxMs: 900,
+        utteranceMaxRms: 0.028,
+        minUtteranceRms: 0.035,
+        utteranceFrameCount: 72,
+        utteranceStrongFrames: 0,
+        minStrongFrames: 2,
+        minStrongRatio: 0.08,
+        recognizedText: "再说一遍",
+        tinyTextMaxChars: 1,
+      }),
+      true,
+    );
+  });
+
+  it("keeps recovered fallback utterances when the recovered audio shape is strong enough", () => {
+    assert.equal(
+      shouldSuppressRecoveredFallbackUtterance({
+        vadMode: "fallback_energy",
+        previewText: "",
+        speechDurationMs: 1260,
+        suppressionMaxMs: 900,
+        utteranceMaxRms: 0.056,
+        minUtteranceRms: 0.035,
+        utteranceFrameCount: 72,
+        utteranceStrongFrames: 22,
+        minStrongFrames: 2,
+        minStrongRatio: 0.08,
+        recognizedText: "再说一遍",
+        tinyTextMaxChars: 1,
+      }),
+      false,
+    );
+  });
+
+  it("still suppresses recovered fallback utterances when STT returns a long hallucination", () => {
+    assert.equal(
+      shouldSuppressRecoveredFallbackUtterance({
+        vadMode: "fallback_energy",
+        previewText: "",
+        speechDurationMs: 1480,
+        suppressionMaxMs: 900,
+        utteranceMaxRms: 0.028,
+        minUtteranceRms: 0.035,
+        utteranceFrameCount: 72,
+        utteranceStrongFrames: 0,
+        minStrongFrames: 2,
+        minStrongRatio: 0.08,
+        recognizedText: "请不吝点赞订阅转发打赏支持明镜与点点栏目",
+        tinyTextMaxChars: 1,
+      }),
+      true,
+    );
+  });
+
   it("suppresses strict no-preview utterances with weak strong-frame shape", () => {
     assert.equal(
       shouldSuppressStrictNoPreviewUtterance({
@@ -424,5 +514,36 @@ describe("turn taking stage2", () => {
   it("computes strong frame ratios defensively", () => {
     assert.equal(strongFrameRatio(0, 5), 0);
     assert.equal(strongFrameRatio(100, 25), 0.25);
+  });
+
+  it("rejects bracketed non-speech transcripts before they become user turns", () => {
+    assert.deepEqual(classifyNonSpeechTranscript("[音乐]"), {
+      reject: true,
+      reason: "non_speech_tag_rejected",
+      normalizedTranscript: "[音乐]",
+    });
+  });
+
+  it("rejects media noise phrases like 谢谢观看 before they become user turns", () => {
+    assert.deepEqual(classifyNonSpeechTranscript("谢谢观看!"), {
+      reject: true,
+      reason: "noise_phrase_rejected",
+      normalizedTranscript: "谢谢观看",
+    });
+  });
+
+  it("keeps interrupt validity low for previewless weak fallback noise while assistant is speaking", () => {
+    const scores = heuristicTurnTakingPredictor.score({
+      previewText: "",
+      recognizedText: "谢谢观看!",
+      speechDurationMs: 340,
+      utteranceMaxRms: 0.03,
+      utteranceFrameCount: 24,
+      utteranceStrongFrames: 0,
+      assistantSpeaking: true,
+    });
+
+    assert.equal(scores.pInterruptValid < 0.62, true);
+    assert.equal(scores.pNonSpeechMedia > 0.8, true);
   });
 });

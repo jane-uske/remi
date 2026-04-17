@@ -32,6 +32,32 @@ export const INITIAL_BROWSER_IDENTITY: BrowserIdentityState = {
   wsTargetLabel: "",
 };
 
+export function buildClientContextPayload(): {
+  type: "client_context";
+  timeZone?: string;
+  locale?: string;
+} {
+  const payload: {
+    type: "client_context";
+    timeZone?: string;
+    locale?: string;
+  } = { type: "client_context" };
+
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+  if (timeZone) {
+    payload.timeZone = timeZone;
+  }
+
+  const locale =
+    (typeof navigator !== "undefined" ? navigator.languages?.[0] ?? navigator.language : "")
+      .trim();
+  if (locale) {
+    payload.locale = locale;
+  }
+
+  return payload;
+}
+
 export function encodePcmAudioFrame(pcm16: ArrayBuffer, sampleRate: number): ArrayBuffer {
   const payload = new Uint8Array(pcm16);
   const frame = new ArrayBuffer(AUDIO_FRAME_HEADER_BYTES + payload.byteLength);
@@ -112,7 +138,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-function resolveLegacyMessageStorageKey(storageKey: string): string {
+export function resolveLegacyMessageStorageKey(storageKey: string): string {
   if (!storageKey.startsWith(MESSAGE_STORAGE_KEY)) return LEGACY_MESSAGE_STORAGE_KEY;
   return LEGACY_MESSAGE_STORAGE_KEY + storageKey.slice(MESSAGE_STORAGE_KEY.length);
 }

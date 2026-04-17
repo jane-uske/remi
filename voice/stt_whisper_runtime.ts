@@ -37,6 +37,9 @@ type WhisperServerState = {
   proc: ChildProcess | null;
   startPromise: Promise<void> | null;
   failedUntil: number;
+  requestFailedUntil: number;
+  lastRequestFailureReason: WhisperTranscribeFallbackReason | null;
+  consecutiveRequestFailures: number;
 };
 
 export type WhisperServerRuntimeDeps = {
@@ -50,6 +53,28 @@ export type WhisperServerRuntimeDeps = {
 
 export type WhisperTranscribeFallback = () => Promise<string>;
 
+export type WhisperTranscribePriority = "high" | "low";
+
+export type WhisperTranscribeFallbackReason =
+  | "request_timeout"
+  | "request_abort"
+  | "degraded_window"
+  | "disabled_for_low_priority";
+
+export type WhisperTranscribeOptions = {
+  signal?: AbortSignal;
+  allowCliFallback?: boolean;
+  jobPriority?: WhisperTranscribePriority;
+  traceId?: string;
+};
+
+export type WhisperTranscribeResult = {
+  text: string;
+  path: "server" | "cli" | "skipped";
+  fallbackReason: WhisperTranscribeFallbackReason | null;
+  requestDegraded: boolean;
+};
+
 export type WhisperServerRuntime = {
   readConfig(): WhisperServerConfig;
   canUseServer(): boolean;
@@ -57,10 +82,18 @@ export type WhisperServerRuntime = {
   warm(): Promise<boolean>;
   shutdown(): Promise<void>;
   transcribeWebm(audio: Buffer): Promise<string>;
-  transcribeWav(wav: Buffer, sampleRate: number): Promise<string>;
+  transcribeWav(
+    wav: Buffer,
+    sampleRate: number,
+    options?: WhisperTranscribeOptions,
+  ): Promise<WhisperTranscribeResult>;
   previewWav(wav: Buffer, sourceRate: number, externalSignal?: AbortSignal): Promise<string | null>;
   previewPcm(pcm: Buffer, sampleRate: number, maxWindowMs?: number, externalSignal?: AbortSignal): Promise<string | null>;
-  transcribePreferServer(wav: Buffer, cliFallback: WhisperTranscribeFallback, externalSignal?: AbortSignal): Promise<string>;
+  transcribePreferServer(
+    wav: Buffer,
+    cliFallback: WhisperTranscribeFallback,
+    options?: WhisperTranscribeOptions,
+  ): Promise<WhisperTranscribeResult>;
 };
 
 const defaultLogger = createLogger("stt");
@@ -159,6 +192,9 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     proc: null,
     startPromise: null,
     failedUntil: 0,
+    requestFailedUntil: 0,
+    lastRequestFailureReason: null,
+    consecutiveRequestFailures: 0,
   };
 
   function config(): WhisperServerConfig {
@@ -172,6 +208,60 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
   function canPreview(): boolean {
     const current = config();
     return current.useServer && current.previewEnabled;
+  }
+
+  function requestDegraded(): boolean {
+    return state.requestFailedUntil > now();
+  }
+
+  function requestCooldownMs(): number {
+    return 15_000;
+  }
+
+  function noteRequestRecovery(): void {
+    state.requestFailedUntil = 0;
+    state.lastRequestFailureReason = null;
+    state.consecutiveRequestFailures = 0;
+  }
+
+  function killServerProcess(): void {
+    const proc = state.proc;
+    state.proc = null;
+    state.startPromise = null;
+    if (!proc || proc.exitCode !== null) return;
+    try {
+      proc.kill("SIGKILL");
+    } catch {
+      // best effort
+    }
+  }
+
+  function scheduleBackgroundWarmup(): void {
+    void sleep(80)
+      .then(async () => {
+        try {
+          await ensureWhisperServerReady();
+        } catch {
+          // best effort
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  }
+
+  function enterRequestDegradedWindow(reason: WhisperTranscribeFallbackReason): void {
+    const degradedMs = requestCooldownMs();
+    state.requestFailedUntil = now() + degradedMs;
+    state.lastRequestFailureReason = reason;
+    state.consecutiveRequestFailures += 1;
+    logger.warn("whisper-server request degraded", {
+      reason,
+      degradedMs,
+      consecutiveFailures: state.consecutiveRequestFailures,
+    });
+    killServerProcess();
+    scheduleBackgroundWarmup();
   }
 
   function tmpPath(ext: string): string {
@@ -345,7 +435,11 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
         externalSignal.addEventListener("abort", abortFromExternal, { once: true });
       }
     }
-    const timer = setTimeout(() => controller.abort(), current.requestTimeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, current.requestTimeoutMs);
     try {
       const res = await fetchFn(current.inferenceUrl, {
         method: "POST",
@@ -364,6 +458,15 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
       } catch {
         return bodyText.trim();
       }
+    } catch (err) {
+      if (controller.signal.aborted) {
+        const error = new Error(
+          timedOut ? "whisper-server request timeout" : "whisper-server request aborted",
+        ) as Error & { sttFailureReason?: WhisperTranscribeFallbackReason };
+        error.sttFailureReason = timedOut ? "request_timeout" : "request_abort";
+        throw error;
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
       if (externalSignal) {
@@ -431,22 +534,84 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
   async function transcribePreferServer(
     wav: Buffer,
     cliFallback: WhisperTranscribeFallback,
-    externalSignal?: AbortSignal,
-  ): Promise<string> {
+    options?: WhisperTranscribeOptions,
+  ): Promise<WhisperTranscribeResult> {
     const current = config();
+    const jobPriority = options?.jobPriority ?? "high";
+    const allowCliFallback = options?.allowCliFallback ?? true;
+    const degraded = requestDegraded();
+    if (degraded) {
+      if (jobPriority === "low" || !allowCliFallback) {
+        return {
+          text: "",
+          path: "skipped",
+          fallbackReason:
+            jobPriority === "low" ? "disabled_for_low_priority" : "degraded_window",
+          requestDegraded: true,
+        };
+      }
+      return {
+        text: await cliFallback(),
+        path: "cli",
+        fallbackReason: "degraded_window",
+        requestDegraded: true,
+      };
+    }
     if (current.useServer) {
       try {
         const ready = await ensureWhisperServerReady();
         if (ready) {
-          return await transcribeWithWhisperServer(wav, externalSignal);
+          const text = await transcribeWithWhisperServer(wav, options?.signal);
+          noteRequestRecovery();
+          return {
+            text,
+            path: "server",
+            fallbackReason: null,
+            requestDegraded: false,
+          };
         }
       } catch (err) {
+        const failureReason =
+          ((err as Error & { sttFailureReason?: WhisperTranscribeFallbackReason }).sttFailureReason ??
+            "request_abort") as WhisperTranscribeFallbackReason;
         logger.warn("whisper-server request failed, fallback to whisper-cli", {
           error: (err as Error).message,
+          reason: failureReason,
+          traceId: options?.traceId,
+          jobPriority,
         });
+        enterRequestDegradedWindow(failureReason);
+        if (jobPriority === "low" || !allowCliFallback) {
+          return {
+            text: "",
+            path: "skipped",
+            fallbackReason:
+              jobPriority === "low" ? "disabled_for_low_priority" : failureReason,
+            requestDegraded: true,
+          };
+        }
+        return {
+          text: await cliFallback(),
+          path: "cli",
+          fallbackReason: failureReason,
+          requestDegraded: true,
+        };
       }
     }
-    return cliFallback();
+    if (!allowCliFallback) {
+      return {
+        text: "",
+        path: "skipped",
+        fallbackReason: "disabled_for_low_priority",
+        requestDegraded: degraded,
+      };
+    }
+    return {
+      text: await cliFallback(),
+      path: "cli",
+      fallbackReason: degraded ? "degraded_window" : null,
+      requestDegraded: degraded,
+    };
   }
 
   async function transcribeWebm(audio: Buffer): Promise<string> {
@@ -474,10 +639,12 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
         "-loglevel",
         "error",
       ]);
-      return await transcribePreferServer(
-        fs.readFileSync(wav),
-        () => whisperTranscribeCli(wav),
-      );
+      return (
+        await transcribePreferServer(
+          fs.readFileSync(wav),
+          () => whisperTranscribeCli(wav),
+        )
+      ).text;
     } finally {
       try {
         fs.unlinkSync(webm);
@@ -492,7 +659,11 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     }
   }
 
-  async function transcribeWav(wav: Buffer, sampleRate: number): Promise<string> {
+  async function transcribeWav(
+    wav: Buffer,
+    sampleRate: number,
+    options?: WhisperTranscribeOptions,
+  ): Promise<WhisperTranscribeResult> {
     const current = config();
     if (!current.model) {
       throw new Error("STT 未配置：请设置 whisper_model 指向 ggml 模型文件");
@@ -519,12 +690,13 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
           "error",
         ]);
         fs.unlinkSync(wavPath);
-        const text = await transcribePreferServer(
+        const result = await transcribePreferServer(
           fs.readFileSync(resampled),
           () => whisperTranscribeCli(resampled),
+          options,
         );
         fs.unlinkSync(resampled);
-        return text;
+        return result;
       } catch (err) {
         try {
           fs.unlinkSync(resampled);
@@ -539,6 +711,7 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
       return await transcribePreferServer(
         fs.readFileSync(wavPath),
         () => whisperTranscribeCli(wavPath),
+        options,
       );
     } finally {
       try {
@@ -612,6 +785,9 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     state.proc = null;
     state.startPromise = null;
     state.failedUntil = 0;
+    state.requestFailedUntil = 0;
+    state.lastRequestFailureReason = null;
+    state.consecutiveRequestFailures = 0;
     if (!proc || proc.exitCode !== null) return;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {

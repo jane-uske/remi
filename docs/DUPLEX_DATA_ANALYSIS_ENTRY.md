@@ -50,8 +50,13 @@ npm run duplex:data-entry
 当前没有独立 exporter，也没有单独落库。
 
 现实入口还是结构化日志，优先看：
+- `/Users/rare/Desktop/remi-ai/artifacts/live/dev_server_*.log`
 - `/Users/rare/Desktop/remi-ai/rem-ai.log`
 - `/Users/rare/Desktop/remi-ai/codex-turn-log.log`
+
+说明：
+- `artifacts/live/dev_server_*.log` 现在是开发环境默认自动落盘的 live service log，分析当前 localhost 语音链路时应优先看它
+- `rem-ai.log` / `codex-turn-log.log` 更像历史兼容入口，不能默认视为当前实例
 
 重点日志标签：
 - `[Latency]`
@@ -96,7 +101,7 @@ npm run duplex:data-entry
 从日志拉真实浏览器 trace：
 
 ```bash
-rg -n "\[Latency\]|\[TurnTaking\]|\[TurnState\]|\[TurnTiming\]" rem-ai.log codex-turn-log.log
+rg -n "\[Latency\]|\[TurnTaking\]|\[TurnState\]|\[TurnTiming\]" artifacts/live/dev_server_*.log rem-ai.log codex-turn-log.log
 ```
 
 查误判关键词：

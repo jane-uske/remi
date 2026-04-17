@@ -17,6 +17,7 @@ import {
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { runPipeline } from "../pipeline";
 import { send } from "../gateway";
+import type { SessionTtsTransport } from "./tts_transport";
 
 const logger = createLogger("session");
 
@@ -53,6 +54,7 @@ interface SessionVoiceSubmitRuntime {
   ): void;
   setLastSttFinalAt(timestamp: number): void;
   cancelPrediction(): void;
+  getResolvedTtsTransport(): SessionTtsTransport;
 }
 
 interface SubmitVoicePipelineTurnInput {
@@ -65,13 +67,28 @@ interface SubmitVoicePipelineTurnInput {
   markSttFinalTimestamp?: boolean;
 }
 
-export async function submitVoicePipelineTurn(
+interface PreparedVoicePipelineTurn {
+  traceId: string;
+  finalText: string;
+  generationId: number;
+  carryForwardHint?: string;
+  interruptionType: InterruptionType | null;
+  allowPredictionReuse: boolean;
+  predictionPartialText: string;
+  predictedReply: string;
+  predictedStructuredAnalysis: TurnAnalysisBundle | null;
+}
+
+export function prepareVoicePipelineTurn(
   runtime: SessionVoiceSubmitRuntime,
   input: SubmitVoicePipelineTurnInput,
-): Promise<void> {
+): PreparedVoicePipelineTurn {
   const disambiguation = disambiguateSttFinal(input.text);
   const finalText = disambiguation.text;
   const allowPredictionReuse = Boolean(input.allowPredictionReuse) && !disambiguation.changed;
+  const predictionPartialText = runtime.currentPartialText;
+  const predictedReply = runtime.predictedReply;
+  const predictedStructuredAnalysis = runtime.predictedStructuredAnalysis;
 
   if (disambiguation.changed && sttFinalDisambiguationLogDiffEnabled()) {
     logger.info("[STT final disambiguation]", {
@@ -97,67 +114,98 @@ export async function submitVoicePipelineTurn(
   runtime.touchUserActivity(finalText);
   const { interruptionType, carryForwardHint } =
     runtime.classifyCarryForward(finalText);
+  getLatencyTracer(runtime.connId).annotateTrace(input.traceId, {
+    finalTranscript: finalText,
+    interruptionType: interruptionType ?? null,
+  });
   runtime.publishTurnState("assistant_entering", "tts_prepare", {
     generationId,
     interruptionType,
     force: true,
   });
 
+  // Final STT has arrived: abort any pending/scheduled prediction before the
+  // real reply starts so both paths do not contend for the same LLM/runtime.
+  runtime.cancelPrediction();
+
+  return {
+    traceId: input.traceId,
+    finalText,
+    generationId,
+    carryForwardHint,
+    interruptionType,
+    allowPredictionReuse,
+    predictionPartialText,
+    predictedReply,
+    predictedStructuredAnalysis,
+  };
+}
+
+export async function runPreparedVoicePipelineTurn(
+  runtime: SessionVoiceSubmitRuntime,
+  prepared: PreparedVoicePipelineTurn,
+): Promise<void> {
+
   const hasValidPrediction =
-    allowPredictionReuse &&
-    runtime.predictedReply &&
-    finalText.startsWith(runtime.currentPartialText) &&
-    runtime.currentPartialText.length > 3;
+    prepared.allowPredictionReuse &&
+    prepared.predictedReply &&
+    prepared.finalText.startsWith(prepared.predictionPartialText) &&
+    prepared.predictionPartialText.length > 3;
 
   if (hasValidPrediction) {
     logger.info("[预判] 命中，复用提前生成的回复", {
-      partial: runtime.currentPartialText.slice(0, 30),
-      final: input.text.slice(0, 30),
-      replyPreview: runtime.predictedReply.slice(0, 30),
+      partial: prepared.predictionPartialText.slice(0, 30),
+      final: prepared.finalText.slice(0, 30),
+      replyPreview: prepared.predictedReply.slice(0, 30),
     });
     await runPipeline(
       runtime.ws,
-      finalText,
+      prepared.finalText,
       runtime.interrupt,
       runtime.avatar,
       runtime.sessionId,
       runtime.brain,
-      generationId,
-      input.traceId,
+      prepared.generationId,
+      prepared.traceId,
       {
-        pregeneratedReply: runtime.predictedReply,
-        structuredAnalysis: runtime.predictedStructuredAnalysis ?? undefined,
-        carryForwardHint,
-        interruptionType: interruptionType ?? undefined,
+        pregeneratedReply: prepared.predictedReply,
+        structuredAnalysis: prepared.predictedStructuredAnalysis ?? undefined,
+        carryForwardHint: prepared.carryForwardHint,
+        interruptionType: prepared.interruptionType ?? undefined,
         inputSource: "voice",
+        ttsTransport: runtime.getResolvedTtsTransport(),
       },
     );
   } else {
-    if (input.allowPredictionReuse) {
+    if (prepared.allowPredictionReuse) {
       logger.debug("[预判] 未命中，走正常生成流程", {
-        hasPrediction: Boolean(runtime.predictedReply),
-        partialLength: runtime.currentPartialText.length,
-        disambiguated: disambiguation.changed,
+        hasPrediction: Boolean(prepared.predictedReply),
+        partialLength: prepared.predictionPartialText.length,
       });
     }
     await runPipeline(
       runtime.ws,
-      finalText,
+      prepared.finalText,
       runtime.interrupt,
       runtime.avatar,
       runtime.sessionId,
       runtime.brain,
-      generationId,
-      input.traceId,
-      {
-        carryForwardHint,
-        interruptionType: interruptionType ?? undefined,
-        inputSource: "voice",
-      },
-    );
+      prepared.generationId,
+      prepared.traceId,
+        {
+          carryForwardHint: prepared.carryForwardHint,
+          interruptionType: prepared.interruptionType ?? undefined,
+          inputSource: "voice",
+          ttsTransport: runtime.getResolvedTtsTransport(),
+        },
+      );
   }
+}
 
-  if (input.clearPredictionAfterRun) {
-    runtime.cancelPrediction();
-  }
+export async function submitVoicePipelineTurn(
+  runtime: SessionVoiceSubmitRuntime,
+  input: SubmitVoicePipelineTurnInput,
+): Promise<void> {
+  const prepared = prepareVoicePipelineTurn(runtime, input);
+  await runPreparedVoicePipelineTurn(runtime, prepared);
 }

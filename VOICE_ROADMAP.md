@@ -83,12 +83,23 @@
 - interruption carry-forward 的行为丰富度还不够
 - fast brain 进入时机仍偏晚
 - 整体 voice UX 仍然有 pipeline 感
+- `voice_pcm_chunk` 虽已恢复，但当前 Edge consumer 流式首包依赖服务端 MP3 -> PCM 实时转码；这说明 TTS 流式的主要风险点已从“前端协议没接好”变成“上游端点支持范围和运行时稳定性”
 
 ### 最近一轮语义收口后的状态
 - `interrupt` 现在表示“真实在途 generation 被抢占”，而不是泛化清队列信号
 - `chat_end` 现在表示文本流结束；本地播放未排空前，前端仍可保持 `assistant_speaking`
 - 被打断的 assistant partial 已不再进入 formal history / slow brain / 正常 assistant 持久化
 - `/health`、latency tracer snapshots、duplex harness 场景键都已能作为稳定基线
+- duplex 语音链路现在会在 `speech_end` / `duplex_stop` 立刻冻结 immutable utterance job，并把 STT decode 从 assistant `pipelineChain` 拆到独立 `sttChain`；`stt_final` 与 `assistant_entering` 不再被上一轮 LLM/TTS 收尾串行卡住
+- 每条语音回合现在都带 `utteranceSeq` / `sttJobSeq` / `ingressSampleRate` / `normalizedSampleRate`，interrupt 后晚到的旧 STT 会被明确标记为 `[STT] dropped_stale_utterance`，而不是继续污染后续 turn
+- 非 16k ingress 现在会先在服务端归一化到 16k 再进入 VAD/STT；`audio_without_vad` 也不再是一个模糊黑箱，而会明确区分真静音、弱语音、语音形态未确认和“48k 已归一化后仍没起 VAD”
+- 当前 dev 已切到 `whisper-server + ggml-medium.bin`，真实样本里 `transcribeMs` 已明显下降；同时 `fallback_energy` 下被 pre-STT suppress 的短片段不再直接丢弃，而会在 `duplex_stop` 走一条 recovered-fallback STT 补救路径，优先挽回短反馈/短笑声/软声插话
+- duplex UI / state 边界这轮也收了两刀：弱 `fallback_energy` 起点不再立刻把前端拉进“正在听…”，而是延后到更可信的 promotion / partial 证据；同时 correction 句子在 `semantic_hold` 里不再被一个很弱的 fallback restart 轻易冲掉，前端在 `vad_end` 到 `stt_final` 之间也会明确显示“识别中…”，避免用户误以为系统已经空闲
+- noisy duplex 这轮新增的三个真实回归点也已锁住：1) interrupted run abort 后不再继续把 `pipelineChain` 卡在未 settle 的 TTS promise 上，下一条语音不会明明已有 `stt_final` 却还要在 `llm_request_start` 前被旧 generation 拖几秒；2) `fallback_energy` 的 duplex interrupt 现在要求更强证据，弱键盘/环境噪声不再轻易把 Remi 从 `assistant_speaking` 打断；3) 即便噪声已经走进 `speech_buffer -> STT` 主路径，像“谢谢!”、“谢谢观看!”这类短、弱、无 preview 支撑的 hallucination 也会在 post-STT suppression 被拦下，不再直接当用户 turn 提交
+- turn-taking Phase 1 现已进入“规则+韵律优先”的硬收口阶段：final STT 新增了 non-speech transcript reject，`"[音乐]"` / `"[笑声]"` / `谢谢观看` 这类文本不会再进入正常 user turn；`decideTurnTaking()` 新增了 `prosody_fast_release`，对尾部能量明显回落、pitch 下行且无新 growth 的句末，把 release target 收到约 `480ms`；同时 recovered fallback 对 `2–6` 字的弱短假词改为默认 suppress，只保留主路径短反馈正常通过。另已定义 `TurnTakingPredictor.score()` 的 heuristic 接口，当前只用于 interrupt / recovered-fallback / non-speech reject 的辅助门控，轻量模型仍是后置选项，不算已落地
+- 这轮再收两条更接近真实 bad case 的边界：assistant-speaking 下的 `strict` burst 不再自动绕过噪声门槛，低置信 strict 噪声现在也会延后 `vad_start` / preview 外显，并要求更强证据后才允许真正 interrupt；同时 `runPipeline()` 在 abort 后不再继续傻等 `avatarIntentTask`，被打断的旧 generation 不该再把下一条像“刚起床”“喂喂喂”这种已经完成 STT 的回合卡到 `llm_request_start` 前几秒才放行。这里的状态仍然只是“代码和 regression 已收口”，不是 noisy localhost 已通过真实验收
+- 这轮又补了一个之前容易忽略、但真实用户体感很差的边界：`interrupt.active` 和“客户端其实还在播音频”不再被混为一谈。前端现在会在 playback drain/clear 时主动回传 `playback_end`，服务端单独维护 `assistantPlaybackActive / playbackGenerationId`；因此即使服务端 generation 已结束、客户端还在播缓冲音频，后续强语音也仍然可以针对当前播放 generation 发真正的停播 `interrupt`。同时 recovered fallback 的 stop-time 规则对短礼貌词更保守，`谢谢!`、`喂喂喂` 这类弱、无 preview 的幻觉不该再漏成正常用户 turn。这里依旧只是代码 + regression 收口，不算 noisy localhost 已验收通过
+- 最新一轮又把“长时间 open-mic 空闲后再开口变慢”的 runtime 堵点往前移了一层：session 现在有 `idle guard`，长时间空闲后先挡住低价值环境噪声，不再让它们轻易形成 STT job；同时 STT job 新增 `high|low` 优先级、可中断抢占和 request-level degraded window，`whisper-server` 一旦超时/abort，低价值 job 会直接 skip，高价值 job 才允许走 degraded CLI 路径，避免 idle 噪声先把 `sttChain` 和 CLI fallback 一起拖爆。latency trace 也补了 `sttPath / sttFallbackReason / sttJobPriority / sttQueueBlockedByPriorJob / idleGuardActive / sttPreemptReason / sttRequestDegraded`，但这仍然只是代码与 regression 层收口，不代表 localhost 长时间开麦实测已经过线
 - 下一阶段的主要瓶颈，已经不只是语音本身，而是语音如何和人格记忆层共同工作
 
 ---

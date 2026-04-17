@@ -3,20 +3,28 @@ const path = require("path");
 
 const { FakeWebSocket } = require("../../helpers/fake_ws");
 
-const runnerPath = path.resolve(__dirname, "../../../server/pipeline/runner.ts");
+const pipelinePath = path.resolve(__dirname, "../../../server/pipeline/index.ts");
 const disambiguatorPath = path.resolve(__dirname, "../../../voice/stt_final_disambiguator.ts");
 const voiceSubmitPath = path.resolve(__dirname, "../../../server/session/voice_submit.ts");
 
 function buildRuntime(overrides = {}) {
   const ws = new FakeWebSocket();
   const turnStates = [];
+  const createSignal = () => new AbortController().signal;
   return {
     ws,
     runtime: {
       ws,
       connId: "test-conn",
       brain: {},
-      interrupt: {},
+      interrupt: {
+        active: false,
+        beginRun: () => ({ signal: createSignal(), token: 1 }),
+        begin: () => createSignal(),
+        finish: () => {},
+        interrupt: () => false,
+        markSpeaking: () => {},
+      },
       avatar: {},
       sessionId: null,
       currentPartialText: "",
@@ -31,6 +39,7 @@ function buildRuntime(overrides = {}) {
       },
       setLastSttFinalAt: () => {},
       cancelPrediction: () => {},
+      getResolvedTtsTransport: () => "auto",
       ...overrides,
     },
     turnStates,
@@ -45,15 +54,20 @@ describe("voice submit disambiguation", () => {
   };
 
   let runnerModule;
-  let originalRunPipeline;
+  let originalRunPipelineDescriptor;
 
   beforeEach(() => {
-    runnerModule = require(runnerPath);
-    originalRunPipeline = runnerModule.runPipeline;
+    runnerModule = require(pipelinePath);
+    originalRunPipelineDescriptor = Object.getOwnPropertyDescriptor(
+      runnerModule,
+      "runPipeline",
+    );
   });
 
   afterEach(() => {
-    runnerModule.runPipeline = originalRunPipeline;
+    if (originalRunPipelineDescriptor) {
+      Object.defineProperty(runnerModule, "runPipeline", originalRunPipelineDescriptor);
+    }
     process.env.REMI_STT_FINAL_DISAMBIG_ENABLED = previousEnv.REMI_STT_FINAL_DISAMBIG_ENABLED;
     process.env.REMI_STT_FINAL_DISAMBIG_DICT_PATH = previousEnv.REMI_STT_FINAL_DISAMBIG_DICT_PATH;
     process.env.REMI_STT_FINAL_DISAMBIG_LOG_DIFF = previousEnv.REMI_STT_FINAL_DISAMBIG_LOG_DIFF;
@@ -81,19 +95,22 @@ describe("voice submit disambiguation", () => {
     process.env.REMI_STT_FINAL_DISAMBIG_LOG_DIFF = "0";
 
     const pipelineCalls = [];
-    runnerModule.runPipeline = async (
-      _ws,
-      text,
-      _interrupt,
-      _avatar,
-      _sessionId,
-      _brain,
-      _generationId,
-      _traceId,
-      options,
-    ) => {
-      pipelineCalls.push({ text, options });
-    };
+    Object.defineProperty(runnerModule, "runPipeline", {
+      configurable: true,
+      value: async (
+        _ws,
+        text,
+        _interrupt,
+        _avatar,
+        _sessionId,
+        _brain,
+        _generationId,
+        _traceId,
+        options,
+      ) => {
+        pipelineCalls.push({ text, options });
+      },
+    });
 
     delete require.cache[require.resolve(voiceSubmitPath)];
     const { submitVoicePipelineTurn } = require(voiceSubmitPath);
@@ -127,19 +144,22 @@ describe("voice submit disambiguation", () => {
     process.env.REMI_STT_FINAL_DISAMBIG_LOG_DIFF = "0";
 
     const pipelineCalls = [];
-    runnerModule.runPipeline = async (
-      _ws,
-      text,
-      _interrupt,
-      _avatar,
-      _sessionId,
-      _brain,
-      _generationId,
-      _traceId,
-      options,
-    ) => {
-      pipelineCalls.push({ text, options });
-    };
+    Object.defineProperty(runnerModule, "runPipeline", {
+      configurable: true,
+      value: async (
+        _ws,
+        text,
+        _interrupt,
+        _avatar,
+        _sessionId,
+        _brain,
+        _generationId,
+        _traceId,
+        options,
+      ) => {
+        pipelineCalls.push({ text, options });
+      },
+    });
 
     delete require.cache[require.resolve(voiceSubmitPath)];
     const { submitVoicePipelineTurn } = require(voiceSubmitPath);
@@ -162,5 +182,62 @@ describe("voice submit disambiguation", () => {
     assert.equal(pipelineCalls.length, 1);
     assert.equal(pipelineCalls[0].text, "你好Remi");
     assert.equal(pipelineCalls[0].options?.pregeneratedReply, "我在呢");
+  });
+
+  it("cancels pending prediction before final pipeline while preserving reusable snapshot", async () => {
+    process.env.REMI_STT_FINAL_DISAMBIG_ENABLED = "0";
+
+    const events = [];
+    Object.defineProperty(runnerModule, "runPipeline", {
+      configurable: true,
+      value: async (
+        _ws,
+        text,
+        _interrupt,
+        _avatar,
+        _sessionId,
+        runtimeBrain,
+        _generationId,
+        _traceId,
+        options,
+      ) => {
+        events.push({
+          step: "runPipeline",
+          text,
+          options,
+          predictedReplyOnRuntime: runtimeBrain?.predictedReply,
+        });
+      },
+    });
+
+    delete require.cache[require.resolve(voiceSubmitPath)];
+    const { submitVoicePipelineTurn } = require(voiceSubmitPath);
+    const { runtime } = buildRuntime({
+      currentPartialText: "你好Remi",
+      predictedReply: "我在呢",
+      predictedStructuredAnalysis: { used: true },
+    });
+    runtime.cancelPrediction = () => {
+      events.push({ step: "cancelPrediction" });
+      runtime.currentPartialText = "";
+      runtime.predictedReply = "";
+      runtime.predictedStructuredAnalysis = null;
+    };
+
+    await submitVoicePipelineTurn(runtime, {
+      text: "你好Remi",
+      traceId: "trace-3",
+      allowPredictionReuse: true,
+      clearPredictionAfterRun: true,
+    });
+
+    assert.deepEqual(
+      events.map((entry) => entry.step),
+      ["cancelPrediction", "runPipeline"],
+    );
+    assert.equal(events[1].text, "你好Remi");
+    assert.equal(events[1].options?.pregeneratedReply, "我在呢");
+    assert.equal(runtime.predictedReply, "");
+    assert.equal(runtime.currentPartialText, "");
   });
 });

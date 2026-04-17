@@ -80,7 +80,7 @@ export function attachSessionMessageHandlers(input: {
     mode: "replace" | "prepend",
     cursor?: UserMessageHistoryCursor | null,
   ) => Promise<void>;
-  handleAudioPcm: (pcm: Buffer, sampleRate: number) => void;
+  handleAudioPcm: (pcm: Buffer, sampleRate: number, transport: "binary" | "json") => void;
   runDevApplyPreset: (data: any) => void;
   runDevResetState: (data: any) => void;
   handleDuplexStart: (data: any) => void;
@@ -89,12 +89,14 @@ export function attachSessionMessageHandlers(input: {
   handleAudioChunk: (data: any) => void;
   handleAudioEnd: () => void;
   handlePlaybackStart: (data?: any) => void;
+  handlePlaybackEnd: (data?: any) => void;
+  handleClientContext: (data: any) => void;
   handleChat: (data: any) => void;
 }): void {
   input.ws.on("message", (raw) => {
     const binary = parseBinaryAudioFrame(raw);
     if (binary) {
-      input.handleAudioPcm(binary.pcm, binary.sampleRate);
+      input.handleAudioPcm(binary.pcm, binary.sampleRate, "binary");
       return;
     }
 
@@ -109,7 +111,8 @@ export function attachSessionMessageHandlers(input: {
     const bypassRateLimit =
       data.type === "audio_stream" ||
       data.type === "audio_chunk" ||
-      data.type === "playback_start";
+      data.type === "playback_start" ||
+      data.type === "playback_end";
     if (!bypassRateLimit) {
       const limiter = getWsRateLimiter();
       if (limiter && !limiter.check(input.connId)) {
@@ -162,6 +165,12 @@ export function attachSessionMessageHandlers(input: {
         break;
       case "playback_start":
         input.handlePlaybackStart(data);
+        break;
+      case "playback_end":
+        input.handlePlaybackEnd(data);
+        break;
+      case "client_context":
+        input.handleClientContext(data);
         break;
       default:
         input.handleChat(data);

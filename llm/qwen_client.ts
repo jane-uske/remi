@@ -13,6 +13,17 @@ export interface CompletionOptions {
   signal?: AbortSignal;
 }
 
+export interface StreamTokensCallbacks {
+  onFirstRawChunk?: () => void;
+  onFirstChunk?: () => void;
+  onFirstReasoningChunk?: () => void;
+  onFirstVisibleContent?: () => void;
+}
+
+export interface StreamTokensOptions {
+  reasoningEffort?: string;
+}
+
 let client: OpenAI | null = null;
 
 function getClient(): OpenAI {
@@ -72,10 +83,19 @@ export async function completeWithOptions(
 export async function* streamTokens(
   messages: ChatMessage[],
   signal?: AbortSignal,
+  callbacks?: StreamTokensCallbacks,
+  options?: StreamTokensOptions,
 ): AsyncGenerator<string> {
   const openai = getClient();
   const model = process.env.model;
   if (!model) throw new Error("LLM 未配置：缺少 model");
+  const onFirstRawChunk = callbacks?.onFirstRawChunk;
+  const onFirstChunk = callbacks?.onFirstChunk;
+  const onFirstReasoningChunk = callbacks?.onFirstReasoningChunk;
+  const onFirstVisibleContent = callbacks?.onFirstVisibleContent;
+  let hasNotifiedFirstChunk = false;
+  let hasNotifiedFirstReasoningChunk = false;
+  let hasNotifiedFirstVisibleContent = false;
 
   const stream = (await withRetry(
     () =>
@@ -84,17 +104,39 @@ export async function* streamTokens(
         messages,
         temperature: 0.7,
         max_tokens: 1024,
+        ...(options?.reasoningEffort
+          ? { reasoning_effort: options.reasoningEffort }
+          : {}),
         stream: true,
         ...(signal ? { signal } : {}),
       }),
     { retries: 1, label: "streamTokens" },
-  )) as AsyncIterable<{ choices?: { delta?: { content?: string } }[] }>;
+  )) as AsyncIterable<{
+    choices?: {
+      delta?: {
+        content?: string;
+        reasoning_content?: string;
+        role?: string;
+      };
+    }[];
+  }>;
 
   let inThink = false;
   let buf = "";
 
   for await (const chunk of stream) {
+    if (!hasNotifiedFirstChunk) {
+      hasNotifiedFirstChunk = true;
+      onFirstRawChunk?.();
+      onFirstChunk?.();
+    }
     if (signal?.aborted) break;
+
+    const reasoningText = chunk.choices?.[0]?.delta?.reasoning_content;
+    if (reasoningText && !hasNotifiedFirstReasoningChunk) {
+      hasNotifiedFirstReasoningChunk = true;
+      onFirstReasoningChunk?.();
+    }
 
     const text = chunk.choices?.[0]?.delta?.content;
     if (!text) continue;
@@ -133,13 +175,23 @@ export async function* streamTokens(
       }
     }
 
-    if (out) yield out;
+    if (out) {
+      if (!hasNotifiedFirstVisibleContent) {
+        hasNotifiedFirstVisibleContent = true;
+        onFirstVisibleContent?.();
+      }
+      yield out;
+    }
   }
 
   // If we're still in think mode after stream ends, it means the entire response is think content
   // output whatever is left (don't drop it)
   if (buf && !signal?.aborted) {
     // if still in think mode, output all remaining content since closing tag was never found
+    if (!hasNotifiedFirstVisibleContent) {
+      hasNotifiedFirstVisibleContent = true;
+      onFirstVisibleContent?.();
+    }
     yield buf;
   }
 }

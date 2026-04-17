@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev:app",
-    "dev:app": "nodemon --legacy-watch --watch server --exec ts-node server/server.ts",
+    "dev:app": "node scripts/start-dev-app.cjs",
     "dev:app:once": "./scripts/start-native-dev.sh",
     "dev:web:clean": "./scripts/clean-web-cache.sh",
     "dev:web:standalone": "npm run dev --prefix web",

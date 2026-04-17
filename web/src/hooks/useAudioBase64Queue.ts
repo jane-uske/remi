@@ -15,6 +15,8 @@ import type { LipSignal } from "@/types/avatar";
 export interface AudioQueueOptions {
   /** Called when a server TTS segment actually starts playing on client. */
   onPlaybackStart?: (generationId: number | null) => void;
+  /** Called when playback for the current server generation fully drains or is cleared. */
+  onPlaybackEnd?: (generationId: number | null) => void;
 }
 
 const PCM_BATCH_TARGET_MS = 72;
@@ -32,6 +34,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const nextStartTimeRef = useRef(0);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackNotifiedRef = useRef(false);
+  const activeServerGenerationRef = useRef<number | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -55,10 +58,15 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     viseme: null,
   });
   const onPlaybackStartRef = useRef(options?.onPlaybackStart);
+  const onPlaybackEndRef = useRef(options?.onPlaybackEnd);
 
   useEffect(() => {
     onPlaybackStartRef.current = options?.onPlaybackStart;
   }, [options?.onPlaybackStart]);
+
+  useEffect(() => {
+    onPlaybackEndRef.current = options?.onPlaybackEnd;
+  }, [options?.onPlaybackEnd]);
 
   const resetAudioGraph = useCallback(() => {
     const ctx = audioContextRef.current;
@@ -69,6 +77,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     activeSourcesRef.current.clear();
     playingRef.current = false;
     playbackNotifiedRef.current = false;
+    activeServerGenerationRef.current = null;
     if (ctx) {
       ctx.onstatechange = null;
       if (ctx.state !== "closed") {
@@ -97,6 +106,14 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       viseme: null,
     });
   }, [updateLipSignal]);
+
+  const notifyPlaybackEnd = useCallback(() => {
+    const generationId = activeServerGenerationRef.current;
+    if (!playbackNotifiedRef.current && generationId == null) return;
+    playbackNotifiedRef.current = false;
+    activeServerGenerationRef.current = null;
+    onPlaybackEndRef.current?.(generationId);
+  }, []);
 
   const runEnvelopeLoop = useCallback(() => {
     const analyser = analyserRef.current;
@@ -233,11 +250,11 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       const now = audioContextRef.current?.currentTime ?? 0;
       if (now + 0.01 < nextStartTimeRef.current) return;
       playingRef.current = false;
-      playbackNotifiedRef.current = false;
+      notifyPlaybackEnd();
       stopEnvelopeLoop();
       sync();
     }, remainMs);
-  }, [stopEnvelopeLoop, sync]);
+  }, [notifyPlaybackEnd, stopEnvelopeLoop, sync]);
 
   const scheduleAudioBuffer = useCallback(
     async (
@@ -274,6 +291,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       }
       if (!playbackNotifiedRef.current) {
         playbackNotifiedRef.current = true;
+        activeServerGenerationRef.current = serverGenerationId;
         onPlaybackStartRef.current?.(serverGenerationId);
       }
       scheduleIdleCheck();
@@ -450,7 +468,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
             cleanup();
             if (generationRef.current === generationAtCall) {
               playingRef.current = false;
-              playbackNotifiedRef.current = false;
+              notifyPlaybackEnd();
               stopEnvelopeLoop();
               sync();
             }
@@ -471,6 +489,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
             sync();
             if (!playbackNotifiedRef.current) {
               playbackNotifiedRef.current = true;
+              activeServerGenerationRef.current = serverGenerationId;
               onPlaybackStartRef.current?.(serverGenerationId);
             }
           };
@@ -549,12 +568,12 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     }
     fallbackSourceRef.current = null;
     nextStartTimeRef.current = 0;
-    playbackNotifiedRef.current = false;
+    notifyPlaybackEnd();
 
     stopEnvelopeLoop();
     playingRef.current = false;
     sync();
-  }, [clearPendingPcm, stopEnvelopeLoop, sync]);
+  }, [clearPendingPcm, notifyPlaybackEnd, stopEnvelopeLoop, sync]);
 
   useEffect(() => {
     return () => {

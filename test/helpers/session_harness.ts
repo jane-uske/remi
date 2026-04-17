@@ -3,6 +3,15 @@ const { FakeWebSocket } = require("./fake_ws");
 
 type HarnessOptions = {
   transcript?: string;
+  reqUrl?: string;
+  sttEndPcmImpl?: (...args: any[]) => Promise<string> | string;
+  runPipelineImpl?: (...args: any[]) => Promise<void> | void;
+  captureLogs?: Array<{
+    module: string;
+    level: string;
+    message: string;
+    data?: Record<string, unknown>;
+  }>;
 };
 
 const ENV_PATCHES: Record<string, string> = {
@@ -35,6 +44,7 @@ function restoreEnvPatches(previous: Record<string, string | undefined>): void {
 function loadSessionHarness(options: HarnessOptions = {}) {
   const previousEnv = applyEnvPatches();
   const appState = require(path.resolve(__dirname, "../../infra/app_state.ts"));
+  const loggerPath = path.resolve(__dirname, "../../infra/logger.ts");
   const previousDbReady = appState.isDbReady();
   const previousRedisReady = appState.isRedisReady();
   const previousMemoryMode = appState.getMemoryMode();
@@ -42,10 +52,42 @@ function loadSessionHarness(options: HarnessOptions = {}) {
   appState.setRedisReady(false);
   appState.setMemoryMode("in-memory");
 
+  const previousLogger = require.cache[loggerPath];
+  if (options.captureLogs) {
+    require.cache[loggerPath] = {
+      id: loggerPath,
+      filename: loggerPath,
+      loaded: true,
+      exports: {
+        createLogger: (module: string) => ({
+          info(message: string, data?: Record<string, unknown>) {
+            options.captureLogs?.push({ module, level: "info", message, data });
+          },
+          warn(message: string, data?: Record<string, unknown>) {
+            options.captureLogs?.push({ module, level: "warn", message, data });
+          },
+          error(message: string, data?: Record<string, unknown>) {
+            options.captureLogs?.push({ module, level: "error", message, data });
+          },
+          debug(message: string, data?: Record<string, unknown>) {
+            options.captureLogs?.push({ module, level: "debug", message, data });
+          },
+        }),
+        logger: {
+          info() {},
+          warn() {},
+          error() {},
+          debug() {},
+        },
+      },
+    };
+  }
+
   const runner = require(path.resolve(__dirname, "../../server/pipeline/runner.ts"));
+  const pipelineIndexPath = path.resolve(__dirname, "../../server/pipeline/index.ts");
   const originalRunPipeline = runner.runPipeline;
   const pipelineCalls: Array<{ text: string; options: any }> = [];
-  runner.runPipeline = async (
+  const patchedRunPipeline = async (
     _ws: any,
     text: string,
     _ic: any,
@@ -57,19 +99,51 @@ function loadSessionHarness(options: HarnessOptions = {}) {
     runOptions?: any,
   ) => {
     pipelineCalls.push({ text, options: runOptions });
+    if (options.runPipelineImpl) {
+      return options.runPipelineImpl(
+        _ws,
+        text,
+        _ic,
+        _avatar,
+        _sessionId,
+        _ctx,
+        _generationId,
+        _traceId,
+        runOptions,
+      );
+    }
   };
+  runner.runPipeline = patchedRunPipeline;
 
   const sessionPath = path.resolve(__dirname, "../../server/session/index.ts");
+  const textChatPath = path.resolve(__dirname, "../../server/session/text_chat.ts");
+  const voiceSubmitPath = path.resolve(
+    __dirname,
+    "../../server/session/voice_submit.ts",
+  );
+  delete require.cache[require.resolve(pipelineIndexPath)];
   delete require.cache[require.resolve(sessionPath)];
+  delete require.cache[require.resolve(textChatPath)];
+  delete require.cache[require.resolve(voiceSubmitPath)];
   const { createSession } = require(sessionPath);
 
   const ws = new FakeWebSocket();
-  const session = createSession(ws, {} as any);
+  const session = createSession(
+    ws,
+    {
+      url: options.reqUrl ?? "/ws",
+      headers: {},
+    } as any,
+  );
   const transcript = options.transcript ?? "今天天气不错";
 
   session.stt.canPreviewPcm = () => false;
   session.stt.previewPcmBuffer = async () => null;
-  session.stt.endPcm = async () => transcript;
+  const transcribePcmSnapshot =
+    options.sttEndPcmImpl ?? (async () => transcript);
+  session.stt.endPcm = async () => transcribePcmSnapshot();
+  session.stt.transcribePcmSnapshot = async (...args: any[]) =>
+    transcribePcmSnapshot(...args);
   session.stt.reset = () => {};
   session.stt.cancelPcm = () => {};
   session.stt.cancelPreview = () => {};
@@ -81,6 +155,11 @@ function loadSessionHarness(options: HarnessOptions = {}) {
     appState.setRedisReady(previousRedisReady);
     appState.setMemoryMode(previousMemoryMode);
     restoreEnvPatches(previousEnv);
+    if (previousLogger) {
+      require.cache[loggerPath] = previousLogger;
+    } else {
+      delete require.cache[loggerPath];
+    }
     ws.close();
   };
 

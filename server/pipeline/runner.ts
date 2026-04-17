@@ -7,7 +7,7 @@ import { decayEmotion } from "../../emotion/decay_emotion";
 import { updateEmotion } from "../../emotion/emotion_engine";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import { canStreamTextToSpeech, streamTextToSpeech } from "../../voice/tts";
-import { SentenceChunker } from "../../utils/sentence_chunker";
+import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
 import { createLogger } from "../../infra/logger";
@@ -18,6 +18,7 @@ import { isFallbackAssistantReply } from "../../brains/assistant_reply_guard";
 import { send } from "../gateway";
 import type { InterruptionType } from "../../avatar/types";
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
+import type { SessionTtsTransport } from "../session/tts_transport";
 
 const logger = createLogger("pipeline");
 
@@ -37,6 +38,38 @@ function avatarIntentEnabled(): boolean {
   return raw !== "0" && raw !== "false";
 }
 
+function ttsSegmentPreview(text: string): string {
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+async function waitForAbortable<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  abortedValue: T,
+): Promise<T> {
+  if (signal.aborted) return abortedValue;
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      resolve(abortedValue);
+    };
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (err) => {
+        cleanup();
+        reject(err);
+      },
+    );
+  });
+}
+
 export type RunPipelineOptions = {
   /** 用户久未说话时的主动搭话：不写入 user 消息、不跑慢脑/记忆 */
   silenceNudge?: boolean;
@@ -48,6 +81,7 @@ export type RunPipelineOptions = {
   carryForwardHint?: string;
   interruptionType?: InterruptionType;
   inputSource?: "text" | "voice";
+  ttsTransport?: SessionTtsTransport;
 };
 
 export async function runPipeline(
@@ -62,7 +96,7 @@ export async function runPipeline(
   options?: RunPipelineOptions,
 ): Promise<void> {
   const connId = ctx.connId;
-  const signal = ic.begin();
+  const { signal, token: interruptRunToken } = ic.beginRun();
   ctx.currentAssistantDraft = "";
   const latencyTracer = getLatencyTracer(connId);
   const traceContext = options?.silenceNudge
@@ -101,8 +135,19 @@ export async function runPipeline(
     let producerDone = false;
     let waitResolve: (() => void) | null = null;
 
-    function pushSentence(s: string) {
+    let enqueuedSegmentCount = 0;
+
+    function pushSentence(s: string, boundaryType: SentenceChunkBoundaryType) {
       sentenceQueue.push(s);
+      enqueuedSegmentCount += 1;
+      logger.debug("[TTS segment queued]", {
+        connId,
+        generationId,
+        segmentIndex: enqueuedSegmentCount,
+        boundaryType,
+        chars: s.length,
+        preview: ttsSegmentPreview(s),
+      });
       if (waitResolve) {
         const r = waitResolve;
         waitResolve = null;
@@ -166,6 +211,7 @@ export async function runPipeline(
               replyEmotion,
               latencyTracer,
               !firstAudioSent,
+              options?.ttsTransport ?? "auto",
             );
             if (!firstAudioSent) {
               firstAudioSent = true;
@@ -228,7 +274,9 @@ export async function runPipeline(
 
       if (!firstTokenReceived) {
         firstTokenReceived = true;
-        latencyTracer.mark("llm_first_token", traceId);
+        const now = Date.now();
+        latencyTracer.set("llm_first_visible_content", now, traceId);
+        latencyTracer.set("llm_first_token", now, traceId);
         clearThinkingFillerTimer();
       }
 
@@ -236,8 +284,8 @@ export async function runPipeline(
       ctx.currentAssistantDraft = full;
       send(ws, { type: "chat_chunk", content: token, generationId });
 
-      for (const sentence of chunker.push(token)) {
-        pushSentence(sentence);
+      for (const sentence of chunker.pushDetailed(token)) {
+        pushSentence(sentence.text, sentence.boundaryType);
         if (!firstSentenceSent) {
           firstSentenceSent = true;
           chunker.setEager(false);
@@ -248,8 +296,8 @@ export async function runPipeline(
     latencyTracer.mark("llm_end", traceId);
 
     if (!signal.aborted) {
-      const last = chunker.flush();
-      if (last) pushSentence(last);
+      const last = chunker.flushDetailed();
+      if (last) pushSentence(last.text, last.boundaryType);
     } else {
       chunker.reset();
     }
@@ -299,18 +347,24 @@ export async function runPipeline(
       }
     }
 
-    const avatarIntentEnvelope = await avatarIntentTask;
-    if (avatarIntentEnvelope && !signal.aborted) {
-      send(ws, {
-        type: "avatar_intent",
-        intent: avatarIntentEnvelope.intent,
-        beats: avatarIntentEnvelope.beats,
-      });
-    } else if (full && !signal.aborted && !shouldInferAvatarIntent) {
-      logger.debug("[AvatarIntent] skipped by budget gate", {
-        connId,
-        generationId,
-      });
+    if (!signal.aborted) {
+      const avatarIntentEnvelope = await waitForAbortable(
+        avatarIntentTask,
+        signal,
+        null,
+      );
+      if (avatarIntentEnvelope) {
+        send(ws, {
+          type: "avatar_intent",
+          intent: avatarIntentEnvelope.intent,
+          beats: avatarIntentEnvelope.beats,
+        });
+      } else if (full && !shouldInferAvatarIntent) {
+        logger.debug("[AvatarIntent] skipped by budget gate", {
+          connId,
+          generationId,
+        });
+      }
     }
 
     if (full) {
@@ -320,9 +374,27 @@ export async function runPipeline(
       });
     }
 
-    // Wait for TTS consumer to finish
-    await ttsTask;
+    if (signal.aborted) {
+      clearThinkingFillerTimer();
+      latencyTracer.mark("tts_end", traceId);
+      latencyTracer.log(traceId);
+      return;
+    }
+
+    const abortWhileWaitingForTts = new Promise<void>((resolve) => {
+      signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+
+    // Wait for TTS to finish, but do not keep the pipeline chain blocked once
+    // the run has already been interrupted.
+    await Promise.race([ttsTask, abortWhileWaitingForTts]);
     clearThinkingFillerTimer();
+
+    if (signal.aborted) {
+      latencyTracer.mark("tts_end", traceId);
+      latencyTracer.log(traceId);
+      return;
+    }
 
     decayEmotion(ctx.emotion);
 
@@ -337,7 +409,7 @@ export async function runPipeline(
     if (ctx.currentAssistantDraft !== null) {
       ctx.currentAssistantDraft = null;
     }
-    ic.finish();
+    ic.finish(interruptRunToken);
   }
 }
 
@@ -350,11 +422,14 @@ async function ttsSend(
   emotion?: string,
   latencyTracer?: ReturnType<typeof getLatencyTracer>,
   isFirstSentence: boolean = false,
+  ttsTransport: SessionTtsTransport = "auto",
 ): Promise<void> {
   if (!isTtsEnabled()) return;
   if (signal?.aborted) return;
   try {
-    if (canStreamTextToSpeech()) {
+    const allowStreamingTransport =
+      ttsTransport !== "buffered_voice" && canStreamTextToSpeech();
+    if (allowStreamingTransport) {
       let firstChunkSent = false;
       try {
         await streamTextToSpeech(
@@ -387,6 +462,7 @@ async function ttsSend(
         }
         logger.warn("[TTS] stream failed, fallback to buffered synth", {
           error: (err as Error).message,
+          ttsTransport,
         });
       }
     }

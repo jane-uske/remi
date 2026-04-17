@@ -16,6 +16,8 @@ export type PipelineState = "idle" | "generating" | "speaking";
 export class InterruptController extends EventEmitter {
   private ac: AbortController | null = null;
   private _state: PipelineState = "idle";
+  private runSeq = 0;
+  private activeRunToken = 0;
 
   get state(): PipelineState {
     return this._state;
@@ -29,12 +31,17 @@ export class InterruptController extends EventEmitter {
     return this.ac?.signal ?? null;
   }
 
-  /** Begin a new pipeline run; any previous run is force-aborted first. */
-  begin(): AbortSignal {
+  beginRun(): { signal: AbortSignal; token: number } {
     this.ac?.abort();
     this.ac = new AbortController();
     this._state = "generating";
-    return this.ac.signal;
+    this.activeRunToken = ++this.runSeq;
+    return { signal: this.ac.signal, token: this.activeRunToken };
+  }
+
+  /** Begin a new pipeline run; any previous run is force-aborted first. */
+  begin(): AbortSignal {
+    return this.beginRun().signal;
   }
 
   /** Transition to "speaking" (TTS is now producing audio). */
@@ -43,9 +50,17 @@ export class InterruptController extends EventEmitter {
   }
 
   /** Pipeline finished normally. */
-  finish(): void {
+  finish(token?: number): void {
+    if (
+      typeof token === "number" &&
+      this.activeRunToken !== 0 &&
+      token !== this.activeRunToken
+    ) {
+      return;
+    }
     this._state = "idle";
     this.ac = null;
+    this.activeRunToken = 0;
   }
 
   /**
@@ -57,6 +72,7 @@ export class InterruptController extends EventEmitter {
     this.ac?.abort();
     this.ac = null;
     this._state = "idle";
+    this.activeRunToken = 0;
     this.emit("interrupted");
     return true;
   }

@@ -4,6 +4,19 @@ import { SENTENCE_END } from "../../utils/sentence_chunker";
 export type TurnTakingState = "HOLD" | "LIKELY_END" | "CONFIRMED_END";
 export type PartialGrowthTrend = "expanding" | "plateau" | "oscillating";
 
+export interface TurnTakingProsodyHint {
+  reliable: boolean;
+  voicedRatio: number;
+  voicedTailFrames: number;
+  pitchFrames: number;
+  pitchConfidence: number;
+  pitchSlopeHz: number | null;
+  tailEnergyDrop: number | null;
+  risingTail: boolean;
+  fallingTail: boolean;
+  sustainedVoicedTail: boolean;
+}
+
 export interface TurnTakingDecisionInput {
   baseGapMs: number;
   previewText: string;
@@ -23,11 +36,13 @@ export interface TurnTakingDecisionInput {
   partialGrowthTrend?: PartialGrowthTrend | null;
   semanticCompletionStreak?: number | null;
   smallDeltaStreak?: number | null;
+  prosody?: TurnTakingProsodyHint | null;
 }
 
 export interface TurnTakingDecision {
   state: TurnTakingState;
   gapMs: number;
+  primaryReason: string;
   previewText?: string;
   reasons: string[];
   usedFallback: boolean;
@@ -36,6 +51,7 @@ export interface TurnTakingDecision {
   incompleteTail: boolean;
   recentGrowth: boolean;
   stableMs: number | null;
+  prosodyApplied?: string | null;
 }
 
 export interface ThinkingPauseBackchannelInput {
@@ -85,6 +101,7 @@ export interface FallbackNoiseSuppressionInput {
   minStrongRatio?: number;
   recognizedText?: string | null;
   tinyTextMaxChars?: number;
+  shortTextMaxChars?: number;
 }
 
 export interface StrictNoPreviewSuppressionInput {
@@ -96,6 +113,12 @@ export interface StrictNoPreviewSuppressionInput {
   minStrongRatio?: number;
   recognizedText?: string | null;
   tinyTextMaxChars?: number;
+}
+
+export interface RecoveredFallbackSuppressionInput extends FallbackNoiseSuppressionInput {
+  recoveredLongTextMinChars?: number;
+  userSpeechScore?: number;
+  nonSpeechMediaScore?: number;
 }
 
 const PARTIAL_PLACEHOLDER_RE = /^录音中…/;
@@ -119,6 +142,20 @@ const CARRY_FORWARD_CUE_RE =
   /(继续刚才|继续那个|刚才那个|上次那个|回到刚才|还是那个|接着说|不是那个意思|我想说的是|我其实是想说)/u;
 const CORRECTION_CUE_RE =
   /(不是那个意思|不对|我的意思是|我想说的是|我其实是想说|更准确地说|我不是问这个|我想问的是)/u;
+const PROSODY_FAST_RELEASE_SILENCE_MS = 280;
+const PROSODY_FAST_RELEASE_TARGET_MS = 480;
+const PROSODY_FAST_RELEASE_PITCH_FALL_HZ = -10;
+const PROSODY_FAST_RELEASE_ENERGY_DROP = 0.01;
+const RECOVERED_FALLBACK_SHORT_NOISE_PHRASES = [
+  "谢谢",
+  "谢谢呀",
+  "谢谢啊",
+  "谢谢啦",
+  "谢谢你",
+  "喂",
+  "喂喂",
+  "喂喂喂",
+] as const;
 
 export function endsWithSentencePunctuation(text: string): boolean {
   return new RegExp(`${SENTENCE_END.source}\\s*$`).test(text);
@@ -185,7 +222,13 @@ export function shouldSuppressFallbackNoiseUtterance(
     .replace(/\s+/g, "")
     .replace(/[，。！？!?、,.~～…:：;；"'`“”‘’\-—_]/gu, "");
   const tinyText = compact.length > 0 && compact.length <= (input.tinyTextMaxChars ?? 1);
-  return (weakRms && weakShape) || ((weakDuration || weakShape) && weakRms && tinyText);
+  const shortText =
+    compact.length > 0 && compact.length <= (input.shortTextMaxChars ?? 5);
+  return (
+    (weakRms && weakShape) ||
+    ((weakDuration || weakShape) && weakRms && tinyText) ||
+    (weakDuration && weakRms && shortText)
+  );
 }
 
 export function strongFrameRatio(totalFrames: number, strongFrames: number): number {
@@ -216,6 +259,46 @@ export function shouldSuppressStrictNoPreviewUtterance(
     .replace(/[，。！？!?、,.~～…:：;；"'`“”‘’\-—_]/gu, "");
   const tinyText = compact.length > 0 && compact.length <= (input.tinyTextMaxChars ?? 5);
   return weakShape && tinyText;
+}
+
+export function shouldSuppressRecoveredFallbackUtterance(
+  input: RecoveredFallbackSuppressionInput,
+): boolean {
+  if (input.vadMode !== "fallback_energy") return false;
+  const compact = (input.recognizedText ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[，。！？!?、,.~～…:：;；"'`“”‘’\-—_]/gu, "");
+  if (!compact) return true;
+
+  const weakDuration = input.speechDurationMs < input.suppressionMaxMs;
+  const weakRms = (input.utteranceMaxRms ?? 0) < (input.minUtteranceRms ?? 0.035);
+  const totalFrames = Math.max(0, Math.floor(input.utteranceFrameCount ?? 0));
+  const strongFrames = Math.max(0, Math.floor(input.utteranceStrongFrames ?? 0));
+  const minStrongFrames = Math.max(1, Math.floor(input.minStrongFrames ?? 2));
+  const minStrongRatio = Math.max(0, Math.min(1, input.minStrongRatio ?? 0.08));
+  const weakShape =
+    strongFrames < minStrongFrames || strongFrameRatio(totalFrames, strongFrames) < minStrongRatio;
+  const tinyText = compact.length <= (input.tinyTextMaxChars ?? 1);
+  const recoveredLongTextMinChars = Math.max(
+    2,
+    Math.floor(input.recoveredLongTextMinChars ?? 12),
+  );
+  const suspiciousLongText = compact.length >= recoveredLongTextMinChars;
+  const shortText = compact.length <= 6;
+  const weakNoPreview = !getMeaningfulTurnPreview(input.previewText);
+  const predictorReject =
+    (input.nonSpeechMediaScore ?? 0) >= 0.8 || (input.userSpeechScore ?? 1) <= 0.25;
+  const shortNoisePhrase = RECOVERED_FALLBACK_SHORT_NOISE_PHRASES.some(
+    (phrase) => compact === phrase || compact.startsWith(phrase),
+  );
+
+  if (!weakRms && !weakShape) return false;
+  if (weakNoPreview && shortNoisePhrase) return true;
+  if (weakNoPreview && weakRms && weakShape && shortText) return true;
+  if (predictorReject && weakNoPreview) return true;
+  if (tinyText) return true;
+  if (weakRms && weakShape && suspiciousLongText) return true;
+  return weakDuration && weakRms && tinyText;
 }
 
 export function shouldOfferThinkingPauseBackchannel(
@@ -347,12 +430,25 @@ function isSemanticallyComplete(text: string): boolean {
   return endsWithSentencePunctuation(trimmed) || SEMANTIC_END_RE.test(trimmed);
 }
 
+function buildDecision(
+  input: Omit<TurnTakingDecision, "primaryReason"> & {
+    primaryReason?: string;
+  },
+): TurnTakingDecision {
+  return {
+    ...input,
+    primaryReason: input.primaryReason ?? input.reasons[0] ?? "none",
+    prosodyApplied: input.prosodyApplied ?? null,
+  };
+}
+
 export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDecision {
   const previewText = getMeaningfulTurnPreview(input.previewText);
   const reasons: string[] = [];
+  const prosody = input.prosody?.reliable ? input.prosody : null;
 
   if (!previewText) {
-    return {
+    return buildDecision({
       state: "CONFIRMED_END",
       gapMs: input.baseGapMs,
       reasons: ["fallback:no_partial"],
@@ -362,11 +458,11 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail: false,
       recentGrowth: false,
       stableMs: null,
-    };
+    });
   }
 
   if (isTentativeSpeechText(previewText)) {
-    return {
+    return buildDecision({
       state: "HOLD",
       gapMs: Math.max(input.baseGapMs, input.hesitationHoldMs),
       previewText,
@@ -377,7 +473,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail: false,
       recentGrowth: false,
       stableMs: input.lastPartialUpdateAt > 0 ? Math.max(0, input.nowMs - input.lastPartialUpdateAt) : null,
-    };
+    });
   }
 
   const stableMs =
@@ -418,6 +514,42 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     recentGrowthChars <= 2 &&
     stableMs !== null &&
     stableMs >= Math.max(180, input.likelyStableMs - 260);
+  const prosodyHoldHint =
+    prosody &&
+    !sentenceClosed &&
+    semanticallyComplete &&
+    stableMs !== null &&
+    stableMs >= Math.max(180, input.likelyStableMs - 200) &&
+    (prosody.risingTail || prosody.sustainedVoicedTail)
+      ? prosody.risingTail
+        ? "prosody_hold_rising_tail"
+        : "prosody_hold_sustained_voiced_tail"
+      : null;
+  const prosodyReleaseHint =
+    prosody &&
+    !recentGrowth &&
+    !incompleteTail &&
+    !clauseBreakTail &&
+    stableMs !== null &&
+    stableMs >= Math.max(180, input.likelyStableMs - 140) &&
+    (sentenceClosed || semanticallyComplete) &&
+    prosody.fallingTail &&
+    (prosody.tailEnergyDrop ?? 0) >= 0.008
+      ? "prosody_release_falling_tail"
+      : null;
+  const fastProsodyReleaseHint =
+    prosody &&
+    !recentGrowth &&
+    !incompleteTail &&
+    !clauseBreakTail &&
+    stableMs !== null &&
+    stableMs >= PROSODY_FAST_RELEASE_SILENCE_MS &&
+    (sentenceClosed || semanticallyComplete) &&
+    prosody.fallingTail &&
+    (prosody.tailEnergyDrop ?? 0) >= PROSODY_FAST_RELEASE_ENERGY_DROP &&
+    (prosody.pitchSlopeHz ?? 0) <= PROSODY_FAST_RELEASE_PITCH_FALL_HZ
+      ? "prosody_fast_release"
+      : null;
 
   if (recentGrowth) reasons.push("recent_growth");
   if (growthPlateauCount >= 2) reasons.push("partial_growth_plateau");
@@ -432,6 +564,9 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
   if (smallDeltaStreak > 0) reasons.push(`small_delta_streak:${smallDeltaStreak}`);
   if (sentenceClosed) reasons.push("sentence_punctuation");
   else if (semanticallyComplete) reasons.push("semantic_end_cue");
+  if (prosodyHoldHint) reasons.push(prosodyHoldHint);
+  if (fastProsodyReleaseHint) reasons.push(fastProsodyReleaseHint);
+  if (prosodyReleaseHint) reasons.push(prosodyReleaseHint);
 
   if (
     (incompleteTail && !carryForwardCue && !correctionCue) ||
@@ -439,7 +574,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     (recentGrowth && !emotionalInterrupt && partialGrowthTrend === "expanding" && !plateauResolvedQuickTurn) ||
     (continuationCue && !semanticallyComplete && !correctionCue)
   ) {
-    return {
+    return buildDecision({
       state: "HOLD",
       gapMs: Math.max(input.baseGapMs, input.growthHoldMs),
       previewText,
@@ -450,7 +585,24 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
+  }
+
+  if (prosodyHoldHint) {
+    return buildDecision({
+      state: "HOLD",
+      gapMs: Math.max(input.baseGapMs, input.growthHoldMs),
+      previewText,
+      reasons,
+      usedFallback: false,
+      sentenceClosed,
+      semanticallyComplete,
+      incompleteTail,
+      recentGrowth,
+      stableMs,
+      primaryReason: prosodyHoldHint,
+      prosodyApplied: prosodyHoldHint,
+    });
   }
 
   if (
@@ -460,7 +612,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     (plateauResolvedQuickTurn || growthPlateauMs === null || growthPlateauMs >= 220) &&
     previewText.trim().length <= 28
   ) {
-    return {
+    return buildDecision({
       state: "LIKELY_END",
       gapMs: input.minGapMs,
       previewText,
@@ -471,7 +623,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
   if (
@@ -481,7 +633,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     (plateauResolvedQuickTurn || growthPlateauMs === null || growthPlateauMs >= 120) &&
     previewText.trim().length <= 20
   ) {
-    return {
+    return buildDecision({
       state: "LIKELY_END",
       gapMs: input.minGapMs,
       previewText,
@@ -492,7 +644,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
   if (
@@ -501,7 +653,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     stableMs !== null &&
     stableMs >= Math.max(220, input.likelyStableMs - 220)
   ) {
-    return {
+    return buildDecision({
       state: "LIKELY_END",
       gapMs: Math.max(input.minGapMs, input.baseGapMs - input.releaseMs),
       previewText,
@@ -512,7 +664,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
   if (
@@ -521,7 +673,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     stableMs >= input.likelyStableMs &&
     previewText.trim().length <= 14
   ) {
-    return {
+    return buildDecision({
       state: "LIKELY_END",
       gapMs: input.minGapMs,
       previewText,
@@ -532,11 +684,51 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
+  }
+
+  if (fastProsodyReleaseHint) {
+    return buildDecision({
+      state: "LIKELY_END",
+      gapMs: Math.max(
+        input.minGapMs,
+        PROSODY_FAST_RELEASE_TARGET_MS - Math.max(0, stableMs ?? 0),
+      ),
+      previewText,
+      reasons,
+      usedFallback: false,
+      sentenceClosed,
+      semanticallyComplete,
+      incompleteTail,
+      recentGrowth,
+      stableMs,
+      primaryReason: fastProsodyReleaseHint,
+      prosodyApplied: fastProsodyReleaseHint,
+    });
+  }
+
+  if (prosodyReleaseHint) {
+    return buildDecision({
+      state:
+        stableMs !== null && stableMs >= Math.max(420, input.confirmedStableMs - 180)
+          ? "CONFIRMED_END"
+          : "LIKELY_END",
+      gapMs: Math.max(input.minGapMs, input.baseGapMs - input.releaseMs - 20),
+      previewText,
+      reasons,
+      usedFallback: false,
+      sentenceClosed,
+      semanticallyComplete,
+      incompleteTail,
+      recentGrowth,
+      stableMs,
+      primaryReason: prosodyReleaseHint,
+      prosodyApplied: prosodyReleaseHint,
+    });
   }
 
   if (sentenceClosed && stableMs !== null && stableMs >= input.confirmedStableMs) {
-    return {
+    return buildDecision({
       state: "CONFIRMED_END",
       gapMs: Math.max(input.minGapMs, input.baseGapMs - input.releaseMs),
       previewText,
@@ -547,7 +739,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
   if (semanticallyComplete) {
@@ -557,7 +749,7 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       !plateauResolvedQuickTurn &&
       recentGrowthChars >= 4
     ) {
-      return {
+      return buildDecision({
         state: "HOLD",
         gapMs: Math.max(input.baseGapMs, input.growthHoldMs),
         previewText,
@@ -568,10 +760,10 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
         incompleteTail,
         recentGrowth,
         stableMs,
-      };
+      });
     }
     if (stableMs === null || stableMs < input.likelyStableMs) {
-      return {
+      return buildDecision({
         state: "HOLD",
         gapMs: Math.max(input.baseGapMs, input.growthHoldMs),
         previewText,
@@ -582,10 +774,10 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
         incompleteTail,
         recentGrowth,
         stableMs,
-      };
+      });
     }
 
-    return {
+    return buildDecision({
       state: stableMs !== null && stableMs >= input.confirmedStableMs ? "CONFIRMED_END" : "LIKELY_END",
       gapMs: Math.max(input.minGapMs, input.baseGapMs - input.releaseMs),
       previewText,
@@ -596,11 +788,11 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
   if (stableMs === null || stableMs < input.confirmedStableMs) {
-    return {
+    return buildDecision({
       state: "HOLD",
       gapMs: Math.max(input.baseGapMs, input.growthHoldMs),
       previewText,
@@ -611,10 +803,10 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
       incompleteTail,
       recentGrowth,
       stableMs,
-    };
+    });
   }
 
-  return {
+  return buildDecision({
     state: "LIKELY_END",
     gapMs: input.baseGapMs,
     previewText,
@@ -625,5 +817,5 @@ export function decideTurnTaking(input: TurnTakingDecisionInput): TurnTakingDeci
     incompleteTail,
     recentGrowth,
     stableMs,
-  };
+  });
 }

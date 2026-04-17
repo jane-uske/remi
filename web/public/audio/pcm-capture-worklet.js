@@ -13,4 +13,4 @@ class RemPcmCaptureProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("rem-pcm-capture-processor", RemPcmCaptureProcessor);
+registerProcessor("remi-pcm-capture-processor", RemPcmCaptureProcessor);

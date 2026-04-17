@@ -1,0 +1,18 @@
+{
+  "legacyWatch": true,
+  "watch": [
+    "server",
+    "infra",
+    "avatar",
+    "brain",
+    "brains",
+    "voice",
+    "memory",
+    "emotion",
+    "llm",
+    "storage",
+    "utils"
+  ],
+  "ext": "ts,json",
+  "exec": "ts-node server/server.ts"
+}

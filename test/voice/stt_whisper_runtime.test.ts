@@ -122,10 +122,126 @@ describe("stt whisper runtime", () => {
     assert.ok(spawnCalls[0].args.includes("--convert"));
     assert.ok(spawnCalls[0].args.includes("/tmp/model.gguf"));
 
-    const text = await runtime.transcribeWav(Buffer.from("fake wav"), 16000);
-    assert.equal(text, "你好");
+    const result = await runtime.transcribeWav(Buffer.from("fake wav"), 16000);
+    assert.deepEqual(result, {
+      text: "你好",
+      path: "server",
+      fallbackReason: null,
+      requestDegraded: false,
+    });
 
     await runtime.shutdown();
     assert.deepEqual(killSignals, ["SIGTERM"]);
+  });
+
+  it("enters a degraded window after a failed server request, skips low-value jobs, and routes high-value jobs straight to cli", async () => {
+    let now = 1_000;
+    let postCalls = 0;
+    let cliCalls = 0;
+    const runtime = createWhisperServerRuntime({
+      env: {
+        whisper_use_server: "1",
+        whisper_server_autostart: "0",
+        whisper_server_url: "http://127.0.0.1:8080",
+        whisper_server_request_path: "/inference",
+        whisper_server_request_timeout_ms: "1500",
+        whisper_model: "/tmp/model.gguf",
+        whisper_lang: "zh",
+      },
+      now: () => now,
+      sleep: async () => {},
+      fetch: async (_input, init) => {
+        const method = init?.method || "GET";
+        if (method === "POST") {
+          postCalls += 1;
+          const error = new Error("request aborted");
+          error.name = "AbortError";
+          throw error;
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+        };
+      },
+    });
+
+    const highAfterFailure = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        cliCalls += 1;
+        return "你好";
+      },
+      {
+        jobPriority: "high",
+        allowCliFallback: true,
+        traceId: "trace-high-1",
+      },
+    );
+    assert.deepEqual(highAfterFailure, {
+      text: "你好",
+      path: "cli",
+      fallbackReason: "request_abort",
+      requestDegraded: true,
+    });
+
+    const lowDuringDegraded = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        cliCalls += 1;
+        return "不该触发";
+      },
+      {
+        jobPriority: "low",
+        allowCliFallback: false,
+        traceId: "trace-low",
+      },
+    );
+    assert.deepEqual(lowDuringDegraded, {
+      text: "",
+      path: "skipped",
+      fallbackReason: "disabled_for_low_priority",
+      requestDegraded: true,
+    });
+
+    const highDuringDegraded = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        cliCalls += 1;
+        return "你好呀";
+      },
+      {
+        jobPriority: "high",
+        allowCliFallback: true,
+        traceId: "trace-high-2",
+      },
+    );
+    assert.deepEqual(highDuringDegraded, {
+      text: "你好呀",
+      path: "cli",
+      fallbackReason: "degraded_window",
+      requestDegraded: true,
+    });
+
+    assert.equal(postCalls, 1);
+    assert.equal(cliCalls, 2);
+
+    now += 16_000;
+    const afterWindow = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        cliCalls += 1;
+        return "第三次";
+      },
+      {
+        jobPriority: "high",
+        allowCliFallback: true,
+        traceId: "trace-high-3",
+      },
+    );
+    assert.equal(afterWindow.path, "cli");
+    assert.equal(afterWindow.fallbackReason, "request_abort");
+    assert.equal(postCalls, 2);
+    assert.equal(cliCalls, 3);
   });
 });

@@ -6,6 +6,24 @@ import os from "os";
 import path from "path";
 
 import { whisperServerRuntime } from "./stt_whisper_runtime";
+import type {
+  WhisperTranscribeFallbackReason,
+  WhisperTranscribePriority,
+} from "./stt_whisper_runtime";
+
+export type SttTranscribeMeta = {
+  path: "server" | "cli" | "skipped";
+  fallbackReason: WhisperTranscribeFallbackReason | null;
+  requestDegraded: boolean;
+  jobPriority: WhisperTranscribePriority;
+};
+
+export type SttTranscribeOptions = {
+  signal?: AbortSignal;
+  allowCliFallback?: boolean;
+  jobPriority?: WhisperTranscribePriority;
+  traceId?: string;
+};
 
 type SttProvider = "openai" | "whisper-cpp";
 
@@ -44,6 +62,12 @@ export class SttStream extends EventEmitter {
   private pcmBytes = 0;
   private sampleRate = 16000;
   private previewAbort: AbortController | null = null;
+  private lastTranscribeMeta: SttTranscribeMeta = {
+    path: "skipped",
+    fallbackReason: null,
+    requestDegraded: false,
+    jobPriority: "high",
+  };
 
   private client: OpenAI | null = null;
 
@@ -101,19 +125,42 @@ export class SttStream extends EventEmitter {
 
   /** Transcribe accumulated PCM and reset buffer. */
   async endPcm(): Promise<string> {
-    this.cancelPreview();
     const pcm = Buffer.concat(this.pcmChunks);
+    const sampleRate = this.sampleRate;
     this.resetPcm();
-    if (pcm.length < minimumPcmBytes(this.sampleRate)) return "";
+    return this.transcribePcmSnapshot(pcm, sampleRate);
+  }
 
-    const wav = pcmToWav(pcm, this.sampleRate);
-    const text =
-      getProvider() === "whisper-cpp"
-        ? await this.transcribeLocalWav(wav)
-        : await this.transcribeOpenAIWav(wav);
+  /**
+   * Transcribe a caller-owned PCM snapshot without depending on the internal
+   * mutable duplex buffer.
+   */
+  async transcribePcmSnapshot(
+    pcm: Buffer,
+    sampleRate: number,
+    options?: SttTranscribeOptions,
+  ): Promise<string> {
+    this.cancelPreview();
+    const rate =
+      Number.isFinite(sampleRate) && sampleRate > 0 ? Math.floor(sampleRate) : this.sampleRate;
+    if (pcm.length < minimumPcmBytes(rate)) {
+      this.lastTranscribeMeta = {
+        path: "skipped",
+        fallbackReason: null,
+        requestDegraded: false,
+        jobPriority: options?.jobPriority ?? "high",
+      };
+      return "";
+    }
 
+    const wav = pcmToWav(pcm, rate);
+    const text = await this.transcribeWavBuffer(wav, rate, options);
     this.emit("final", text);
     return text;
+  }
+
+  getLastTranscribeMeta(): SttTranscribeMeta {
+    return { ...this.lastTranscribeMeta };
   }
 
   /** Discard accumulated PCM without transcribing. */
@@ -261,8 +308,36 @@ export class SttStream extends EventEmitter {
   }
 
   // -- Local whisper-cpp, WAV input (already PCM, may need resample) --
-  private async transcribeLocalWav(wav: Buffer): Promise<string> {
-    return whisperServerRuntime.transcribeWav(wav, this.sampleRate);
+  private async transcribeLocalWav(
+    wav: Buffer,
+    sampleRate: number,
+    options?: SttTranscribeOptions,
+  ): Promise<string> {
+    const result = await whisperServerRuntime.transcribeWav(wav, sampleRate, options);
+    this.lastTranscribeMeta = {
+      path: result.path,
+      fallbackReason: result.fallbackReason,
+      requestDegraded: result.requestDegraded,
+      jobPriority: options?.jobPriority ?? "high",
+    };
+    return result.text;
+  }
+
+  private async transcribeWavBuffer(
+    wav: Buffer,
+    sampleRate: number,
+    options?: SttTranscribeOptions,
+  ): Promise<string> {
+    if (getProvider() === "whisper-cpp") {
+      return this.transcribeLocalWav(wav, sampleRate, options);
+    }
+    this.lastTranscribeMeta = {
+      path: "server",
+      fallbackReason: null,
+      requestDegraded: false,
+      jobPriority: options?.jobPriority ?? "high",
+    };
+    return this.transcribeOpenAIWav(wav);
   }
 
   /* ======== Helpers ======== */

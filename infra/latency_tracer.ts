@@ -13,6 +13,10 @@ export interface LatencyTimestamps {
   turn_analysis_start?: number;
   turn_analysis_end?: number;
   llm_request_start?: number;
+  llm_first_raw_chunk?: number;
+  llm_first_reasoning_chunk?: number;
+  llm_first_visible_content?: number;
+  llm_stream_first_chunk?: number;
   llm_first_token?: number;
   llm_end?: number;
   tts_start?: number;
@@ -24,6 +28,14 @@ export interface LatencyTimestamps {
 export interface LatencyMetrics {
   input_to_llm_request?: number;
   input_to_llm_first_token?: number;
+  llm_request_to_first_raw_chunk?: number;
+  llm_request_to_first_reasoning_chunk?: number;
+  llm_request_to_first_visible_content?: number;
+  llm_request_to_stream_first_chunk?: number;
+  raw_chunk_to_first_reasoning_chunk?: number;
+  raw_chunk_to_first_visible_content?: number;
+  reasoning_chunk_to_first_visible_content?: number;
+  stream_first_chunk_to_llm_first_token?: number;
   pre_llm_overhead?: number;
   memory_recall_ms?: number;
   structured_turn_analysis_ms?: number;
@@ -40,6 +52,14 @@ export interface LatencyMetrics {
 export interface LatencyMetricSnapshot {
   input_to_llm_request: number | null;
   input_to_llm_first_token: number | null;
+  llm_request_to_first_raw_chunk: number | null;
+  llm_request_to_first_reasoning_chunk: number | null;
+  llm_request_to_first_visible_content: number | null;
+  llm_request_to_stream_first_chunk: number | null;
+  raw_chunk_to_first_reasoning_chunk: number | null;
+  raw_chunk_to_first_visible_content: number | null;
+  reasoning_chunk_to_first_visible_content: number | null;
+  stream_first_chunk_to_llm_first_token: number | null;
   pre_llm_overhead: number | null;
   memory_recall_ms: number | null;
   structured_turn_analysis_ms: number | null;
@@ -56,6 +76,40 @@ export interface LatencyMetricSnapshot {
 export interface LatencyTraceContext {
   generationId?: number;
   source?: "voice" | "text" | "silence_nudge";
+  scenarioKey?: string;
+  sessionId?: string | null;
+  utteranceSeq?: number | null;
+  sttJobSeq?: number | null;
+  ingressSampleRate?: number | null;
+  normalizedSampleRate?: number | null;
+  droppedReason?: string | null;
+  rejectedReason?: string | null;
+  rejectedTranscript?: string | null;
+  rejectedSource?: string | null;
+  sttPath?: "server" | "cli" | "skipped" | null;
+  sttFallbackReason?: string | null;
+  sttJobPriority?: "high" | "low" | null;
+  sttQueueBlockedByPriorJob?: boolean | null;
+  idleGuardActive?: boolean | null;
+  sttPreemptReason?: string | null;
+  sttRequestDegraded?: boolean | null;
+  releaseReason?: string;
+  releaseStableMs?: number | null;
+  usedNoVadFallback?: boolean;
+  prosodyApplied?: string | null;
+  previewText?: string | null;
+  finalTranscript?: string | null;
+  interruptionType?: string | null;
+  turnStateTransitions?: LatencyTurnStateTransition[];
+}
+
+export interface LatencyTurnStateTransition {
+  state: string;
+  reason: string;
+  at: number;
+  generationId?: number;
+  preview?: string | null;
+  interruptionType?: string | null;
 }
 
 type TraceState = {
@@ -73,6 +127,10 @@ type TraceState = {
  * - stt_partial
  * - stt_final
  * - llm_request_start
+ * - llm_first_raw_chunk
+ * - llm_first_reasoning_chunk
+ * - llm_first_visible_content
+ * - llm_stream_first_chunk
  * - llm_first_token
  * - llm_end
  * - tts_start
@@ -83,6 +141,14 @@ type TraceState = {
  * Computes these durations:
  * - speech_end → stt_final
  * - stt_final → llm_first_token
+ * - llm_request_start → llm_first_raw_chunk
+ * - llm_request_start → llm_first_reasoning_chunk
+ * - llm_request_start → llm_first_visible_content
+ * - llm_request_start → llm_stream_first_chunk
+ * - llm_first_raw_chunk → llm_first_reasoning_chunk
+ * - llm_first_raw_chunk → llm_first_visible_content
+ * - llm_first_reasoning_chunk → llm_first_visible_content
+ * - llm_stream_first_chunk → llm_first_token
  * - llm_first_token → tts_first_audio
  * - tts_first_audio → playback
  */
@@ -107,6 +173,36 @@ export class LatencyTracer {
     return trace;
   }
 
+  private summarizeText(text: string | null | undefined): string | null | undefined {
+    if (text == null) return text;
+    const compact = String(text).trim().replace(/\s+/g, " ");
+    if (!compact) return null;
+    return compact.length > 96 ? `${compact.slice(0, 93)}...` : compact;
+  }
+
+  private normalizeContext(
+    current: LatencyTraceContext | undefined,
+    patch: Partial<LatencyTraceContext>,
+  ): LatencyTraceContext {
+    return {
+      ...(current ?? {}),
+      ...patch,
+      previewText:
+        patch.previewText !== undefined
+          ? this.summarizeText(patch.previewText)
+          : current?.previewText,
+      finalTranscript:
+        patch.finalTranscript !== undefined
+          ? this.summarizeText(patch.finalTranscript)
+          : current?.finalTranscript,
+      rejectedTranscript:
+        patch.rejectedTranscript !== undefined
+          ? this.summarizeText(patch.rejectedTranscript)
+          : current?.rejectedTranscript,
+      turnStateTransitions: patch.turnStateTransitions ?? current?.turnStateTransitions,
+    };
+  }
+
   startTrace(traceId: string, context?: LatencyTraceContext): void {
     if (!traceId) return;
     const trace = this.ensureTrace(traceId);
@@ -115,11 +211,47 @@ export class LatencyTracer {
       trace.completed = false;
     }
     if (context) {
-      trace.context = {
-        ...(trace.context ?? {}),
-        ...context,
-      };
+      trace.context = this.normalizeContext(trace.context, context);
     }
+  }
+
+  annotateTrace(traceId: string, context: Partial<LatencyTraceContext>): void {
+    if (!traceId) return;
+    const trace = this.ensureTrace(traceId);
+    if (trace.completed) return;
+    trace.context = this.normalizeContext(trace.context, context);
+  }
+
+  recordTurnState(traceId: string, transition: Omit<LatencyTurnStateTransition, "at"> & {
+    at?: number;
+  }): void {
+    if (!traceId) return;
+    const trace = this.ensureTrace(traceId);
+    if (trace.completed) return;
+    const current = trace.context ?? {};
+    const existing = current.turnStateTransitions ?? [];
+    const nextTransition: LatencyTurnStateTransition = {
+      state: transition.state,
+      reason: transition.reason,
+      at: transition.at ?? Date.now(),
+      generationId: transition.generationId,
+      preview: this.summarizeText(transition.preview) ?? null,
+      interruptionType: transition.interruptionType ?? null,
+    };
+    trace.context = this.normalizeContext(current, {
+      turnStateTransitions: [...existing.slice(-7), nextTransition],
+    });
+  }
+
+  getContext(traceId: string = this.defaultTraceId): LatencyTraceContext | undefined {
+    const context = this.traces.get(traceId)?.context;
+    if (!context) return undefined;
+    return {
+      ...context,
+      turnStateTransitions: context.turnStateTransitions
+        ? [...context.turnStateTransitions]
+        : undefined,
+    };
   }
 
   /** Mark a timestamp with the current time. */
@@ -201,7 +333,47 @@ export class LatencyTracer {
     return {
       input_to_llm_request: this.duration("input_received", "llm_request_start", timestamps),
       input_to_llm_first_token: this.duration("input_received", "llm_first_token", timestamps),
+      llm_request_to_first_raw_chunk: this.duration(
+        "llm_request_start",
+        "llm_first_raw_chunk",
+        timestamps,
+      ),
+      llm_request_to_first_reasoning_chunk: this.duration(
+        "llm_request_start",
+        "llm_first_reasoning_chunk",
+        timestamps,
+      ),
+      llm_request_to_first_visible_content: this.duration(
+        "llm_request_start",
+        "llm_first_visible_content",
+        timestamps,
+      ),
       pre_llm_overhead: preLlmOverhead,
+      llm_request_to_stream_first_chunk: this.duration(
+        "llm_request_start",
+        "llm_stream_first_chunk",
+        timestamps,
+      ),
+      raw_chunk_to_first_reasoning_chunk: this.duration(
+        "llm_first_raw_chunk",
+        "llm_first_reasoning_chunk",
+        timestamps,
+      ),
+      raw_chunk_to_first_visible_content: this.duration(
+        "llm_first_raw_chunk",
+        "llm_first_visible_content",
+        timestamps,
+      ),
+      reasoning_chunk_to_first_visible_content: this.duration(
+        "llm_first_reasoning_chunk",
+        "llm_first_visible_content",
+        timestamps,
+      ),
+      stream_first_chunk_to_llm_first_token: this.duration(
+        "llm_stream_first_chunk",
+        "llm_first_token",
+        timestamps,
+      ),
       memory_recall_ms: this.duration("memory_recall_start", "memory_recall_end", timestamps),
       structured_turn_analysis_ms: this.duration(
         "turn_analysis_start",
@@ -230,6 +402,22 @@ export class LatencyTracer {
     return {
       input_to_llm_request: metrics.input_to_llm_request ?? null,
       input_to_llm_first_token: metrics.input_to_llm_first_token ?? null,
+      llm_request_to_first_raw_chunk:
+        metrics.llm_request_to_first_raw_chunk ?? null,
+      llm_request_to_first_reasoning_chunk:
+        metrics.llm_request_to_first_reasoning_chunk ?? null,
+      llm_request_to_first_visible_content:
+        metrics.llm_request_to_first_visible_content ?? null,
+      llm_request_to_stream_first_chunk:
+        metrics.llm_request_to_stream_first_chunk ?? null,
+      raw_chunk_to_first_reasoning_chunk:
+        metrics.raw_chunk_to_first_reasoning_chunk ?? null,
+      raw_chunk_to_first_visible_content:
+        metrics.raw_chunk_to_first_visible_content ?? null,
+      reasoning_chunk_to_first_visible_content:
+        metrics.reasoning_chunk_to_first_visible_content ?? null,
+      stream_first_chunk_to_llm_first_token:
+        metrics.stream_first_chunk_to_llm_first_token ?? null,
       pre_llm_overhead: metrics.pre_llm_overhead ?? null,
       memory_recall_ms: metrics.memory_recall_ms ?? null,
       structured_turn_analysis_ms: metrics.structured_turn_analysis_ms ?? null,
@@ -268,6 +456,54 @@ export class LatencyTracer {
       traceId,
       generationId: trace.context?.generationId,
       source: trace.context?.source,
+      scenarioKey: trace.context?.scenarioKey,
+      sessionId: trace.context?.sessionId ?? null,
+      turnTaking:
+        trace.context?.releaseReason ||
+        trace.context?.releaseStableMs !== undefined ||
+        trace.context?.prosodyApplied
+          ? {
+              releaseReason: trace.context?.releaseReason ?? null,
+              releaseStableMs: trace.context?.releaseStableMs ?? null,
+              prosodyApplied: trace.context?.prosodyApplied ?? null,
+            }
+          : undefined,
+      sample:
+        trace.context?.utteranceSeq !== undefined ||
+        trace.context?.sttJobSeq !== undefined ||
+        trace.context?.ingressSampleRate !== undefined ||
+        trace.context?.normalizedSampleRate !== undefined ||
+        trace.context?.droppedReason ||
+        trace.context?.rejectedReason ||
+        trace.context?.previewText ||
+        trace.context?.finalTranscript ||
+        trace.context?.rejectedTranscript ||
+        trace.context?.interruptionType ||
+        trace.context?.turnStateTransitions?.length
+          ? {
+              utteranceSeq: trace.context?.utteranceSeq ?? null,
+              sttJobSeq: trace.context?.sttJobSeq ?? null,
+              ingressSampleRate: trace.context?.ingressSampleRate ?? null,
+              normalizedSampleRate: trace.context?.normalizedSampleRate ?? null,
+              droppedReason: trace.context?.droppedReason ?? null,
+              rejectedReason: trace.context?.rejectedReason ?? null,
+              rejectedTranscript: trace.context?.rejectedTranscript ?? null,
+              rejectedSource: trace.context?.rejectedSource ?? null,
+              sttPath: trace.context?.sttPath ?? null,
+              sttFallbackReason: trace.context?.sttFallbackReason ?? null,
+              sttJobPriority: trace.context?.sttJobPriority ?? null,
+              sttQueueBlockedByPriorJob:
+                trace.context?.sttQueueBlockedByPriorJob ?? null,
+              idleGuardActive: trace.context?.idleGuardActive ?? null,
+              sttPreemptReason: trace.context?.sttPreemptReason ?? null,
+              sttRequestDegraded: trace.context?.sttRequestDegraded ?? null,
+              previewText: trace.context?.previewText ?? null,
+              finalTranscript: trace.context?.finalTranscript ?? null,
+              interruptionType: trace.context?.interruptionType ?? null,
+              turnStateTransitions: trace.context?.turnStateTransitions ?? [],
+            }
+          : undefined,
+      usedNoVadFallback: trace.context?.usedNoVadFallback ?? false,
       metrics: metricSnapshot,
       timestamps: trace.timestamps,
     });

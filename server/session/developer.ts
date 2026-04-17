@@ -55,6 +55,7 @@ interface SessionDeveloperLiveResetRuntime {
   clearSilenceNudgeTimer(): void;
   resetPreviewState(): void;
   clearSpeechBuffer(): void;
+  resetDeferredDuplexTranscripts?(): void;
   resetPreRoll(): void;
   setTurnTakingConfirmedEnd(): void;
   clearPredictionDrafts(): void;
@@ -70,6 +71,7 @@ export function resetDeveloperLiveSessionState(
   runtime.clearSilenceNudgeTimer();
   runtime.resetPreviewState();
   runtime.clearSpeechBuffer();
+  runtime.resetDeferredDuplexTranscripts?.();
   runtime.resetPreRoll();
   runtime.setTurnTakingConfirmedEnd();
   runtime.clearPredictionDrafts();

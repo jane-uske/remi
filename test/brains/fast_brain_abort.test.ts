@@ -37,6 +37,7 @@ describe("fast_brain abort handling", () => {
     key: process.env.key,
     base_url: process.env.base_url,
     model: process.env.model,
+    REMI_FAST_BRAIN_REASONING_EFFORT: process.env.REMI_FAST_BRAIN_REASONING_EFFORT,
   };
 
   beforeEach(() => {
@@ -54,6 +55,13 @@ describe("fast_brain abort handling", () => {
 
     if (originalEnv.model === undefined) delete process.env.model;
     else process.env.model = originalEnv.model;
+
+    if (originalEnv.REMI_FAST_BRAIN_REASONING_EFFORT === undefined) {
+      delete process.env.REMI_FAST_BRAIN_REASONING_EFFORT;
+    } else {
+      process.env.REMI_FAST_BRAIN_REASONING_EFFORT =
+        originalEnv.REMI_FAST_BRAIN_REASONING_EFFORT;
+    }
   });
 
   it("does not emit error fallback text when streaming is aborted", async () => {
@@ -136,5 +144,78 @@ describe("fast_brain abort handling", () => {
         ]);
       },
     );
+  });
+
+  it("forwards raw/reasoning/visible first-chunk callbacks", async () => {
+    let firstChunkCalls = 0;
+    let firstReasoningCalls = 0;
+    let firstVisibleCalls = 0;
+    await withMockedQwenClient(
+      {
+        async *streamTokens(_, __, callbacks) {
+          callbacks?.onFirstChunk?.();
+          callbacks?.onFirstReasoningChunk?.();
+          callbacks?.onFirstVisibleContent?.();
+          yield "<think>思考过程";
+          yield "</think>真实回答";
+        },
+        async complete() {
+          return "";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你好",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+          onFirstLlmChunk: () => {
+            firstChunkCalls += 1;
+          },
+          onFirstLlmReasoningChunk: () => {
+            firstReasoningCalls += 1;
+          },
+          onFirstLlmVisibleContent: () => {
+            firstVisibleCalls += 1;
+          },
+        })) {
+          chunks.push(token);
+        }
+        assert.equal(firstChunkCalls, 1);
+        assert.equal(firstReasoningCalls, 1);
+        assert.equal(firstVisibleCalls, 1);
+        assert.equal(chunks.join(""), "<think>思考过程</think>真实回答");
+      },
+    );
+  });
+
+  it("passes configured fast-brain reasoning effort to streamTokens", async () => {
+    process.env.REMI_FAST_BRAIN_REASONING_EFFORT = "minimal";
+    let seenOptions = null;
+    await withMockedQwenClient(
+      {
+        async *streamTokens(_, __, ___, options) {
+          seenOptions = options;
+          yield "ok";
+        },
+        async complete() {
+          return "";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你好",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+        })) {
+          chunks.push(token);
+        }
+        assert.deepEqual(chunks, ["ok"]);
+      },
+    );
+    assert.deepEqual(seenOptions, { reasoningEffort: "minimal" });
   });
 });

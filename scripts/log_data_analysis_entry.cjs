@@ -20,8 +20,21 @@ function statOrNull(target) {
   };
 }
 
+function listLatestLiveLogs(repoRoot) {
+  const liveDir = path.resolve(repoRoot, "artifacts/live");
+  if (!fileExists(liveDir)) return [];
+  return fs
+    .readdirSync(liveDir)
+    .filter((name) => /^dev_server_.*\.log$/.test(name))
+    .map((name) => statOrNull(path.resolve(liveDir, name)))
+    .filter(Boolean)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 5);
+}
+
 function main() {
   const repoRoot = process.cwd();
+  const liveLogs = listLatestLiveLogs(repoRoot);
   const candidateLogs = [
     "rem-ai.log",
     "codex-turn-log.log",
@@ -44,8 +57,9 @@ function main() {
       doc: path.resolve(repoRoot, "docs/LOG_DATA_ANALYSIS_ENTRY.md"),
       command: "npm run logs:data-entry",
     },
-    logFiles: candidateLogs.map(statOrNull).filter(Boolean),
+    logFiles: [...liveLogs, ...candidateLogs.map(statOrNull).filter(Boolean)],
     primaryLogs: [
+      ...liveLogs.map((entry) => entry.path),
       path.resolve(repoRoot, "rem-ai.log"),
       path.resolve(repoRoot, "codex-turn-log.log"),
     ].filter(fileExists),
@@ -71,9 +85,9 @@ function main() {
     },
     suggestedCommands: [
       "npm run logs:data-entry",
-      "rg -n \"\\[Latency\\]|\\[TurnTaking\\]|\\[TurnState\\]|\\[TurnTiming\\]|\\[Duplex\\]|\\[VAD\\]|\\[STT\\]\" rem-ai.log codex-turn-log.log",
+      "rg -n \"\\[Latency\\]|\\[TurnTaking\\]|\\[TurnState\\]|\\[TurnTiming\\]|\\[Duplex\\]|\\[VAD\\]|\\[STT\\]\" artifacts/live/dev_server_*.log rem-ai.log codex-turn-log.log",
+      "tail -n 200 artifacts/live/dev_server_*.log",
       "tail -n 200 rem-ai.log",
-      "tail -n 200 codex-turn-log.log",
       "npm run duplex:data-entry",
     ],
     triageOrder: [
