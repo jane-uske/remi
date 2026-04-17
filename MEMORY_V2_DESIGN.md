@@ -11,6 +11,7 @@
 > - embedding 服务仍然是 V2 语义能力的关键依赖。
 > - 但在真实数据验证完成前，V1 fallback 路径仍然保留，用于避免 live UX 回退。
 > - `workingMemory` 与 `episode lifecycle` 已接入，但仍受 feature flag 控制，不应在文档里误写成默认全量开启。
+> - `episodes.status='archived'` 现已开始承担最小存量治理语义：被归档的历史脏 episode 默认不再参与相似 episode 搜索与 prompt recall，但数据仍保留，便于后续人工复核或规则回滚。
 > - 这份文档描述的是 Memory V2 的目标设计与当前迁移现实，不再等同于“一步切完、不留旧路径”的执行说明。
 
 ---

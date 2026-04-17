@@ -90,6 +90,7 @@ describe("episode_repository", () => {
     await findSimilarEpisodes("user-1", [0.2, 0.4], 3);
 
     assert.match(calls[0].text, /<=>/);
+    assert.match(calls[0].text, /status <> 'archived'/);
     assert.deepEqual(calls[0].params, ["user-1", "[0.2,0.4]", 3]);
   });
 
@@ -121,5 +122,33 @@ describe("episode_repository", () => {
 
     assert.match(calls[0].text, /WHERE user_id = \$1 AND unresolved = true AND status = 'active'/);
     assert.deepEqual(calls[0].params, ["user-1"]);
+  });
+
+  it("getEpisodesByUser excludes archived episodes by default", async () => {
+    const { getEpisodesByUser } = require("../../storage/repositories/episode_repository.ts");
+
+    await getEpisodesByUser("user-1");
+
+    assert.match(calls[0].text, /status <> 'archived'/);
+    assert.deepEqual(calls[0].params, ["user-1"]);
+  });
+
+  it("getEpisodesByUser can include archived episodes for hygiene tooling", async () => {
+    const { getEpisodesByUser } = require("../../storage/repositories/episode_repository.ts");
+
+    await getEpisodesByUser("user-1", undefined, { includeArchived: true });
+
+    assert.doesNotMatch(calls[0].text, /status <> 'archived'/);
+    assert.deepEqual(calls[0].params, ["user-1"]);
+  });
+
+  it("getEpisodesByUser can explicitly request archived status", async () => {
+    const { getEpisodesByUser } = require("../../storage/repositories/episode_repository.ts");
+
+    await getEpisodesByUser("user-1", "archived");
+
+    assert.doesNotMatch(calls[0].text, /status <> 'archived'/);
+    assert.match(calls[0].text, /AND status = \$2/);
+    assert.deepEqual(calls[0].params, ["user-1", "archived"]);
   });
 });

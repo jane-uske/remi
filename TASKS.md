@@ -166,6 +166,7 @@
 - [x] silence nudge 主路径已接到 `planProactiveNudge()`
 - [x] 真实 WS 文本会话写路径已验收，`episodes` 可稳定写入并合并
 - [x] Memory V2 启发式审计工具已落地：`npm run memory:v2:audit -- --user <user-id>` 可生成 episode 质量观察报告
+- [x] Memory V2 存量治理最小脚本已落地：`npm run memory:v2:hygiene -- --user <user-id> [--lang zh] [--apply]` 可按规则包做 dry-run / apply 级别归档；当前仅内置中文规则，但接口已按多语言扩展形态组织
 - [x] embedding 降级观测已补到主链路：写路径 / 召回失败会带结构化健康状态，不再只是零散报错
 - [x] V2 recall / proactive 引用反馈已接通：prompt recall 与 silence nudge 成功路径都会更新 `last_referenced_at`
 - [x] `episode` lifecycle 第一版已落地：`active / cooling / resolved` 受 `REMI_EPISODE_LIFECYCLE_ENABLED` 控制，默认仍关闭，不再长期只靠 `unresolved` 布尔值漂移
@@ -221,7 +222,8 @@
 - [ ] Memory V2 真实质量审计
   - 目标：不只确认 `episodes` 会写，还要确认“写得像同一条关系主线”
   - 当前状态：`memory:v2:audit` 入口现已可直接吃 `.env`；第一轮真实样本已暴露 `episode` 过度合并与 repeated resurfacing，随后已补写入口守门、召回反统治和 core 判定收紧。主样本 `repeatedResurfaceRate` 已从 `0.923` 降到 `0`
-  - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；这条任务现在卡的不是“没有指标”，而是“还缺人工复核 + 存量治理策略”
+  - 当前补强：人工复核后已落地最小存量治理脚本 `memory:v2:hygiene`，会把中文开发测试 / meta prompt / 低价值 filler episode 标成 `archived` 并从 recall 排除；真实样本 dry-run 当前能抓到最明显的一批污染候选，且不会误伤已确认的工作/财务压力主线
+  - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；这条任务现在卡的不是“没有工具”，而是“还缺按样本 apply、复跑审计，以及更细的拆分/规则扩充策略”
   - 验收标准：至少一批真实样本产出审计报告，并能回答错合并 / 漏召回 / 重复回捞 / unresolved 命中四类问题的量级
 - [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
   - 当前状态：已补一轮正向浏览器文本样本，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`

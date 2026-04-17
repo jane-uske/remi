@@ -217,6 +217,7 @@ export async function findSimilarEpisodes(
       `SELECT ${EPISODE_COLUMNS}
        FROM episodes
        WHERE user_id = $1
+         AND status <> 'archived'
        ORDER BY centroid_embedding <=> $2::vector
        LIMIT $3`,
       [userId, embeddingToVectorLiteral(embedding), k]
@@ -230,7 +231,8 @@ export async function findSimilarEpisodes(
 
 export async function getEpisodesByUser(
   userId: string,
-  status?: string
+  status?: string,
+  options?: { includeArchived?: boolean },
 ): Promise<DbEpisode[]> {
   try {
     const params: unknown[] = [userId];
@@ -240,7 +242,9 @@ export async function getEpisodesByUser(
 
     if (status !== undefined) {
       params.push(status);
-      sql += ` AND status = $2`;
+      sql += ` AND status = $${params.length}`;
+    } else if (!options?.includeArchived) {
+      sql += ` AND status <> 'archived'`;
     }
 
     sql += ` ORDER BY last_seen_at DESC`;
