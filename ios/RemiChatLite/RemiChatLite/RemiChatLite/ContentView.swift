@@ -647,9 +647,6 @@ private struct BubbleCard<Content: View>: View {
     let glassTint: Color
     @ViewBuilder let content: Content
 
-    @State private var isPressed = false
-    @State private var releaseTask: Task<Void, Never>?
-
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -659,7 +656,7 @@ private struct BubbleCard<Content: View>: View {
             .background {
                 shape
                     .fill(.clear)
-                    .glassEffect(.regular.tint(glassTint).interactive(), in: shape)
+                    .glassEffect(.regular.tint(glassTint), in: shape)
                     .overlay {
                         shape.fill(fillColor.opacity(fillOpacity))
                     }
@@ -680,26 +677,7 @@ private struct BubbleCard<Content: View>: View {
                         shape.stroke(strokeColor, lineWidth: 1)
                     }
             }
-            .scaleEffect(x: isPressed ? 0.985 : 1, y: isPressed ? 0.97 : 1)
-            .offset(y: isPressed ? 1.5 : 0)
-            .shadow(color: shadowColor.opacity(isPressed ? 0.55 : 1), radius: isPressed ? 6 : 10, x: 0, y: isPressed ? 2 : 4)
-            .contentShape(shape)
-            .animation(.spring(response: 0.26, dampingFraction: 0.62), value: isPressed)
-            .onLongPressGesture(minimumDuration: 0, maximumDistance: 36, pressing: { pressing in
-                releaseTask?.cancel()
-                if pressing {
-                    isPressed = true
-                } else {
-                    releaseTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 90_000_000)
-                        guard !Task.isCancelled else { return }
-                        isPressed = false
-                    }
-                }
-            }, perform: {})
-            .onDisappear {
-                releaseTask?.cancel()
-            }
+            .shadow(color: shadowColor, radius: 10, x: 0, y: 4)
     }
 
     private var fillOpacity: Double {

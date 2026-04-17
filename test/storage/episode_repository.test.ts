@@ -76,6 +76,7 @@ describe("episode_repository", () => {
       "support",
       0.9,
       true,
+      "active",
       "[0.1,0.2,0.3]",
       ["昨晚又失眠了"],
       0.7,
@@ -118,7 +119,7 @@ describe("episode_repository", () => {
 
     await getUnresolvedEpisodes("user-1");
 
-    assert.match(calls[0].text, /WHERE user_id = \$1 AND unresolved = true/);
+    assert.match(calls[0].text, /WHERE user_id = \$1 AND unresolved = true AND status = 'active'/);
     assert.deepEqual(calls[0].params, ["user-1"]);
   });
 });

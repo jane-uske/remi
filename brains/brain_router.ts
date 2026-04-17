@@ -2,7 +2,10 @@ import { fastBrainStream } from "./fast_brain";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from "./slow_brain";
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
-import { extractMemory, retrievePromptMemory } from "../memory/memory_agent";
+import {
+  extractMemory,
+  retrievePromptMemory,
+} from "../memory/memory_agent";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
@@ -19,6 +22,7 @@ import {
   shouldAnalyzeTurn,
   type TurnAnalysisBundle,
 } from "../brain/turn_interpreter";
+import type { WorkingMemory } from "./slow_brain_store";
 
 const MAX_HISTORY = 10;
 const logger = createLogger("brain_router");
@@ -246,6 +250,7 @@ function finalizeDirectReply(input: {
   userMessage: string;
   reply: string;
   emotion: Emotion;
+  workingMemoryDraft?: WorkingMemory | null;
   signal?: AbortSignal;
   systemTriggered?: boolean;
 }): "handled" | "aborted" {
@@ -272,6 +277,7 @@ function finalizeDirectReply(input: {
 
   ctx.updateLiveState(emotion, userMessage, reply);
   ctx.slowBrain.recordUserTurnActivity(userMessage);
+  ctx.slowBrain.applyWorkingMemoryDraft(input.workingMemoryDraft);
   ctx.slowBrain.setLastEmotion(emotion);
   return "handled";
 }
@@ -319,15 +325,23 @@ export async function* routeMessage(
     inputSource,
   });
   if (directCapabilityResult.handled) {
+    const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
+      userMessage,
+      directCapabilityId: directCapabilityResult.capabilityId,
+    });
     yield directCapabilityResult.reply;
-    finalizeDirectReply({
+    const result = finalizeDirectReply({
       ctx,
       userMessage,
       reply: directCapabilityResult.reply,
       emotion,
+      workingMemoryDraft: directWorkingMemoryDraft,
       signal,
       systemTriggered: opts?.systemTriggered,
     });
+    if (result === "handled" && !opts?.systemTriggered) {
+      await persistContinuityCueState(ctx);
+    }
     return;
   }
 
@@ -380,6 +394,16 @@ export async function* routeMessage(
           userMessage,
           slowBrainSnapshot,
           maxEntries: promptMemoryMaxEntries,
+          diagnostics: (meta) => {
+            if (latencyTracer && traceId) {
+              latencyTracer.annotateTrace(traceId, {
+                episodeRecallSource: meta.episodeRecallSource,
+                episodeRecallIds: meta.episodeRecallIds,
+                episodeReferenceApplied: meta.episodeReferenceApplied,
+                episodeRecallFallback: meta.episodeRecallFallback,
+              });
+            }
+          },
         });
       } finally {
         if (latencyTracer && traceId) {
@@ -400,6 +424,14 @@ export async function* routeMessage(
     analysis?.used ? analysis : null,
   );
   const slowBrainContext = ctx.slowBrain.synthesizeContext();
+  const workingMemoryDraft = analysis?.used
+    ? ctx.slowBrain.buildWorkingMemoryDraft({
+        userMessage,
+        interpretation: analysis.interpretation,
+        responsePolicy: analysis.policy,
+      })
+    : null;
+  const currentContext = ctx.slowBrain.buildWorkingMemoryPromptBlock(workingMemoryDraft);
   const analysisPriorityContext =
     inputSource === "text" && analysis?.used
       ? buildAnalysisPriorityContext(analysis, guidance.hints, slowBrainContext)
@@ -458,6 +490,7 @@ export async function* routeMessage(
       emotion,
       memory,
       history: historyForPrompt,
+      currentContext,
       slowBrainContext: slowBrainContextForPrompt,
       strategyHints: strategyHintsForPrompt,
       signal,
@@ -516,6 +549,9 @@ export async function* routeMessage(
     fullReply
   );
   ctx.slowBrain.recordUserTurnActivity(userMessage);
+  if (shouldPersistAssistantReply) {
+    ctx.slowBrain.applyWorkingMemoryDraft(workingMemoryDraft);
+  }
   ctx.slowBrain.setLastEmotion(emotion);
 
   ctx.slowBrain.markContinuityCueUsed({

@@ -23,6 +23,7 @@ function loadMemoryAgent(overrides = {}) {
   clearModule(memoryAgentPath);
   stubModule(episodeStorePath, overrides.episodeStore ?? {
     findRelevant: async () => [],
+    markReferenced: async () => {},
   });
 
   const memoryAgent = require("../../memory/memory_agent");
@@ -132,6 +133,7 @@ describe("prompt memory retrieval with episode store", () => {
             score: 0.86,
           },
         ],
+        markReferenced: async () => {},
       },
     });
 
@@ -154,6 +156,61 @@ describe("prompt memory retrieval with episode store", () => {
           value: "睡眠：睡眠：最近这条线还没过去。",
         },
       ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("marks selected V2 episodes as referenced and emits recall diagnostics", async () => {
+    const referenced = [];
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode(),
+            score: 0.93,
+          },
+          {
+            episode: makeEpisode({
+              id: "episode-2",
+              title: "睡眠",
+              summary: "睡眠：最近这条线还没过去。",
+              topics: ["睡眠"],
+              recurrence_count: 2,
+              relationship_weight: 0.64,
+              unresolved: true,
+              status: "active",
+            }),
+            score: 0.86,
+          },
+        ],
+        markReferenced: async (episodeId) => {
+          referenced.push(episodeId);
+        },
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      let diagnostics = null;
+      await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "我还是会想到那次工作上的误解，晚上也睡不好",
+        slowBrainSnapshot: makeSnapshot(),
+        maxEntries: 2,
+        diagnostics: (meta) => {
+          diagnostics = meta;
+        },
+      });
+      await Promise.resolve();
+
+      assert.deepEqual(referenced, ["episode-1", "episode-2"]);
+      assert.deepEqual(diagnostics, {
+        episodeRecallSource: "episode_store",
+        episodeRecallIds: ["episode-1", "episode-2"],
+        episodeReferenceApplied: true,
+        episodeRecallFallback: false,
+      });
     } finally {
       restore();
     }

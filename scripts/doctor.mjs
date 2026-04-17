@@ -65,6 +65,27 @@ if (ttsProvider === "piper") {
 } else if (ttsProvider === "openai") {
   ttsLines.push(`tts_key set: ${process.env.tts_key?.trim() ? "yes" : "no"}`);
   ttsLines.push(`tts_base_url set: ${process.env.tts_base_url?.trim() ? "yes" : "no"}`);
+} else if (ttsProvider === "volc") {
+  ttsLines.push(
+    `volc api key set: ${
+      process.env.VOLC_TTS_API_KEY?.trim() || process.env.volc_tts_api_key?.trim() || process.env.tts_key?.trim()
+        ? "yes"
+        : "no"
+    }`,
+  );
+  ttsLines.push(
+    `volc resource id: ${
+      process.env.VOLC_TTS_RESOURCE_ID || process.env.volc_tts_resource_id || "seed-tts-2.0"
+    }`,
+  );
+  ttsLines.push(
+    `volc voice type: ${
+      process.env.VOLC_TTS_VOICE_TYPE ||
+      process.env.volc_tts_voice_type ||
+      process.env.tts_voice ||
+      "(missing)"
+    }`,
+  );
 } else {
   ttsLines.push(`edge voice: ${process.env.tts_voice || "zh-CN-XiaoyiNeural"}`);
 }

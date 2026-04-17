@@ -59,6 +59,7 @@ export async function insertEpisode(params: {
   kind: string;
   salience: number;
   unresolved: boolean;
+  status?: string;
   centroidEmbedding: number[];
   originMomentSummaries: string[];
   relationshipWeight: number;
@@ -74,11 +75,12 @@ export async function insertEpisode(params: {
          kind,
          salience,
          unresolved,
+         status,
          centroid_embedding,
          origin_moment_summaries,
          relationship_weight
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, $11, $12)
        RETURNING ${EPISODE_COLUMNS}`,
       [
         params.userId,
@@ -89,6 +91,7 @@ export async function insertEpisode(params: {
         params.kind,
         params.salience,
         params.unresolved,
+        params.status ?? (params.unresolved ? "active" : "cooling"),
         embeddingToVectorLiteral(params.centroidEmbedding),
         params.originMomentSummaries,
         params.relationshipWeight,
@@ -255,7 +258,7 @@ export async function getUnresolvedEpisodes(userId: string): Promise<DbEpisode[]
     const res = await query(
       `SELECT ${EPISODE_COLUMNS}
        FROM episodes
-       WHERE user_id = $1 AND unresolved = true
+       WHERE user_id = $1 AND unresolved = true AND status = 'active'
        ORDER BY last_seen_at DESC`,
       [userId]
     );

@@ -51,16 +51,60 @@ type BehaviorScenarioSummary = {
 };
 
 type LatencyTraceRecord = {
+  traceId: string;
+  connId: string;
+  scenarioKey: string | null;
+  sessionId: string | null;
   generationId: number | null;
   source: string | null;
+  releaseReason: string | null;
+  releaseStableMs: number | null;
+  prosodyApplied: string | null;
+  usedNoVadFallback: boolean;
+  previewText: string | null;
+  finalTranscript: string | null;
+  interruptionType: string | null;
+  turnStateTransitions: Array<{
+    state: string;
+    reason: string;
+    at: number;
+    generationId?: number;
+    preview?: string | null;
+    interruptionType?: string | null;
+  }>;
   metrics: Record<string, number | null>;
+  timestamps: Record<string, number | undefined>;
 };
 
 type LatencyScenarioSummary = {
   name: string;
   loops: number;
   traceCount: number;
+  requiredTraceCount: number;
+  meetsMinimumTraceCount: boolean;
+  incompleteReasons: string[];
   metricSummaries: Record<MetricName, MetricSummary>;
+};
+
+type MisclassificationCategory =
+  | "false_early_release"
+  | "false_late_release"
+  | "noise_promotion"
+  | "resume_missed"
+  | "interrupt_missed"
+  | "state_stuck_or_duplicate";
+
+type SampleRow = {
+  sampleId: string;
+  kind: "bad" | "control";
+  category?: MisclassificationCategory;
+  scenario: string;
+  expected: string;
+  actual: string;
+  previewSummary: string | null;
+  finalSummary: string | null;
+  releaseSummary: string | null;
+  userImpact: string;
 };
 
 type FailureRecord = {
@@ -68,6 +112,8 @@ type FailureRecord = {
   scenario: string;
   loop: number;
   reason: string;
+  misclassification?: MisclassificationCategory;
+  sample?: Omit<SampleRow, "kind">;
   details?: Record<string, unknown>;
 };
 
@@ -85,6 +131,7 @@ type SoakRunConfig = {
   seed: number;
   outputDir: string;
   generatedAt: string;
+  dataSource: "synthetic_harness" | "browser_capture";
 };
 
 type SoakReport = {
@@ -96,10 +143,22 @@ type SoakReport = {
   latencySummary: {
     scenarios: LatencyScenarioSummary[];
     warnings: WarningRecord[];
+    readiness: "complete" | "incomplete";
+    incompleteReasons: string[];
   };
+  misclassificationSummary: {
+    totalBadSamples: number;
+    categories: Array<{
+      category: MisclassificationCategory;
+      count: number;
+      ratio: number;
+      sampleIds: string[];
+    }>;
+  };
+  sampleRows: SampleRow[];
   failures: FailureRecord[];
   recommendedAction: {
-    status: "healthy" | "investigate";
+    status: "healthy" | "investigate" | "incomplete";
     topSignals: string[];
   };
 };
@@ -112,8 +171,14 @@ type ParsedArgs = {
 };
 
 type BehaviorRunResult = {
+  parsed: any[];
   messageTypes: string[];
   turnStates: string[];
+};
+
+type LatencyScenarioRunResult = {
+  parsed: any[];
+  traces: LatencyTraceRecord[];
 };
 
 const METRIC_NAMES: MetricName[] = [
@@ -122,6 +187,80 @@ const METRIC_NAMES: MetricName[] = [
   "llm_first_to_tts_first",
   "tts_first_to_playback",
 ];
+
+const MISCLASSIFICATION_CATEGORIES: MisclassificationCategory[] = [
+  "false_early_release",
+  "false_late_release",
+  "noise_promotion",
+  "resume_missed",
+  "interrupt_missed",
+  "state_stuck_or_duplicate",
+];
+
+function summarizeText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const compact = value.trim().replace(/\s+/g, " ");
+  if (!compact) return null;
+  return compact.length > 96 ? `${compact.slice(0, 93)}...` : compact;
+}
+
+function summarizeRelease(trace: Pick<
+  LatencyTraceRecord,
+  "releaseReason" | "releaseStableMs" | "prosodyApplied" | "usedNoVadFallback"
+>): string | null {
+  const parts = [
+    trace.releaseReason ? `release=${trace.releaseReason}` : null,
+    trace.releaseStableMs != null ? `stable=${trace.releaseStableMs}ms` : null,
+    trace.prosodyApplied ? `prosody=${trace.prosodyApplied}` : null,
+    trace.usedNoVadFallback ? "no_vad_fallback" : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function extractSampleContext(parsed: any[]) {
+  const turnMessages = parsed.filter(
+    (msg) => msg && typeof msg === "object" && msg.type === "turn_state",
+  );
+  const sttFinal = parsed.find((msg) => msg && typeof msg === "object" && msg.type === "stt_final");
+  const preview =
+    turnMessages
+      .map((msg: any) => summarizeText(msg.preview))
+      .filter(Boolean)
+      .slice(-1)[0] ?? null;
+  const finalSummary = summarizeText(sttFinal?.content);
+  const interruptionType =
+    turnMessages
+      .map((msg: any) => (typeof msg.interruptionType === "string" ? msg.interruptionType : null))
+      .filter(Boolean)
+      .slice(-1)[0] ?? null;
+  return {
+    previewSummary: preview,
+    finalSummary,
+    interruptionType,
+    turnStates: turnMessages.map((msg: any) => String(msg.state)),
+  };
+}
+
+function expectedScenarioBehavior(scenario: string): string {
+  switch (scenario) {
+    case "voice_roundtrip_baseline":
+      return "single voice turn should produce one complete trace";
+    case "speech_resume_before_gap_commit":
+      return "short pause should merge into one voice turn";
+    case "interrupt_then_new_turn":
+      return "interrupt should hand off to a complete new turn";
+    case "sparseClickNoise":
+    case "strictNoPreviewNoise":
+    case "fallbackLongHumNoise":
+      return "noise should not promote to assistant";
+    default:
+      return "turn-taking should stay stable";
+  }
+}
+
+function scenarioMinimumTraceCount(name: string): number {
+  return name === "voice_roundtrip_baseline" ? 50 : 30;
+}
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
@@ -244,6 +383,7 @@ async function runBehaviorScenario(def: {
 }): Promise<BehaviorRunResult> {
   const harness = loadSoakSessionHarness({
     transcript: def.transcript,
+    scenarioKey: def.name,
   });
   try {
     emitDuplexStart(harness.ws);
@@ -267,8 +407,8 @@ async function runBehaviorScenario(def: {
       }
     }
 
-    const { messageTypes, turnStates } = normalizeMessages(harness.ws);
-    return { messageTypes, turnStates };
+    const { parsed, messageTypes, turnStates } = normalizeMessages(harness.ws);
+    return { parsed, messageTypes, turnStates };
   } finally {
     harness.restore();
   }
@@ -293,9 +433,31 @@ function createInterruptChatStream() {
   };
 }
 
-async function runLatencyVoiceRoundtrip(): Promise<LatencyTraceRecord[]> {
+function toTraceRecord(log: any): LatencyTraceRecord {
+  return {
+    traceId: log.traceId,
+    connId: log.connId,
+    scenarioKey: log.scenarioKey ?? null,
+    sessionId: log.sessionId ?? null,
+    generationId: log.generationId,
+    source: log.source,
+    releaseReason: log.releaseReason ?? null,
+    releaseStableMs: log.releaseStableMs ?? null,
+    prosodyApplied: log.prosodyApplied ?? null,
+    usedNoVadFallback: log.usedNoVadFallback ?? false,
+    previewText: log.previewText ?? null,
+    finalTranscript: log.finalTranscript ?? null,
+    interruptionType: log.interruptionType ?? null,
+    turnStateTransitions: Array.isArray(log.turnStateTransitions) ? log.turnStateTransitions : [],
+    metrics: log.metrics,
+    timestamps: log.timestamps,
+  };
+}
+
+async function runLatencyVoiceRoundtrip(): Promise<LatencyScenarioRunResult> {
   const harness = loadSoakSessionHarness({
     transcript: "你好，我在这里。",
+    scenarioKey: "voice_roundtrip_baseline",
   });
   try {
     const frames = [
@@ -315,21 +477,53 @@ async function runLatencyVoiceRoundtrip(): Promise<LatencyTraceRecord[]> {
       1500,
     );
 
-    return harness.latencyLogs.map((log: any) => ({
-      generationId: log.generationId,
-      source: log.source,
-      metrics: log.metrics,
-    }));
+    return {
+      parsed: harness.ws.parsedMessages(),
+      traces: harness.latencyLogs.map((log: any) => toTraceRecord(log)),
+    };
   } finally {
     harness.restore();
   }
 }
 
-async function runLatencyTextInterruptThenNewTurn(): Promise<LatencyTraceRecord[]> {
+async function runLatencySpeechResumeBeforeGapCommit(): Promise<LatencyScenarioRunResult> {
+  const harness = loadSoakSessionHarness({
+    transcript: "我停一下然后接着说完。",
+    scenarioKey: "speech_resume_before_gap_commit",
+  });
+  try {
+    const frames = [
+      ...repeatFrames(makeSineFrame(0.18), 6),
+      ...repeatFrames(makeSilenceFrame(), 12),
+      ...repeatFrames(makeSineFrame(0.18), 6),
+    ];
+    emitDuplexStart(harness.ws);
+    emitFrames(harness.ws, frames);
+    emitDuplexStop(harness.ws);
+
+    await waitFor(
+      () =>
+        harness.latencyLogs.some(
+          (log: any) => log.metrics.tts_first_to_playback !== null,
+        ),
+      1500,
+    );
+
+    return {
+      parsed: harness.ws.parsedMessages(),
+      traces: harness.latencyLogs.map((log: any) => toTraceRecord(log)),
+    };
+  } finally {
+    harness.restore();
+  }
+}
+
+async function runLatencyInterruptThenNewTurn(): Promise<LatencyScenarioRunResult> {
   const chatStreamImpl = createInterruptChatStream();
   const harness = loadSoakSessionHarness({
     chatStreamImpl,
     transcript: "你好，我在这里。",
+    scenarioKey: "interrupt_then_new_turn",
   });
 
   try {
@@ -347,12 +541,13 @@ async function runLatencyTextInterruptThenNewTurn(): Promise<LatencyTraceRecord[
       );
     }, 1000);
 
-    harness.ws.emitMessage(
-      JSON.stringify({
-        type: "chat",
-        content: "现在换个问题",
-      }),
-    );
+    emitDuplexStart(harness.ws);
+    emitFrames(harness.ws, [
+      ...repeatFrames(makeSineFrame(0.18), 10),
+      ...repeatFrames(makeBroadbandNoiseFrame(0.05, 320, 13), 2),
+      ...repeatFrames(makeSineFrame(0.18), 4),
+    ]);
+    emitDuplexStop(harness.ws);
 
     await waitFor(
       () =>
@@ -363,11 +558,10 @@ async function runLatencyTextInterruptThenNewTurn(): Promise<LatencyTraceRecord[
       1500,
     );
 
-    return harness.latencyLogs.map((log: any) => ({
-      generationId: log.generationId,
-      source: log.source,
-      metrics: log.metrics,
-    }));
+    return {
+      parsed: harness.ws.parsedMessages(),
+      traces: harness.latencyLogs.map((log: any) => toTraceRecord(log)),
+    };
   } finally {
     harness.restore();
   }
@@ -393,6 +587,7 @@ function aggregateLatencyScenario(
   loops: number,
   traces: LatencyTraceRecord[],
 ): LatencyScenarioSummary {
+  const requiredTraceCount = scenarioMinimumTraceCount(name);
   const completeTraces = traces.filter(
     (trace) => trace.metrics.tts_first_to_playback !== null,
   );
@@ -404,11 +599,20 @@ function aggregateLatencyScenario(
       return [metric, metricSummary(values)];
     }),
   ) as Record<MetricName, MetricSummary>;
+  const incompleteReasons: string[] = [];
+  if (completeTraces.length < requiredTraceCount) {
+    incompleteReasons.push(
+      `trace_count ${completeTraces.length} < required ${requiredTraceCount}`,
+    );
+  }
 
   return {
     name,
     loops,
     traceCount: completeTraces.length,
+    requiredTraceCount,
+    meetsMinimumTraceCount: completeTraces.length >= requiredTraceCount,
+    incompleteReasons,
     metricSummaries,
   };
 }
@@ -417,6 +621,7 @@ export function buildSoakReport(input: {
   config: SoakRunConfig;
   behaviorScenarios: BehaviorScenarioSummary[];
   latencyScenarios: LatencyScenarioSummary[];
+  sampleRows: SampleRow[];
   failures: FailureRecord[];
 }): SoakReport {
   const totals = emptyAnomalies();
@@ -451,12 +656,54 @@ export function buildSoakReport(input: {
     }
   }
 
+  const latencyIncompleteReasons = input.latencyScenarios.flatMap((scenario) =>
+    scenario.incompleteReasons.map((reason) => `${scenario.name}: ${reason}`),
+  );
+  if (input.config.dataSource !== "browser_capture") {
+    latencyIncompleteReasons.unshift(
+      `data_source=${input.config.dataSource} is not a real browser capture`,
+    );
+  }
+
+  const badSamples = input.sampleRows.filter((row) => row.kind === "bad" && row.category);
+  const misclassificationSummary = {
+    totalBadSamples: badSamples.length,
+    categories: MISCLASSIFICATION_CATEGORIES.map((category) => {
+      const rows = badSamples.filter((row) => row.category === category);
+      return {
+        category,
+        count: rows.length,
+        ratio:
+          badSamples.length > 0 ? Number((rows.length / badSamples.length).toFixed(4)) : 0,
+        sampleIds: rows.slice(0, 3).map((row) => row.sampleId),
+      };
+    }),
+  };
+
   const topSignals: string[] = [];
+  if (input.config.dataSource !== "browser_capture") {
+    topSignals.push("当前报告来自 synthetic harness，只能验证回归口径，不能作为真实浏览器 duplex 验收结论。");
+  }
   if (totals.noise_promoted_to_assistant_count > 0) {
     topSignals.push("噪音场景出现 assistant_entering，说明 VAD/turn 链路存在误提升。");
   }
   if (totals.duplicate_stt_final_count > 0 || totals.duplicate_assistant_entering_count > 0) {
     topSignals.push("存在重复 stt_final / assistant_entering，说明会话状态或 gap 提交可能有竞态。");
+  }
+  const dominantMisclassifications = misclassificationSummary.categories
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 2);
+  for (const entry of dominantMisclassifications) {
+    if (entry.category === "false_early_release") {
+      topSignals.push("false_early_release 已出现，优先检查 release 判定和 prosody 旁路是否过早放行。");
+    }
+    if (entry.category === "resume_missed") {
+      topSignals.push("resume_missed 已出现，说明短停顿续说仍可能被切成新回合。");
+    }
+    if (entry.category === "interrupt_missed") {
+      topSignals.push("interrupt_then_new_turn 场景仍存在漏接，新回合承接还不够稳。");
+    }
   }
   if (warnings.length > 0) {
     topSignals.push("部分 latency p95 相对基线漂移超过 25%，需要进一步检查长会话下的性能稳定性。");
@@ -474,11 +721,17 @@ export function buildSoakReport(input: {
     latencySummary: {
       scenarios: input.latencyScenarios,
       warnings,
+      readiness: latencyIncompleteReasons.length === 0 ? "complete" : "incomplete",
+      incompleteReasons: latencyIncompleteReasons,
     },
+    misclassificationSummary,
+    sampleRows: input.sampleRows,
     failures: input.failures,
     recommendedAction: {
       status:
-        input.failures.length > 0 ||
+        latencyIncompleteReasons.length > 0
+          ? "incomplete"
+          : input.failures.length > 0 ||
         totals.noise_promoted_to_assistant_count > 0 ||
         totals.duplicate_stt_final_count > 0 ||
         totals.duplicate_assistant_entering_count > 0
@@ -502,7 +755,7 @@ export function renderMarkdownReport(report: SoakReport): string {
       const summary = scenario.metricSummaries[metric];
       return `${metric}: count=${summary.count}, min=${summary.min}, p50=${summary.p50}, p95=${summary.p95}, max=${summary.max}`;
     }).join(" | ");
-    return `- ${scenario.name}: traces=${scenario.traceCount}\n  ${metrics}`;
+    return `- ${scenario.name}: traces=${scenario.traceCount}, required=${scenario.requiredTraceCount}, meets_minimum=${scenario.meetsMinimumTraceCount}\n  ${metrics}`;
   });
 
   const failureLines =
@@ -521,6 +774,22 @@ export function renderMarkdownReport(report: SoakReport): string {
         )
       : ["- none"];
 
+  const incompleteLines =
+    report.latencySummary.incompleteReasons.length > 0
+      ? report.latencySummary.incompleteReasons.map((reason) => `- ${reason}`)
+      : ["- none"];
+
+  const misclassificationLines = report.misclassificationSummary.categories.map((entry) => {
+    return `- ${entry.category}: count=${entry.count}, ratio=${entry.ratio}, sample_ids=${entry.sampleIds.join(",") || "none"}`;
+  });
+
+  const sampleLines =
+    report.sampleRows.length > 0
+      ? report.sampleRows.map((row) =>
+          `- ${row.sampleId} [${row.kind}${row.category ? `/${row.category}` : ""}] ${row.scenario}: expected=${row.expected}; actual=${row.actual}; preview=${row.previewSummary ?? "null"}; final=${row.finalSummary ?? "null"}; release=${row.releaseSummary ?? "null"}; impact=${row.userImpact}`,
+        )
+      : ["- none"];
+
   return [
     "# 1. Run Config",
     "",
@@ -528,6 +797,7 @@ export function renderMarkdownReport(report: SoakReport): string {
     `- latency_loops: ${report.runConfig.latencyLoops}`,
     `- seed: ${report.runConfig.seed}`,
     `- generated_at: ${report.runConfig.generatedAt}`,
+    `- data_source: ${report.runConfig.dataSource}`,
     "",
     "# 2. Behavior Summary",
     "",
@@ -540,11 +810,21 @@ export function renderMarkdownReport(report: SoakReport): string {
     "Warnings:",
     ...warningLines,
     "",
-    "# 4. Failures / Anomalies",
+    `Readiness: ${report.latencySummary.readiness}`,
+    ...incompleteLines,
+    "",
+    "# 4. Misclassification Review",
+    "",
+    ...misclassificationLines,
+    "",
+    "Sample Rows:",
+    ...sampleLines,
+    "",
+    "# 5. Failures / Anomalies",
     "",
     ...failureLines,
     "",
-    "# 5. Recommended Action",
+    "# 6. Recommended Action",
     "",
     `- status: ${report.recommendedAction.status}`,
     ...report.recommendedAction.topSignals.map((signal) => `- ${signal}`),
@@ -555,7 +835,7 @@ export function renderMarkdownReport(report: SoakReport): string {
 async function runBehaviorLoops(
   loops: number,
   seed: number,
-): Promise<{ scenarios: BehaviorScenarioSummary[]; failures: FailureRecord[] }> {
+): Promise<{ scenarios: BehaviorScenarioSummary[]; failures: FailureRecord[]; sampleRows: SampleRow[] }> {
   const scenarioDefs = [
     {
       name: "sparseClickNoise",
@@ -624,6 +904,7 @@ async function runBehaviorLoops(
   }
 
   const failures: FailureRecord[] = [];
+  const sampleRows: SampleRow[] = [];
   const rng = mulberry32(seed);
 
   for (let loop = 0; loop < loops; loop += 1) {
@@ -631,6 +912,7 @@ async function runBehaviorLoops(
       const summary = scenarioMap.get(def.name)!;
       try {
         const result = await runBehaviorScenario(def);
+        const sample = extractSampleContext(result.parsed);
         const sttFinalCount = countOccurrences(result.messageTypes, "stt_final");
         const chatEndCount = countOccurrences(result.messageTypes, "chat_end");
         const interruptCount = countOccurrences(result.messageTypes, "interrupt");
@@ -643,6 +925,20 @@ async function runBehaviorLoops(
         addHistogram(summary.messageTypeHistogram, result.messageTypes);
         addHistogram(summary.turnStateHistogram, result.turnStates);
 
+        if (!sampleRows.some((row) => row.kind === "control" && row.scenario === def.name)) {
+          sampleRows.push({
+            sampleId: `${def.name}#control`,
+            kind: "control",
+            scenario: def.name,
+            expected: expectedScenarioBehavior(def.name),
+            actual: `messageTypes=${result.messageTypes.join(",") || "none"}; turnStates=${result.turnStates.join(",") || "none"}`,
+            previewSummary: sample.previewSummary,
+            finalSummary: sample.finalSummary,
+            releaseSummary: null,
+            userImpact: "control sample for comparison",
+          });
+        }
+
         if (interruptCount > 0) {
           summary.anomalies.unexpected_interrupt_count += interruptCount;
           failures.push({
@@ -650,6 +946,18 @@ async function runBehaviorLoops(
             scenario: def.name,
             loop,
             reason: "unexpected interrupt emitted during soak",
+            misclassification: "state_stuck_or_duplicate",
+            sample: {
+              sampleId: `${def.name}#${loop}:unexpected_interrupt`,
+              category: "state_stuck_or_duplicate",
+              scenario: def.name,
+              expected: expectedScenarioBehavior(def.name),
+              actual: `unexpected interrupt count=${interruptCount}`,
+              previewSummary: sample.previewSummary,
+              finalSummary: sample.finalSummary,
+              releaseSummary: null,
+              userImpact: "assistant state transitions become unstable or duplicated",
+            },
             details: { interruptCount },
           });
         }
@@ -662,6 +970,18 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "noise promoted to assistant_entering",
+              misclassification: "noise_promotion",
+              sample: {
+                sampleId: `${def.name}#${loop}:assistant_promotion`,
+                category: "noise_promotion",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `assistant_entering count=${assistantEnteringCount}`,
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact: "ambient noise can falsely wake the assistant and break turn-taking trust",
+              },
               details: { assistantEnteringCount },
             });
           }
@@ -672,6 +992,18 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "noise emitted stt_final",
+              misclassification: "noise_promotion",
+              sample: {
+                sampleId: `${def.name}#${loop}:noise_stt_final`,
+                category: "noise_promotion",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `stt_final count=${sttFinalCount}`,
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact: "noise can become a fake user turn and trigger an unwanted reply",
+              },
               details: { sttFinalCount },
             });
           }
@@ -692,6 +1024,27 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "speech scenario missing stt_final",
+              misclassification:
+                def.name === "speechResumeBeforeGapCommit"
+                  ? "resume_missed"
+                  : "false_late_release",
+              sample: {
+                sampleId: `${def.name}#${loop}:missing_stt_final`,
+                category:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "resume_missed"
+                    : "false_late_release",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: "no stt_final emitted",
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "short pause continuation gets lost and breaks the user's sentence"
+                    : "assistant keeps holding after the user already finished speaking",
+              },
             });
           }
           if (sttFinalCount > 1) {
@@ -701,6 +1054,27 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "duplicate stt_final detected",
+              misclassification:
+                def.name === "speechResumeBeforeGapCommit"
+                  ? "resume_missed"
+                  : "state_stuck_or_duplicate",
+              sample: {
+                sampleId: `${def.name}#${loop}:duplicate_stt_final`,
+                category:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "resume_missed"
+                    : "state_stuck_or_duplicate",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `stt_final count=${sttFinalCount}`,
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "one sentence gets split into multiple replies after a short pause"
+                    : "turn lifecycle duplicates create unstable assistant behavior",
+              },
               details: { sttFinalCount },
             });
           }
@@ -711,6 +1085,27 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "duplicate assistant_entering detected",
+              misclassification:
+                def.name === "speechResumeBeforeGapCommit"
+                  ? "resume_missed"
+                  : "state_stuck_or_duplicate",
+              sample: {
+                sampleId: `${def.name}#${loop}:duplicate_assistant_entering`,
+                category:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "resume_missed"
+                    : "state_stuck_or_duplicate",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `assistant_entering count=${assistantEnteringCount}`,
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact:
+                  def.name === "speechResumeBeforeGapCommit"
+                    ? "assistant cuts in twice around one user sentence"
+                    : "assistant state transition duplicates make turn-taking feel broken",
+              },
               details: { assistantEnteringCount },
             });
           }
@@ -721,6 +1116,18 @@ async function runBehaviorLoops(
               scenario: def.name,
               loop,
               reason: "response scenario missing chat_end",
+              misclassification: "state_stuck_or_duplicate",
+              sample: {
+                sampleId: `${def.name}#${loop}:missing_chat_end`,
+                category: "state_stuck_or_duplicate",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: "chat_end missing",
+                previewSummary: sample.previewSummary,
+                finalSummary: sample.finalSummary,
+                releaseSummary: null,
+                userImpact: "assistant can enter speaking state but never complete the turn cleanly",
+              },
             });
           }
           if (
@@ -749,25 +1156,31 @@ async function runBehaviorLoops(
   return {
     scenarios: scenarioDefs.map((def) => scenarioMap.get(def.name)!),
     failures,
+    sampleRows,
   };
 }
 
 async function runLatencyLoops(
   loops: number,
-): Promise<{ scenarios: LatencyScenarioSummary[]; failures: FailureRecord[] }> {
+): Promise<{ scenarios: LatencyScenarioSummary[]; failures: FailureRecord[]; sampleRows: SampleRow[] }> {
   const latencyDefs = [
     {
       name: "voice_roundtrip_baseline",
       run: runLatencyVoiceRoundtrip,
     },
     {
-      name: "text_interrupt_then_new_turn",
-      run: runLatencyTextInterruptThenNewTurn,
+      name: "speech_resume_before_gap_commit",
+      run: runLatencySpeechResumeBeforeGapCommit,
+    },
+    {
+      name: "interrupt_then_new_turn",
+      run: runLatencyInterruptThenNewTurn,
     },
   ];
 
   const aggregated = new Map<string, LatencyTraceRecord[]>();
   const failures: FailureRecord[] = [];
+  const sampleRows: SampleRow[] = [];
   for (const def of latencyDefs) {
     aggregated.set(def.name, []);
   }
@@ -775,11 +1188,30 @@ async function runLatencyLoops(
   for (let loop = 0; loop < loops; loop += 1) {
     for (const def of latencyDefs) {
       try {
-        const traces = await def.run();
-        aggregated.get(def.name)!.push(...traces);
+        const result = await def.run();
+        aggregated.get(def.name)!.push(...result.traces);
+        const sample = extractSampleContext(result.parsed);
+        const primaryTrace =
+          result.traces.find((trace) => trace.generationId === 2) ??
+          result.traces[result.traces.length - 1] ??
+          null;
 
-        if (def.name === "text_interrupt_then_new_turn") {
-          const hasCompleteNewTurn = traces.some(
+        if (!sampleRows.some((row) => row.kind === "control" && row.scenario === def.name) && primaryTrace) {
+          sampleRows.push({
+            sampleId: `${def.name}#control`,
+            kind: "control",
+            scenario: def.name,
+            expected: expectedScenarioBehavior(def.name),
+            actual: `complete trace ${primaryTrace.traceId}`,
+            previewSummary: primaryTrace.previewText ?? sample.previewSummary,
+            finalSummary: primaryTrace.finalTranscript ?? sample.finalSummary,
+            releaseSummary: summarizeRelease(primaryTrace),
+            userImpact: "control sample for comparison",
+          });
+        }
+
+        if (def.name === "interrupt_then_new_turn") {
+          const hasCompleteNewTurn = result.traces.some(
             (trace) =>
               trace.generationId === 2 && trace.metrics.tts_first_to_playback !== null,
           );
@@ -789,6 +1221,94 @@ async function runLatencyLoops(
               scenario: def.name,
               loop,
               reason: "new generation did not produce a complete playback trace",
+              misclassification: "interrupt_missed",
+              sample: {
+                sampleId: `${def.name}#${loop}:missing_new_turn`,
+                category: "interrupt_missed",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: "generation 2 missing complete playback trace",
+                previewSummary: primaryTrace?.previewText ?? sample.previewSummary,
+                finalSummary: primaryTrace?.finalTranscript ?? sample.finalSummary,
+                releaseSummary: primaryTrace ? summarizeRelease(primaryTrace) : null,
+                userImpact: "user interrupt does not hand off cleanly to the new turn",
+              },
+            });
+          }
+        }
+        if (def.name === "speech_resume_before_gap_commit") {
+          const enteringCount = countOccurrences(sample.turnStates, "assistant_entering");
+          const sttFinalCount = result.parsed.filter((msg: any) => msg?.type === "stt_final").length;
+          if (enteringCount > 1 || sttFinalCount > 1) {
+            failures.push({
+              category: "latency",
+              scenario: def.name,
+              loop,
+              reason: "short-pause resume emitted multiple promotions or finals",
+              misclassification: "resume_missed",
+              sample: {
+                sampleId: `${def.name}#${loop}:split_resume_turn`,
+                category: "resume_missed",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `assistant_entering=${enteringCount}, stt_final=${sttFinalCount}`,
+                previewSummary: primaryTrace?.previewText ?? sample.previewSummary,
+                finalSummary: primaryTrace?.finalTranscript ?? sample.finalSummary,
+                releaseSummary: primaryTrace ? summarizeRelease(primaryTrace) : null,
+                userImpact: "short pause continuation gets split into multiple turns",
+              },
+            });
+          }
+        }
+        if (primaryTrace?.releaseReason && primaryTrace.previewText && primaryTrace.finalTranscript) {
+          const previewLength = primaryTrace.previewText.length;
+          const finalLength = primaryTrace.finalTranscript.length;
+          const openTail = /[，,；;：:]$|然后$|但是$|因为$|我想$|就是说$/u.test(primaryTrace.previewText);
+          if (openTail && finalLength >= previewLength + 4) {
+            failures.push({
+              category: "latency",
+              scenario: def.name,
+              loop,
+              reason: "release happened while preview still looked incomplete",
+              misclassification: "false_early_release",
+              sample: {
+                sampleId: `${def.name}#${loop}:false_early_release`,
+                category: "false_early_release",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `preview expanded from ${previewLength} to ${finalLength} chars after release`,
+                previewSummary: primaryTrace.previewText,
+                finalSummary: primaryTrace.finalTranscript,
+                releaseSummary: summarizeRelease(primaryTrace),
+                userImpact: "assistant can cut in before the user finishes the clause",
+              },
+            });
+          }
+          const speechEndToFinal = primaryTrace.metrics.speech_end_to_stt_final;
+          if (
+            def.name === "voice_roundtrip_baseline" &&
+            typeof speechEndToFinal === "number" &&
+            speechEndToFinal > 1200 &&
+            primaryTrace.releaseStableMs != null &&
+            primaryTrace.releaseStableMs > 900
+          ) {
+            failures.push({
+              category: "latency",
+              scenario: def.name,
+              loop,
+              reason: "release waited too long after a semantically complete baseline turn",
+              misclassification: "false_late_release",
+              sample: {
+                sampleId: `${def.name}#${loop}:false_late_release`,
+                category: "false_late_release",
+                scenario: def.name,
+                expected: expectedScenarioBehavior(def.name),
+                actual: `speech_end_to_stt_final=${speechEndToFinal}ms`,
+                previewSummary: primaryTrace.previewText,
+                finalSummary: primaryTrace.finalTranscript,
+                releaseSummary: summarizeRelease(primaryTrace),
+                userImpact: "user finishes speaking but the assistant still waits awkwardly long",
+              },
             });
           }
         }
@@ -808,6 +1328,7 @@ async function runLatencyLoops(
       aggregateLatencyScenario(def.name, loops, aggregated.get(def.name)!),
     ),
     failures,
+    sampleRows,
   };
 }
 
@@ -830,6 +1351,7 @@ async function main() {
     seed: args.seed,
     outputDir: args.outputDir,
     generatedAt: new Date().toISOString(),
+    dataSource: "synthetic_harness",
   };
 
   const behavior = await runBehaviorLoops(args.behaviorLoops, args.seed);
@@ -838,6 +1360,16 @@ async function main() {
     config,
     behaviorScenarios: behavior.scenarios,
     latencyScenarios: latency.scenarios,
+    sampleRows: [
+      ...behavior.sampleRows,
+      ...latency.sampleRows,
+      ...behavior.failures
+        .filter((failure) => failure.sample)
+        .map((failure) => ({ kind: "bad" as const, ...failure.sample! })),
+      ...latency.failures
+        .filter((failure) => failure.sample)
+        .map((failure) => ({ kind: "bad" as const, ...failure.sample! })),
+    ],
     failures: [...behavior.failures, ...latency.failures],
   });
 

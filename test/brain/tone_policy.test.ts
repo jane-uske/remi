@@ -44,6 +44,8 @@ describe("tone policy", () => {
     assert.equal(detectDecisionSeekingSignal("你觉得我是不是需要换个老板呢"), true);
     assert.equal(detectDecisionSeekingSignal("今晚吃什么"), false);
     assert.equal(detectAnswerNowSignal("我在问你呢，你怎么老是问我"), true);
+    assert.equal(detectAnswerNowSignal("不要一直问我，我成了你的助手了"), true);
+    assert.equal(detectAnswerNowSignal("你又不会帮我做，然后一直问我问题，让我梳理"), true);
     assert.equal(detectAnswerNowSignal("你说"), true);
     assert.equal(detectAnswerNowSignal("你还在吗"), false);
   });

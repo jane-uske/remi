@@ -4,12 +4,13 @@
 >
 > 前置状态：Memory V1 已完成（per-user relationship state 持久化、episode 分层召回、proactive ledger、关系风格槽位）。
 >
-> **当前状态说明（2026-04-12）**：Memory V2 基础设施已经落地，但项目仍处于“验证写路径、准备切读路径”的阶段，不是一次性硬切换完成态。
+> **当前状态说明（2026-04-18）**：Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本写路径都已完成单路径验收。当前阶段不再是“准备切读路径”，而是“保留 fallback 的前提下做质量观察、前端 spot-check 和运行时治理补强”。
 >
 > **当前落地约束（更新）**：
 > - Postgres + pgvector 仍然是 V2 的目标运行前提。
 > - embedding 服务仍然是 V2 语义能力的关键依赖。
 > - 但在真实数据验证完成前，V1 fallback 路径仍然保留，用于避免 live UX 回退。
+> - `workingMemory` 与 `episode lifecycle` 已接入，但仍受 feature flag 控制，不应在文档里误写成默认全量开启。
 > - 这份文档描述的是 Memory V2 的目标设计与当前迁移现实，不再等同于“一步切完、不留旧路径”的执行说明。
 
 ---

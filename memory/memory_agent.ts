@@ -1,6 +1,13 @@
 import type { MemoryRepository } from "./memory_repository";
 import type { Memory } from "./memory_store";
-import { findRelevant as findRelevantEpisodes } from "./episode_store";
+import {
+  findRelevant as findRelevantEpisodes,
+  markReferenced as markReferencedEpisode,
+} from "./episode_store";
+import {
+  classifyEmbeddingError,
+  getEmbeddingHealthSnapshot,
+} from "../llm/embedding_client";
 import { createLogger } from "../infra/logger";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
@@ -26,6 +33,16 @@ export interface RetrievePromptMemoryOptions {
   userMessage: string;
   slowBrainSnapshot?: SlowBrainSnapshot | null;
   maxEntries?: number;
+  markEpisodeReferenced?: boolean;
+  touchSelected?: boolean;
+  diagnostics?: (meta: PromptMemoryDiagnostics) => void;
+}
+
+export interface PromptMemoryDiagnostics {
+  episodeRecallSource: "episode_store" | "snapshot" | "none";
+  episodeRecallIds: string[];
+  episodeReferenceApplied: boolean;
+  episodeRecallFallback: boolean;
 }
 
 interface MemoryPattern {
@@ -65,10 +82,32 @@ const CORE_FACT_KEYS = new Set([
 ]);
 const CORE_FACT_LIMIT = 2;
 const MAX_PROMPT_EPISODES = 1;
+const SYNTHETIC_MEMORY_KEYS = new Set([
+  "当前上下文",
+  "长期关系主线",
+  "当前未完主线",
+  "最近共同经历",
+]);
 
 function hasNegationBeforeMatch(msg: string, matchIndex: number): boolean {
   const beforeMatch = msg.slice(0, matchIndex);
   return NEGATION_WORDS.some((neg) => beforeMatch.includes(neg));
+}
+
+function shouldTouchMemoryKey(key: string): boolean {
+  if (!key || isSystemMemoryKey(key)) return false;
+  if (SYNTHETIC_MEMORY_KEYS.has(key)) return false;
+  if (/^共同经历\d+$/u.test(key)) return false;
+  return true;
+}
+
+function touchPromptMemories(
+  repo: MemoryRepository,
+  memories: Memory[],
+): void {
+  const keys = [...new Set(memories.map((entry) => entry.key).filter(shouldTouchMemoryKey))];
+  if (keys.length === 0) return;
+  void Promise.allSettled(keys.map((key) => repo.touch(key)));
 }
 
 export function extractMemory(userMessage: string, repo: MemoryRepository): void {
@@ -173,15 +212,26 @@ type RecalledEpisode = {
   status: "active" | "cooling" | "resolved";
 };
 
+type RecalledEpisodeSelection = {
+  core?: RecalledEpisode;
+  active?: RecalledEpisode;
+  source: "episode_store" | "snapshot" | "none";
+  episodeIds: string[];
+  fallbackUsed: boolean;
+};
+
 function recallEpisodesFromSnapshot(
   slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
   userMessage: string,
-): {
-  core?: RecalledEpisode;
-  active?: RecalledEpisode;
-} {
+): RecalledEpisodeSelection {
   const episodes = getSnapshotEpisodeCandidates(slowBrainSnapshot);
-  if (episodes.length === 0) return {};
+  if (episodes.length === 0) {
+    return {
+      source: "none",
+      episodeIds: [],
+      fallbackUsed: false,
+    };
+  }
 
   const userText = normalizeText(userMessage);
   const userKeywords = extractKeywords(userMessage);
@@ -218,10 +268,19 @@ function recallEpisodesFromSnapshot(
     return {
       core: ranked[0]?.entry.layer === "core" ? ranked[0].entry : undefined,
       active: ranked[0]?.entry.status === "active" ? ranked[0].entry : undefined,
+      source: "snapshot",
+      episodeIds: [ranked[0].entry.id],
+      fallbackUsed: false,
     };
   }
 
-  return { core, active };
+  return {
+    core,
+    active,
+    source: "snapshot",
+    episodeIds: [core?.id, active?.id].filter(Boolean) as string[],
+    fallbackUsed: false,
+  };
 }
 
 function mapPersistentEpisodeToRecalledEpisode(
@@ -260,12 +319,11 @@ function mapPersistentEpisodeToRecalledEpisode(
 export async function recallEpisodes(
   slowBrainSnapshot: SlowBrainSnapshot | null | undefined,
   userMessage: string,
-  options?: { userId?: string },
-): Promise<{
-  core?: RecalledEpisode;
-  active?: RecalledEpisode;
-}> {
+  options?: { userId?: string; markReferenced?: boolean },
+): Promise<RecalledEpisodeSelection> {
+  let attemptedEpisodeStore = false;
   if (episodeStorePromptEnabled() && options?.userId) {
+    attemptedEpisodeStore = true;
     try {
       const ranked = await findRelevantEpisodes(options.userId, userMessage, 4);
       if (ranked.length > 0) {
@@ -277,25 +335,58 @@ export async function recallEpisodes(
           entry.status === "active" &&
           entry.id !== core?.id,
         );
+        const selectedIds = [core?.id, active?.id].filter(Boolean) as string[];
+        if (options.markReferenced !== false && selectedIds.length > 0) {
+          void Promise.allSettled(selectedIds.map((id) => markReferencedEpisode(id)));
+        }
         if (core || active) {
-          return { core, active };
+          return {
+            core,
+            active,
+            source: "episode_store",
+            episodeIds: selectedIds,
+            fallbackUsed: false,
+          };
         }
         const first = persistentEpisodes[0];
         if (first) {
+          const fallbackSelection: RecalledEpisode = first.layer === "core"
+            ? first
+            : { ...first, layer: "core" };
+          if (options.markReferenced !== false) {
+            const firstIds = [fallbackSelection.id];
+            void Promise.allSettled(firstIds.map((id) => markReferencedEpisode(id)));
+          }
           return {
-            core: first.layer === "core" ? first : undefined,
+            core: fallbackSelection,
             active: first.status === "active" ? first : undefined,
+            source: "episode_store",
+            episodeIds: [fallbackSelection.id],
+            fallbackUsed: false,
           };
         }
       }
     } catch (err) {
+      const health = getEmbeddingHealthSnapshot();
       logger.warn("episode store prompt recall failed, falling back to snapshot episodes", {
         error: (err as Error).message,
+        embeddingStatus: classifyEmbeddingError(err),
+        embeddingConfigured: health.configured,
+        embeddingBaseURL: health.baseURL ?? undefined,
+        embeddingModel: health.model ?? undefined,
       });
     }
   }
 
-  return recallEpisodesFromSnapshot(slowBrainSnapshot, userMessage);
+  const fallback = recallEpisodesFromSnapshot(slowBrainSnapshot, userMessage);
+  if (attemptedEpisodeStore) {
+    return {
+      ...fallback,
+      fallbackUsed: true,
+      source: fallback.source,
+    };
+  }
+  return fallback;
 }
 
 function shouldPreferThreadMemory(
@@ -532,6 +623,12 @@ export async function retrievePromptMemory(
 
   const seenKeys = new Set<string>();
   const selected: Memory[] = [];
+  let diagnostics: PromptMemoryDiagnostics = {
+    episodeRecallSource: "none",
+    episodeRecallIds: [],
+    episodeReferenceApplied: false,
+    episodeRecallFallback: false,
+  };
   const userText = normalizeText(options.userMessage);
   const userKeywords = extractKeywords(options.userMessage);
   const relationship = buildRelationshipTexts(options.slowBrainSnapshot);
@@ -564,8 +661,20 @@ export async function retrievePromptMemory(
     const recalledEpisodes = await recallEpisodes(
       options.slowBrainSnapshot,
       options.userMessage,
-      { userId: options.userId },
+      {
+        userId: options.userId,
+        markReferenced: options.markEpisodeReferenced !== false,
+      },
     );
+    diagnostics = {
+      episodeRecallSource: recalledEpisodes.source,
+      episodeRecallIds: recalledEpisodes.episodeIds,
+      episodeReferenceApplied:
+        recalledEpisodes.source === "episode_store" &&
+        (options.markEpisodeReferenced !== false) &&
+        (recalledEpisodes.core !== undefined || recalledEpisodes.active !== undefined),
+      episodeRecallFallback: recalledEpisodes.fallbackUsed,
+    };
     let structuredNarrativeAdded = false;
     if ((options.userId || hasStructuredSnapshotNarrative) && recalledEpisodes.core) {
       selected.push({
@@ -689,7 +798,16 @@ export async function retrievePromptMemory(
     totalEntries: entries.length,
     maxEntries,
     relationshipSummary: relationship.summaryText.slice(0, 80),
+    episodeRecallSource: diagnostics.episodeRecallSource,
+    episodeRecallIds: diagnostics.episodeRecallIds,
+    episodeReferenceApplied: diagnostics.episodeReferenceApplied,
+    episodeRecallFallback: diagnostics.episodeRecallFallback,
   });
+
+  if (options.touchSelected !== false) {
+    touchPromptMemories(repo, selected);
+  }
+  options.diagnostics?.(diagnostics);
 
   return selected;
 }

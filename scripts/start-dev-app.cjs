@@ -60,15 +60,23 @@ function readProcessInfo(pid) {
   const command = safeRun("ps", ["-o", "command=", "-p", String(pid)]).trim();
   const ppidValue = safeRun("ps", ["-o", "ppid=", "-p", String(pid)]).trim();
   const ppid = Number(ppidValue);
+  const cwdOutput = safeRun("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+  const cwdMatch = cwdOutput.match(/\nn(.+)\n?$/m);
+  const cwd = cwdMatch?.[1]?.trim() || null;
   return {
     pid,
     ppid: Number.isInteger(ppid) && ppid > 0 ? ppid : null,
     command,
+    cwd,
   };
 }
 
 function isRepoOwnedProcess(info) {
-  return Boolean(info.command) && info.command.includes(repoRoot);
+  if (Boolean(info.command) && info.command.includes(repoRoot)) return true;
+  if (info.cwd && (info.cwd === repoRoot || info.cwd.startsWith(`${repoRoot}${path.sep}`))) {
+    return true;
+  }
+  return false;
 }
 
 function chooseKillTargets(listeningPid) {

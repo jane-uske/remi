@@ -655,6 +655,31 @@ describe("duplex ws+pcm regression", () => {
     }
   });
 
+  it("keeps merged strict speech shape when speech resumes before the pending commit flushes", async () => {
+    const { ws, restore, pipelineCalls } = loadSessionHarness({
+      transcript: "我停一下然后接着说完。",
+    });
+    try {
+      emitDuplexStart(ws);
+      emitFrames(ws, [
+        ...repeatFrames(makeSineFrame(0.18), 6),
+        ...repeatFrames(makeSilenceFrame(), 12),
+        ...repeatFrames(makeSineFrame(0.18), 6),
+      ]);
+      emitDuplexStop(ws);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const messages = ws.parsedMessages();
+      const sttFinals = messages.filter((msg) => msg && msg.type === "stt_final");
+      assert.equal(sttFinals.length, 1, `messages=${JSON.stringify(messages)}`);
+      assert.equal(sttFinals[0].content, "我停一下然后接着说完。");
+      assert.equal(pipelineCalls.length, 1, `pipelineCalls=${JSON.stringify(pipelineCalls)}`);
+    } finally {
+      restore();
+    }
+  });
+
   it("suppresses short recovered fallback utterances at duplex_stop when they stay weak", async () => {
     const { ws, restore } = loadSessionHarness({ transcript: "再说一遍。" });
     try {

@@ -11,7 +11,9 @@ import {
   relationshipStateEnabled,
   savePersistentRelationshipState,
 } from "../../memory/relationship_state";
+import { markReferenced as markReferencedEpisode } from "../../memory/episode_store";
 import type { InterruptController } from "../../voice/interrupt_controller";
+import { getLatencyTracer } from "../../infra/latency_tracer";
 import { runPipeline } from "../pipeline";
 import { proactivePlannerMainPathEnabled, silenceNudgeMs } from "./runtime_config";
 import type { SessionTtsTransport } from "./tts_transport";
@@ -153,6 +155,7 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
               proactiveCandidateKey: proactivePlan.ledgerKey,
               sharedMomentCandidate: undefined,
               strategyMode: proactivePlan.mode,
+              episodeId: proactivePlan.episodeId,
             };
           }
         } catch (err) {
@@ -168,6 +171,15 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
 
       const generationId = runtime.nextGenerationId();
       const traceId = runtime.createTraceId("silence_nudge", generationId);
+      const latencyTracer = getLatencyTracer(runtime.connId);
+      if (nudgePlan.episodeId) {
+        latencyTracer.annotateTrace(traceId, {
+          episodeRecallSource: "episode_store",
+          episodeRecallIds: [nudgePlan.episodeId],
+          episodeReferenceApplied: false,
+          episodeRecallFallback: false,
+        });
+      }
       runtime.bindActiveGeneration(generationId, traceId, "silence_nudge");
       await runPipeline(
         runtime.ws,
@@ -192,6 +204,23 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
           nudgePlan.strategyMode,
           nudgePlan.proactiveCandidateKey,
         );
+        if (nudgePlan.episodeId) {
+          try {
+            await markReferencedEpisode(nudgePlan.episodeId);
+            latencyTracer.annotateTrace(traceId, {
+              episodeRecallSource: "episode_store",
+              episodeRecallIds: [nudgePlan.episodeId],
+              episodeReferenceApplied: true,
+              episodeRecallFallback: false,
+            });
+          } catch (err) {
+            logger.warn("[陪伴] proactive episode reference update failed", {
+              error: (err as Error).message,
+              connId: runtime.connId,
+              episodeId: nudgePlan.episodeId,
+            });
+          }
+        }
         runtime.brain.slowBrain.markContinuityCueUsed({
           proactiveCandidate: nudgePlan.proactiveCandidate,
           sharedMomentCandidate: nudgePlan.sharedMomentCandidate,

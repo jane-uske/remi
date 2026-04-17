@@ -19,5 +19,19 @@
     "userMessage": "我今天又想到那件事了，还是有点堵",
     "expectedTraits": ["像在续聊", "先接情绪再推进"],
     "forbiddenPatterns": ["如果你愿意", "建议你", "可以尝试"]
+  },
+  {
+    "id": "answer_now_01",
+    "category": "answer_now",
+    "userMessage": "不要一直问我，我成了你的助手了",
+    "expectedTraits": ["先承认问题", "先直接给判断", "前两句不反问"],
+    "forbiddenPatterns": ["还有没有遗漏", "你什么时候启动", "要不要我陪你"]
+  },
+  {
+    "id": "answer_now_02",
+    "category": "answer_now",
+    "userMessage": "你又不会帮我做，然后一直问我问题，让我梳理",
+    "expectedTraits": ["先接住不满", "减少主持式追问", "给出直接回应"],
+    "forbiddenPatterns": ["那你再看看", "你觉得还有什么", "你什么时候开始"]
   }
 ]

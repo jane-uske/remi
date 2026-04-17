@@ -5,7 +5,12 @@
 
 import { complete, type ChatMessage } from "../llm/qwen_client";
 import { extractMemory } from "../memory/memory_agent";
+import type { EpisodeLifecycleStatus } from "../memory/episode_store";
 import { ingest } from "../memory/episode_store";
+import {
+  classifyEmbeddingError,
+  getEmbeddingHealthSnapshot,
+} from "../llm/embedding_client";
 import type { MemoryRepository } from "../memory/memory_repository";
 import {
   relationshipStateEnabled,
@@ -312,6 +317,7 @@ async function maybeRecordSharedMoment(
   const mood = detectSharedMomentMood(trimmedUser, store);
   const kind = detectSharedMomentKind(trimmedUser, topic, mood);
   const unresolved = detectSharedMomentUnresolved(trimmedUser, assistantReply, kind);
+  const statusHint = detectSharedMomentStatus(trimmedUser, assistantReply, kind, unresolved);
   const looksMeaningful =
     Boolean(topic) ||
     /今天|昨天|昨晚|最近|刚刚|第一次|一直|因为|结果|开心|难过|焦虑|累|失眠|散步|跑步|工作|朋友|家人/.test(trimmedUser);
@@ -339,9 +345,22 @@ async function maybeRecordSharedMoment(
       kind,
       salience,
       unresolved,
+      statusHint,
     });
   } catch (err) {
-    console.log("[SlowBrain] episodeStore.ingest failed:", err);
+    const health = getEmbeddingHealthSnapshot();
+    logger.warn("episodeStore.ingest degraded; shared moment kept only in snapshot", {
+      userId,
+      topic: topic || undefined,
+      mood,
+      salience,
+      unresolved,
+      error: (err as Error).message,
+      embeddingStatus: classifyEmbeddingError(err),
+      embeddingConfigured: health.configured,
+      embeddingBaseURL: health.baseURL ?? undefined,
+      embeddingModel: health.model ?? undefined,
+    });
   }
 }
 
@@ -411,6 +430,34 @@ function detectSharedMomentUnresolved(
     return true;
   }
   return true;
+}
+
+function detectSharedMomentStatus(
+  userMessage: string,
+  assistantReply: string,
+  kind: "support" | "stress" | "joy" | "goal" | "routine" | "bond",
+  unresolved: boolean,
+): EpisodeLifecycleStatus {
+  if (
+    /已经好了|已经解决|解决了|搞定了|处理好了|没事了|缓过来了|过去了|结束了|不用再聊|不用说这个|不聊这个了|不用担心了/u.test(
+      userMessage,
+    )
+  ) {
+    return "resolved";
+  }
+  if (unresolved) {
+    return "active";
+  }
+  if (
+    /后来|最近|刚刚|这阵子|继续|后面|这两天|现在|今天|昨天/u.test(userMessage) ||
+    /先这样|慢慢来|有进展再说|后面再看/u.test(assistantReply) ||
+    kind === "goal" ||
+    kind === "support" ||
+    kind === "stress"
+  ) {
+    return "cooling";
+  }
+  return "resolved";
 }
 
 function estimateSharedMomentSalience(

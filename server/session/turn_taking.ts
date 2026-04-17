@@ -109,6 +109,8 @@ export interface StrictNoPreviewSuppressionInput {
   previewText: string;
   utteranceFrameCount?: number;
   utteranceStrongFrames?: number;
+  utteranceMaxRms?: number;
+  minUtteranceRms?: number;
   minStrongFrames?: number;
   minStrongRatio?: number;
   recognizedText?: string | null;
@@ -249,16 +251,17 @@ export function shouldSuppressStrictNoPreviewUtterance(
   const minStrongRatio = Math.max(0, Math.min(1, input.minStrongRatio ?? 0.22));
   const ratio = strongFrameRatio(totalFrames, strongFrames);
   const weakShape = strongFrames < minStrongFrames || ratio < minStrongRatio;
+  const weakRms = (input.utteranceMaxRms ?? 0) < (input.minUtteranceRms ?? 0.035);
 
   if (!input.recognizedText) {
-    return weakShape;
+    return weakShape && weakRms;
   }
 
   const compact = input.recognizedText
     .replace(/\s+/g, "")
     .replace(/[，。！？!?、,.~～…:：;；"'`“”‘’\-—_]/gu, "");
   const tinyText = compact.length > 0 && compact.length <= (input.tinyTextMaxChars ?? 5);
-  return weakShape && tinyText;
+  return weakShape && (weakRms || tinyText);
 }
 
 export function shouldSuppressRecoveredFallbackUtterance(

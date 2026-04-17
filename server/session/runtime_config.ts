@@ -298,6 +298,14 @@ export function suppressedNoiseBypassPeak(): number {
   return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_BYPASS_PEAK, 90) / 1000;
 }
 
+export function iosDuplexInputGain(): number {
+  const raw = process.env.REMI_IOS_DUPLEX_INPUT_GAIN;
+  if (raw === undefined || raw === "") return 6;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 6;
+  return Math.max(1, Math.min(12, n));
+}
+
 /** 随机选择打断反应音文本 */
 export function randomInterruptReaction(): string {
   const reactions = ["啊？", "嗯？", "怎么啦？"];

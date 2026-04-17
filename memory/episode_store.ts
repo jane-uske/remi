@@ -10,6 +10,9 @@ import {
 const MERGE_THRESHOLD = 0.85;
 const MAX_ORIGIN_SUMMARIES = 8;
 const RELEVANCE_TOP_K = 5;
+const RECENT_REFERENCE_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+export type EpisodeLifecycleStatus = "active" | "cooling" | "resolved";
 
 export interface MomentInput {
   userId: string;
@@ -19,6 +22,7 @@ export interface MomentInput {
   kind: string;
   salience: number;
   unresolved: boolean;
+  statusHint?: EpisodeLifecycleStatus;
 }
 
 export interface RankedEpisode {
@@ -39,6 +43,37 @@ function buildEpisodeSummary(moment: Pick<MomentInput, "summary" | "topic">): st
 
 function inferRelationshipWeight(moment: Pick<MomentInput, "salience">): number {
   return moment.salience;
+}
+
+function episodeLifecycleEnabled(): boolean {
+  const raw = (process.env.REMI_EPISODE_LIFECYCLE_ENABLED ?? "0").trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+function normalizeLifecycleStatus(status: string | null | undefined): EpisodeLifecycleStatus {
+  if (status === "active" || status === "cooling" || status === "resolved") {
+    return status;
+  }
+  return "cooling";
+}
+
+function resolveLifecycleStatus(
+  existing: DbEpisode | null,
+  moment: MomentInput,
+): EpisodeLifecycleStatus {
+  if (!episodeLifecycleEnabled()) {
+    return moment.unresolved ? "active" : normalizeLifecycleStatus(existing?.status);
+  }
+
+  const hint = moment.statusHint;
+  if (hint === "resolved") return "resolved";
+  if (hint === "active" || moment.unresolved) return "active";
+
+  const existingStatus = normalizeLifecycleStatus(existing?.status);
+  if (!existing) return "cooling";
+  if (existingStatus === "active") return "cooling";
+  if (existingStatus === "resolved") return "cooling";
+  return "cooling";
 }
 
 function clampOriginMomentSummaries(originMomentSummaries: string[]): string[] {
@@ -104,13 +139,15 @@ async function mergeIntoEpisode(
       moment.topic,
     ].filter(Boolean)),
   );
+  const status = resolveLifecycleStatus(existing, moment);
   const updated = await updateEpisode(existing.id, {
     summary: buildEpisodeSummary(moment),
     topics: mergedTopics,
     mood: moment.mood,
     salience: Math.max(existing.salience, moment.salience),
     recurrenceCount: existing.recurrence_count + 1,
-    unresolved: existing.unresolved || moment.unresolved,
+    unresolved: status === "active",
+    status,
     lastSeenAt: new Date(),
     centroidEmbedding,
     originMomentSummaries,
@@ -130,6 +167,7 @@ async function createNewEpisode(
 ): Promise<DbEpisode> {
   const summary = buildEpisodeSummary(moment);
   const titleSource = moment.topic || moment.summary;
+  const status = resolveLifecycleStatus(null, moment);
   return insertEpisode({
     userId: moment.userId,
     title: titleSource.slice(0, 30),
@@ -138,7 +176,8 @@ async function createNewEpisode(
     mood: moment.mood,
     kind: moment.kind,
     salience: moment.salience,
-    unresolved: moment.unresolved,
+    unresolved: status === "active",
+    status,
     centroidEmbedding: momentEmbedding,
     originMomentSummaries: [moment.summary],
     relationshipWeight: inferRelationshipWeight(moment),
@@ -163,11 +202,21 @@ export async function findRelevant(
       const daysSinceLastSeen = Math.max(0, (now - lastSeenAtMs) / 86400000);
       const recencyScore = 1 / (1 + daysSinceLastSeen);
       const unresolvedBoost = episode.unresolved ? 1 : 0;
+      const lastReferencedAtMs = episode.last_referenced_at instanceof Date
+        ? episode.last_referenced_at.getTime()
+        : episode.last_referenced_at
+          ? new Date(episode.last_referenced_at).getTime()
+          : 0;
+      const recentReferencePenalty =
+        lastReferencedAtMs > 0 && now - lastReferencedAtMs < RECENT_REFERENCE_WINDOW_MS
+          ? 0.18
+          : 0;
       const score =
         (0.6 * cosine) +
         (0.2 * episode.salience) +
         (0.1 * recencyScore) +
-        (0.1 * unresolvedBoost);
+        (0.1 * unresolvedBoost) -
+        recentReferencePenalty;
       return {
         episode,
         score,

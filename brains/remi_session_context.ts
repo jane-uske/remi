@@ -24,6 +24,7 @@ import {
   detectAnswerNowSignal,
   detectDecisionSeekingSignal,
 } from "../brain/tone_policy";
+import { deriveRelationalStance } from "./relational_stance";
 import type {
   ResponsePolicy,
   StructuredAnalysisSource,
@@ -212,6 +213,7 @@ export class RemiSessionContext {
     this.persona.liveState.energy = deriveEnergy(this.slowBrain);
     this.persona.liveState.closeness = deriveCloseness(this.slowBrain);
     this.persona.liveState.attention = deriveAttention(this.slowBrain, topicPull);
+    this.persona.liveState.relationalStance = deriveRelationalStance(snapshot);
 
     // Gap 3：恢复上次情绪（仅恢复类型，不恢复 intensity）
     if (state.lastEmotion) {
@@ -425,6 +427,7 @@ export class RemiSessionContext {
     liveState.energy = deriveEnergy(this.slowBrain);
     liveState.closeness = deriveCloseness(this.slowBrain);
     liveState.attention = deriveAttention(this.slowBrain, topicPull);
+    liveState.relationalStance = deriveRelationalStance(this.slowBrain.getSnapshot());
 
     // Layer 4：决定本轮主动意图
     liveState.proactiveIntent = lastUserMessage

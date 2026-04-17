@@ -75,6 +75,7 @@ export interface FastBrainInput {
   emotion: Emotion;
   memory: Memory[];
   history: PromptMessage[];
+  currentContext?: string;
   /** 由 Router 从 SlowBrainStore 注入 */
   strategyHints?: string;
   slowBrainContext?: string;
@@ -105,12 +106,14 @@ export async function* fastBrainStream(
     emotion: input.emotion,
     history: input.history,
     userMessage: input.userMessage,
+    currentContext: input.currentContext,
     priorityContext,
     persona: input.persona,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
   const strategyChars = input.strategyHints?.length ?? 0;
+  const currentContextChars = input.currentContext?.length ?? 0;
   const slowBrainContextChars = input.slowBrainContext?.length ?? 0;
   const systemChars = messages
     .filter((msg) => msg.role === "system")
@@ -133,6 +136,7 @@ export async function* fastBrainStream(
     slowBrainContextChars,
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
+    currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
     reasoningEffort: reasoningEffort ?? "provider_default",
   });
@@ -213,12 +217,14 @@ export async function fastBrainPredictOnly(
     emotion: input.emotion,
     history: input.history,
     userMessage: input.userMessage,
+    currentContext: input.currentContext,
     priorityContext,
     persona: input.persona,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
   const strategyChars = input.strategyHints?.length ?? 0;
+  const currentContextChars = input.currentContext?.length ?? 0;
   const slowBrainContextChars = input.slowBrainContext?.length ?? 0;
   const systemChars = messages
     .filter((msg) => msg.role === "system")
@@ -241,6 +247,7 @@ export async function fastBrainPredictOnly(
     slowBrainContextChars,
     memoryCount: input.memory.length,
     historyMessages: input.history.length,
+    currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
     reasoningEffort: reasoningEffort ?? "provider_default",
   });

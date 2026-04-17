@@ -5,6 +5,22 @@ export interface NormalizedPcmResult {
   resampled: boolean;
 }
 
+export function applyPcm16Gain(pcm: Buffer, gain: number): Buffer {
+  if (pcm.length === 0 || !Number.isFinite(gain) || gain <= 1) {
+    return Buffer.from(pcm);
+  }
+
+  const normalizedGain = Math.min(Math.max(gain, 1), 12);
+  const out = Buffer.allocUnsafe(pcm.length);
+  for (let index = 0; index < pcm.length - 1; index += 2) {
+    const sample = pcm.readInt16LE(index);
+    const amplified = Math.round(sample * normalizedGain);
+    const clamped = Math.max(-32768, Math.min(32767, amplified));
+    out.writeInt16LE(clamped, index);
+  }
+  return out;
+}
+
 export function normalizeDuplexPcm16Mono(
   pcm: Buffer,
   ingressSampleRate: number,

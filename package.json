@@ -29,6 +29,7 @@
     "prod:local:reset-demo-users": "node scripts/reset-demo-users.mjs",
     "logs:data-entry": "node scripts/log_data_analysis_entry.cjs",
     "duplex:data-entry": "node scripts/duplex_data_analysis_entry.cjs",
+    "memory:v2:audit": "node -r ts-node/register/transpile-only scripts/episode_memory_audit.ts",
     "build": "npm run build --prefix web && tsc",
     "test": "mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",

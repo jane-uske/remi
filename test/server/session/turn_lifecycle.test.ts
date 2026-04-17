@@ -56,4 +56,78 @@ describe("turn lifecycle protocol", () => {
       restore();
     }
   });
+
+  it("confirms end when playback_end arrives for the active playback generation", () => {
+    const { ws, session, restore } = loadSessionHarness();
+    try {
+      session.turnState = "assistant_speaking";
+      session.activeGenerationId = 11;
+
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({
+            type: "playback_start",
+            generationId: 11,
+          }),
+        ),
+      );
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({
+            type: "playback_end",
+            generationId: 11,
+          }),
+        ),
+      );
+
+      assert.equal(session.assistantPlaybackActive, false);
+      assert.equal(session.playbackGenerationId, null);
+      assert.equal(
+        ws.parsedMessages().some(
+          (msg) => msg?.type === "turn_state" && msg.state === "confirmed_end",
+        ),
+        true,
+        `messages=${JSON.stringify(ws.parsedMessages())}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("ignores playback_end when it belongs to another generation", () => {
+    const { ws, session, restore } = loadSessionHarness();
+    try {
+      session.turnState = "assistant_speaking";
+      session.activeGenerationId = 11;
+
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({
+            type: "playback_start",
+            generationId: 11,
+          }),
+        ),
+      );
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({
+            type: "playback_end",
+            generationId: 12,
+          }),
+        ),
+      );
+
+      assert.equal(session.assistantPlaybackActive, true);
+      assert.equal(session.playbackGenerationId, 11);
+      assert.equal(
+        ws.parsedMessages().some(
+          (msg) => msg?.type === "turn_state" && msg.state === "confirmed_end",
+        ),
+        false,
+        `messages=${JSON.stringify(ws.parsedMessages())}`,
+      );
+    } finally {
+      restore();
+    }
+  });
 });

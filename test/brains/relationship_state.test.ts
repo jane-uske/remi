@@ -12,6 +12,27 @@ const {
 } = require("../../memory/relationship_state");
 const { InMemoryRepository } = require("../../memory/memory_store");
 
+function applyEnv(values) {
+  const previous = {};
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+}
+
 function createPersistentRepo() {
   const hooks = { upsertArgs: [] };
   const store = new Map();
@@ -731,6 +752,106 @@ describe("relationship state persistence", () => {
 
     assert.equal(hooks.upsertArgs.length, 0);
     assert.ok(reply.includes("我听到了") || reply === "");
+  });
+
+  it("persists and restores working memory through relationship state payloads", async () => {
+    const restoreEnv = applyEnv({ REMI_WORKING_MEMORY_ENABLED: "1" });
+    const { repo } = createPersistentRepo();
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.applyWorkingMemoryDraft({
+      currentNeed: "用户想先判断先还哪笔债。",
+      currentConstraints: ["还欠花呗两万五", "手头现金紧"],
+      openLoop: "先还哪笔债更稳妥",
+      sceneState: "decision",
+      lastUpdatedTurn: 1,
+    });
+
+    try {
+      await savePersistentRelationshipState(repo, store.exportPersistentState(123));
+      const loaded = await loadPersistentRelationshipState(repo);
+
+      assert.deepEqual(loaded.workingMemory, {
+        currentNeed: "用户想先判断先还哪笔债。",
+        currentConstraints: ["还欠花呗两万五", "手头现金紧"],
+        openLoop: "先还哪笔债更稳妥",
+        sceneState: "decision",
+        lastUpdatedTurn: 1,
+      });
+
+      const restored = new SlowBrainStore();
+      restored.hydratePersistentState(loaded);
+      const snapshot = restored.getSnapshot();
+      assert.deepEqual(snapshot.workingMemory, loaded.workingMemory);
+      assert.ok(
+        restored.buildWorkingMemoryPromptBlock()?.includes("【当前上下文】"),
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("builds decision/context working memory and expires it after three turns", () => {
+    const restoreEnv = applyEnv({ REMI_WORKING_MEMORY_ENABLED: "1" });
+    const store = new SlowBrainStore();
+    store.recordTurn();
+
+    try {
+      const decisionDraft = store.buildWorkingMemoryDraft({
+        userMessage: "我到底该不该先把花呗还了，我还欠两万五",
+        interpretation: {
+          userAct: "decision_seek",
+          sceneState: "not_in_scene",
+          boundaryState: "none",
+          topicUpdate: { kind: "constraint_update", label: "债务" },
+        },
+      });
+      assert.ok(decisionDraft);
+      assert.equal(decisionDraft.sceneState, "decision");
+      assert.ok(decisionDraft.currentNeed.includes("明确判断"));
+      assert.equal(decisionDraft.currentConstraints.includes("我还欠两万五"), true);
+      store.applyWorkingMemoryDraft(decisionDraft);
+
+      const contextUpdateDraft = store.buildWorkingMemoryDraft({
+        userMessage: "而且我这个月房租也快到了，现金更紧",
+        interpretation: {
+          userAct: "context_update",
+          sceneState: "not_in_scene",
+          boundaryState: "none",
+          topicUpdate: { kind: "constraint_update", label: "现金流" },
+        },
+      });
+      assert.ok(contextUpdateDraft);
+      assert.equal(contextUpdateDraft.currentConstraints.length >= 2, true);
+      store.applyWorkingMemoryDraft(contextUpdateDraft);
+
+      const vetoDraft = store.buildWorkingMemoryDraft({
+        userMessage: "先别聊这个了",
+        interpretation: {
+          userAct: "topic_veto",
+          sceneState: "not_in_scene",
+          boundaryState: "veto_topic",
+          topicUpdate: { kind: "same_topic", label: "债务" },
+        },
+      });
+      assert.equal(vetoDraft, null);
+      store.applyWorkingMemoryDraft(vetoDraft);
+      assert.equal(store.getSnapshot().workingMemory, undefined);
+
+      store.applyWorkingMemoryDraft({
+        currentNeed: "用户在继续当前场景。",
+        currentConstraints: [],
+        openLoop: "继续眼前这个场景",
+        sceneState: "immersive",
+        lastUpdatedTurn: 1,
+      });
+      store.recordTurn();
+      store.recordTurn();
+      store.recordTurn();
+      assert.equal(store.getSnapshot().workingMemory, undefined);
+    } finally {
+      restoreEnv();
+    }
   });
 
   it("counts one completed turn even when relationship deltas update multiple times", () => {

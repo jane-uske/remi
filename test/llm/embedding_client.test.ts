@@ -218,4 +218,35 @@ describe("embedding_client", () => {
       [1, 2, 3],
     );
   });
+
+  it("reports config_missing in the health snapshot when base url is absent", () => {
+    delete process.env.REMI_EMBEDDING_BASE_URL;
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
+
+    const { getEmbeddingHealthSnapshot } = require("../../llm/embedding_client");
+    const snapshot = getEmbeddingHealthSnapshot();
+
+    assert.equal(snapshot.ok, false);
+    assert.equal(snapshot.status, "config_missing");
+    assert.match(snapshot.detail, /missing REMI_EMBEDDING_BASE_URL/);
+  });
+
+  it("performs a live embedding health check when the client is configured", async () => {
+    global.fetch = async () => ({
+      ok: true,
+      async json() {
+        return { data: [{ embedding: new Array(768).fill(0.1) }] };
+      },
+    });
+    process.env.REMI_EMBEDDING_BASE_URL = "http://localhost:11434/v1";
+    process.env.REMI_EMBEDDING_API_KEY = "test-key";
+
+    const { checkEmbeddingHealth } = require("../../llm/embedding_client");
+    const health = await checkEmbeddingHealth();
+
+    assert.equal(health.ok, true);
+    assert.equal(health.reachable, true);
+    assert.equal(health.dimensionsOk, true);
+    assert.equal(health.status, "ok");
+  });
 });

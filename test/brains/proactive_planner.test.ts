@@ -186,6 +186,7 @@ describe("proactive_planner", () => {
         text: "上次提到睡眠的事情，可以温和地问问最近怎么样了。",
         episodeId: "episode-care",
         ledgerKey: "episode:episode-care",
+        stanceMode: "steady_companion",
       });
     } finally {
       restore();
@@ -208,6 +209,7 @@ describe("proactive_planner", () => {
         text: "上次聊到「健身」还没说完，可以自然地接回这个话题。",
         episodeId: "episode-follow",
         ledgerKey: "episode:episode-follow",
+        stanceMode: "steady_companion",
       });
     } finally {
       restore();
@@ -277,6 +279,7 @@ describe("proactive_planner", () => {
         mode: "presence",
         text: "好久没聊了，可以随意打个招呼或聊聊最近的事。",
         ledgerKey: "presence:general",
+        stanceMode: "steady_companion",
       });
     } finally {
       restore();
@@ -297,6 +300,40 @@ describe("proactive_planner", () => {
         mode: "presence",
         text: "好久没聊了，可以随意打个招呼或聊聊最近的事。",
         ledgerKey: "presence:general",
+        stanceMode: "steady_companion",
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("backs off to presence when the relationship stance is still light", async () => {
+    const episode = makeEpisode({ id: "episode-care", title: "睡眠", mood: "焦虑" });
+    const { planner, restore } = loadPlanner({
+      episodeStore: {
+        listUnresolved: async () => [episode],
+      },
+    });
+
+    try {
+      const plan = await planner.planProactiveNudge(
+        "user-1",
+        makeSnapshot({
+          relationship: {
+            familiarity: 0.2,
+            emotionalBond: 0.1,
+            turnCount: 4,
+            preferredTopics: [],
+          },
+        }),
+      );
+
+      assert.deepEqual(plan, {
+        mode: "presence",
+        text: "前阵子那条「睡眠」我还记得着，如果你今天想说，我们就慢慢接上。",
+        episodeId: "episode-care",
+        ledgerKey: "episode:episode-care",
+        stanceMode: "light_presence",
       });
     } finally {
       restore();

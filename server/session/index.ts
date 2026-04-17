@@ -96,6 +96,7 @@ import {
   strictCandidateMinStrongRatio,
   suppressedNoiseBypassPeak,
   suppressedNoiseBypassRms,
+  iosDuplexInputGain,
   suppressedNoiseCooldownMs,
   turnTakingConfirmedStableMs,
   turnTakingEnabled,
@@ -141,7 +142,7 @@ import {
   type SessionClientFamily,
   type SessionTtsTransport,
 } from "./tts_transport";
-import { normalizeDuplexPcm16Mono } from "./audio_resample";
+import { applyPcm16Gain, normalizeDuplexPcm16Mono } from "./audio_resample";
 
 const logger = createLogger("session");
 const HISTORY_PAGE_SIZE = 15;
@@ -352,6 +353,7 @@ export class ConnectionSession {
     return {
       connId: this.connId,
       clientFamily: this.clientFamily,
+      duplexInputGain: this.currentDuplexInputGain(),
       ttsTransport: this.resolvedTtsTransport,
       timeZone: this.brain.getClientTimeZone(),
       locale: this.brain.getClientLocale(),
@@ -377,6 +379,10 @@ export class ConnectionSession {
       previewText: this.lastMeaningfulPartialText || this.lastPreviewText || "",
       ...extra,
     };
+  }
+
+  private currentDuplexInputGain(): number {
+    return this.clientFamily === "ios_lite" ? iosDuplexInputGain() : 1;
   }
 
   constructor(ws: WebSocket, req: IncomingMessage) {
@@ -768,6 +774,8 @@ export class ConnectionSession {
               previewText: job.previewText,
               utteranceFrameCount: job.usedNoVadFallback ? job.rawFrameCount : job.utteranceFrameCount,
               utteranceStrongFrames: job.usedNoVadFallback ? job.rawStrongFrames : job.utteranceStrongFrames,
+              utteranceMaxRms: job.usedNoVadFallback ? job.rawMaxRms : job.utteranceMaxRms,
+              minUtteranceRms: fallbackNoiseSuppressMinRms(),
               minStrongFrames: strictCandidateMinStrongFrames(),
               minStrongRatio: strictCandidateMinStrongRatio(),
               recognizedText: text,
@@ -2428,7 +2436,12 @@ export class ConnectionSession {
 
       this.lastSpeechStartAt = Date.now();
       this.lastVadStartMode = nextVadMode;
-      this.resetSpeechConfidenceMetrics();
+      // Keep cumulative speech-shape evidence when a short internal pause resumes
+      // the same utterance; otherwise stop-time suppression can misclassify the
+      // merged buffer as a fresh short weak segment.
+      if (!merging) {
+        this.resetSpeechConfidenceMetrics();
+      }
       logger.info("[VAD] speech_start", {
         connId: this.connId,
         mode: meta?.mode ?? "unknown",
@@ -2592,6 +2605,8 @@ export class ConnectionSession {
           previewText: turnPreview,
           utteranceFrameCount: this.utteranceFrameCount,
           utteranceStrongFrames: this.utteranceStrongFrames,
+          utteranceMaxRms: this.utteranceMaxRms,
+          minUtteranceRms: fallbackNoiseSuppressMinRms(),
           minStrongFrames: strictCandidateMinStrongFrames(),
           minStrongRatio: strictCandidateMinStrongRatio(),
         }) || (
@@ -2870,6 +2885,7 @@ export class ConnectionSession {
       sampleRate: rate,
       normalizedSampleRate: this.duplexSampleRate,
       inputMode: this.duplexInputMode,
+      inputGain: this.currentDuplexInputGain(),
     });
   }
 
@@ -2909,6 +2925,8 @@ export class ConnectionSession {
           previewText: turnPreview,
           utteranceFrameCount: this.utteranceFrameCount,
           utteranceStrongFrames: this.utteranceStrongFrames,
+          utteranceMaxRms: this.utteranceMaxRms,
+          minUtteranceRms: fallbackNoiseSuppressMinRms(),
           minStrongFrames: strictCandidateMinStrongFrames(),
           minStrongRatio: strictCandidateMinStrongRatio(),
         }));
@@ -3087,7 +3105,9 @@ export class ConnectionSession {
         frameBytes: pcm.length,
       });
     }
-    const normalizedPcm = normalized.pcm;
+    const inputGain = this.currentDuplexInputGain();
+    const normalizedPcm =
+      inputGain > 1 ? applyPcm16Gain(normalized.pcm, inputGain) : normalized.pcm;
     const sampleRate = normalized.normalizedSampleRate;
     this.duplexSampleRate = sampleRate;
     this.stt.setSampleRate(sampleRate);

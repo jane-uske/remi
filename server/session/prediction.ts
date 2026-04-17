@@ -6,7 +6,9 @@ import { fastBrainPredictOnly } from "../../brains/fast_brain";
 import { trimHistoryToTokenBudget } from "../../brains/history_budget";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { getLatencyTracer } from "../../infra/latency_tracer";
-import { retrievePromptMemory } from "../../memory/memory_agent";
+import {
+  retrievePromptMemory,
+} from "../../memory/memory_agent";
 import { send } from "../gateway";
 import { buildCarryForwardHint, classifyInterruption } from "./interruption";
 
@@ -36,6 +38,7 @@ export async function computeSessionPrediction(
 ): Promise<ComputeSessionPredictionResult> {
   const { brain, text, signal, options } = input;
   const latencyTracer = input.traceId ? getLatencyTracer(input.connId) : null;
+  const slowBrainSnapshot = brain.slowBrain.getSnapshot();
 
   if (latencyTracer && input.traceId) {
     latencyTracer.mark("memory_recall_start", input.traceId);
@@ -43,8 +46,20 @@ export async function computeSessionPrediction(
   const memory = await retrievePromptMemory(brain.memory, {
     userId: brain.userId,
     userMessage: text,
-    slowBrainSnapshot: brain.slowBrain.getSnapshot(),
+    slowBrainSnapshot,
     maxEntries: options?.mode === "short" ? 4 : 5,
+    touchSelected: false,
+    markEpisodeReferenced: false,
+    diagnostics: (meta) => {
+      if (latencyTracer && input.traceId) {
+        latencyTracer.annotateTrace(input.traceId, {
+          episodeRecallSource: meta.episodeRecallSource,
+          episodeRecallIds: meta.episodeRecallIds,
+          episodeReferenceApplied: meta.episodeReferenceApplied,
+          episodeRecallFallback: meta.episodeRecallFallback,
+        });
+      }
+    },
   }).finally(() => {
     if (latencyTracer && input.traceId) {
       latencyTracer.mark("memory_recall_end", input.traceId);
@@ -65,7 +80,7 @@ export async function computeSessionPrediction(
   const analysis = await analyzeTurn({
     userMessage: text,
     history: predictionHistory,
-    slowBrainSnapshot: brain.slowBrain.getSnapshot(),
+    slowBrainSnapshot,
     inputSource: "voice",
     signal,
   }).finally(() => {
@@ -87,11 +102,20 @@ export async function computeSessionPrediction(
     text,
     analysis?.used ? analysis : null,
   );
+  const workingMemoryDraft = analysis?.used
+    ? brain.slowBrain.buildWorkingMemoryDraft({
+        userMessage: text,
+        interpretation: analysis.interpretation,
+        responsePolicy: analysis.policy,
+      })
+    : null;
+  const currentContext = brain.slowBrain.buildWorkingMemoryPromptBlock(workingMemoryDraft);
   const reply = await fastBrainPredictOnly({
     userMessage: text,
     emotion: brain.emotion.getEmotion(),
     memory,
     history: predictionHistory,
+    currentContext,
     strategyHints: [
       guidance.hints,
       carryForwardHint,

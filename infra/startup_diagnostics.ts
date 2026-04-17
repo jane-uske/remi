@@ -1,6 +1,7 @@
 import fs from "fs";
 
 import { createLogger } from "./logger";
+import { resolveVolcTtsConfig } from "../voice/tts_volc";
 
 const logger = createLogger("startup");
 
@@ -50,7 +51,8 @@ export function logStartupDiagnostics(): void {
 
   const piperModelPath = process.env.piper_model;
   const piperModelStatus = filePresence(piperModelPath);
-  if ((process.env.tts_provider || "edge").toLowerCase() === "piper") {
+  const ttsProvider = (process.env.tts_provider || "edge").toLowerCase();
+  if (ttsProvider === "piper") {
     emit(
       piperModelStatus === "exists" ? "info" : "warn",
       "[Startup] Piper model check",
@@ -58,6 +60,21 @@ export function logStartupDiagnostics(): void {
         path: piperModelPath ?? null,
         status: piperModelStatus,
       },
+    );
+  } else if (ttsProvider === "volc") {
+    const volc = resolveVolcTtsConfig();
+    emit(
+      volc ? "info" : "warn",
+      "[Startup] Volc TTS config check",
+      volc
+        ? {
+            resourceId: volc.resourceId,
+            voiceType: volc.voiceType,
+            baseUrl: volc.baseUrl,
+          }
+        : {
+            missing: ["VOLC_TTS_API_KEY", "VOLC_TTS_RESOURCE_ID", "VOLC_TTS_VOICE_TYPE"],
+          },
     );
   }
 

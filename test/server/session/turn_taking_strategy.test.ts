@@ -154,6 +154,85 @@ describe("turn taking strategy", () => {
     assert.equal(decision.reasons.includes("partial_growth_plateau"), true);
   });
 
+  it("keeps a semantically complete question on HOLD when prosody suggests the user is still rising", () => {
+    const decision = decideTurnTaking(
+      makeInput({
+        previewText: "这样可以吗",
+        lastPartialUpdateAt: 1120,
+        lastGrowthAt: 1050,
+        prosody: {
+          reliable: true,
+          voicedRatio: 0.75,
+          voicedTailFrames: 4,
+          pitchFrames: 4,
+          pitchConfidence: 0.82,
+          pitchSlopeHz: 28,
+          tailEnergyDrop: 0.001,
+          risingTail: true,
+          fallingTail: false,
+          sustainedVoicedTail: true,
+        },
+      }),
+    );
+
+    assert.equal(decision.state, "HOLD");
+    assert.equal(decision.primaryReason, "prosody_hold_rising_tail");
+    assert.equal(decision.prosodyApplied, "prosody_hold_rising_tail");
+  });
+
+  it("releases a punctuated close earlier when prosody shows a falling tail and energy drop", () => {
+    const decision = decideTurnTaking(
+      makeInput({
+        previewText: "我今天就先说到这里。",
+        lastPartialUpdateAt: 1400,
+        lastGrowthAt: 1200,
+        prosody: {
+          reliable: true,
+          voicedRatio: 0.8,
+          voicedTailFrames: 4,
+          pitchFrames: 4,
+          pitchConfidence: 0.84,
+          pitchSlopeHz: -22,
+          tailEnergyDrop: 0.012,
+          risingTail: false,
+          fallingTail: true,
+          sustainedVoicedTail: true,
+        },
+      }),
+    );
+
+    assert.equal(decision.state, "LIKELY_END");
+    assert.equal(decision.primaryReason, "prosody_fast_release");
+    assert.equal(decision.prosodyApplied, "prosody_fast_release");
+    assert.equal(decision.gapMs, 80);
+  });
+
+  it("falls back to the baseline decision when prosody is unreliable", () => {
+    const decision = decideTurnTaking(
+      makeInput({
+        previewText: "这样可以吗",
+        lastPartialUpdateAt: 1120,
+        lastGrowthAt: 1050,
+        prosody: {
+          reliable: false,
+          voicedRatio: 0.2,
+          voicedTailFrames: 1,
+          pitchFrames: 0,
+          pitchConfidence: 0.18,
+          pitchSlopeHz: null,
+          tailEnergyDrop: null,
+          risingTail: true,
+          fallingTail: false,
+          sustainedVoicedTail: false,
+        },
+      }),
+    );
+
+    assert.equal(decision.state, "LIKELY_END");
+    assert.equal(decision.primaryReason, "semantic_end_cue");
+    assert.equal(decision.prosodyApplied, null);
+  });
+
   it("documents the no-preview fallback path", () => {
     const decision = decideTurnTaking(
       makeInput({

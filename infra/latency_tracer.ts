@@ -76,6 +76,10 @@ export interface LatencyMetricSnapshot {
 export interface LatencyTraceContext {
   generationId?: number;
   source?: "voice" | "text" | "silence_nudge";
+  episodeRecallSource?: "episode_store" | "snapshot" | "none";
+  episodeRecallIds?: string[];
+  episodeReferenceApplied?: boolean | null;
+  episodeRecallFallback?: boolean | null;
   scenarioKey?: string;
   sessionId?: string | null;
   utteranceSeq?: number | null;
@@ -184,6 +188,8 @@ export class LatencyTracer {
     current: LatencyTraceContext | undefined,
     patch: Partial<LatencyTraceContext>,
   ): LatencyTraceContext {
+    const episodeRecallIds = patch.episodeRecallIds ?? current?.episodeRecallIds;
+    const turnStateTransitions = patch.turnStateTransitions ?? current?.turnStateTransitions;
     return {
       ...(current ?? {}),
       ...patch,
@@ -199,7 +205,8 @@ export class LatencyTracer {
         patch.rejectedTranscript !== undefined
           ? this.summarizeText(patch.rejectedTranscript)
           : current?.rejectedTranscript,
-      turnStateTransitions: patch.turnStateTransitions ?? current?.turnStateTransitions,
+      ...(episodeRecallIds !== undefined ? { episodeRecallIds } : {}),
+      ...(turnStateTransitions !== undefined ? { turnStateTransitions } : {}),
     };
   }
 

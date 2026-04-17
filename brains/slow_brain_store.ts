@@ -7,7 +7,9 @@ import {
   buildPolicyToneContract,
   buildResponsePolicyGuidance,
   buildResponseShapeContract,
+  type ResponsePolicy,
   type TurnAnalysisBundle,
+  type TurnInterpretation,
 } from "../brain/turn_interpreter";
 import {
   buildProactivePostureGuidance,
@@ -161,6 +163,16 @@ export interface ProactiveStrategyState {
   lastProactiveMode?: ProactiveMode | "";
 }
 
+export type WorkingMemorySceneState = "none" | "planning" | "decision" | "immersive";
+
+export interface WorkingMemory {
+  currentNeed: string;
+  currentConstraints: string[];
+  openLoop: string;
+  sceneState: WorkingMemorySceneState;
+  lastUpdatedTurn: number;
+}
+
 export interface SlowBrainSnapshot {
   userProfile: UserProfile;
   relationship: RelationshipState;
@@ -171,6 +183,7 @@ export interface SlowBrainSnapshot {
   sharedMoments: SharedMoment[];
   episodes?: Episode[];
   topicThreads?: TopicThread[];
+  workingMemory?: WorkingMemory;
   continuityCueState: ContinuityCueState;
   topicBoundaryState?: TopicBoundaryState;
   proactiveLedger?: ProactiveLedgerEntry[];
@@ -194,6 +207,28 @@ export interface SilenceNudgePlan {
   proactiveCandidateKey?: string;
   sharedMomentCandidate?: string;
   strategyMode?: ProactiveMode;
+  episodeId?: string;
+}
+
+const WORKING_MEMORY_TTL_TURNS = 3;
+const WORKING_MEMORY_MAX_CHARS = 180;
+
+function workingMemoryEnabled(): boolean {
+  const raw = (process.env.REMI_WORKING_MEMORY_ENABLED ?? "0").trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+function clipWorkingMemoryText(text: string, maxChars: number): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function describeWorkingMemoryScene(sceneState: WorkingMemorySceneState): string {
+  if (sceneState === "planning") return "planning";
+  if (sceneState === "decision") return "decision";
+  if (sceneState === "immersive") return "immersive";
+  return "none";
 }
 
 export class SlowBrainStore {
@@ -235,6 +270,7 @@ export class SlowBrainStore {
     cooldownUntilAt: 0,
     lastProactiveMode: "",
   };
+  private workingMemory: WorkingMemory | null = null;
   private derivedCache: {
     topicSignals: DerivedTopicSignal[];
     episodes: Episode[];
@@ -439,6 +475,15 @@ export class SlowBrainStore {
       conversationSummary: snap.conversationSummary,
       proactiveTopics: [...snap.proactiveTopics],
       sharedMoments: snap.sharedMoments.map((entry) => ({ ...entry })),
+      workingMemory: snap.workingMemory
+        ? {
+            currentNeed: snap.workingMemory.currentNeed,
+            currentConstraints: [...snap.workingMemory.currentConstraints],
+            openLoop: snap.workingMemory.openLoop,
+            sceneState: snap.workingMemory.sceneState,
+            lastUpdatedTurn: snap.workingMemory.lastUpdatedTurn,
+          }
+        : undefined,
       continuityCueState: { ...snap.continuityCueState },
       proactiveLedger: proactiveLedger.map((entry) => ({ ...entry })),
       proactiveStrategyState: { ...proactiveStrategyState },
@@ -526,12 +571,22 @@ export class SlowBrainStore {
       state.proactiveStrategyState.cooldownUntilAt;
     this.proactiveStrategyState.lastProactiveMode =
       state.proactiveStrategyState.lastProactiveMode ?? "";
+    this.workingMemory = state.workingMemory
+      ? {
+          currentNeed: state.workingMemory.currentNeed,
+          currentConstraints: [...state.workingMemory.currentConstraints],
+          openLoop: state.workingMemory.openLoop,
+          sceneState: state.workingMemory.sceneState,
+          lastUpdatedTurn: state.workingMemory.lastUpdatedTurn,
+        }
+      : null;
     this.topicBoundaryState = null;
     this.invalidateDerivedCache();
   }
 
   getSnapshot(): SlowBrainSnapshot {
     const derived = this.getDerivedCache();
+    const workingMemory = this.getActiveWorkingMemory();
     return {
       userProfile: {
         facts: new Map(this.profile.facts),
@@ -546,6 +601,15 @@ export class SlowBrainStore {
       sharedMoments: this.sharedMoments.map((entry) => ({ ...entry })),
       episodes: this.cloneEpisodesForSnapshot(derived.episodes),
       topicThreads: this.cloneTopicThreadsForSnapshot(derived.topicThreads),
+      workingMemory: workingMemory
+        ? {
+            currentNeed: workingMemory.currentNeed,
+            currentConstraints: [...workingMemory.currentConstraints],
+            openLoop: workingMemory.openLoop,
+            sceneState: workingMemory.sceneState,
+            lastUpdatedTurn: workingMemory.lastUpdatedTurn,
+          }
+        : undefined,
       continuityCueState: { ...this.continuityCueState },
       topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
@@ -555,6 +619,115 @@ export class SlowBrainStore {
       memoryCarryRule: derived.memoryCarryRule,
       proactivePosture: derived.proactivePosture,
     };
+  }
+
+  buildWorkingMemoryDraft(input: {
+    userMessage: string;
+    interpretation?: TurnInterpretation | null;
+    responsePolicy?: ResponsePolicy | null;
+    directCapabilityId?: string | null;
+  }): WorkingMemory | null {
+    if (!workingMemoryEnabled()) return null;
+
+    const active = this.getActiveWorkingMemory();
+    const trimmed = clipWorkingMemoryText(input.userMessage, 72);
+    if (!trimmed) return active;
+    if (!input.interpretation && !input.directCapabilityId) {
+      return active;
+    }
+
+    if (input.interpretation?.boundaryState === "veto_topic") {
+      return null;
+    }
+
+    const currentConstraints = this.extractWorkingMemoryConstraints(input.userMessage);
+    const currentNeed = this.deriveWorkingMemoryNeed(
+      trimmed,
+      input.interpretation ?? null,
+      input.directCapabilityId ?? null,
+    );
+    const sceneState = this.deriveWorkingMemorySceneState(
+      input.userMessage,
+      input.interpretation ?? null,
+      input.directCapabilityId ?? null,
+    );
+
+    const shouldOverwrite =
+      input.directCapabilityId != null ||
+      input.responsePolicy?.shouldUpdateDecisionContext === true ||
+      input.interpretation?.sceneState === "already_in_scene" ||
+      input.interpretation?.userAct === "scene_continue" ||
+      input.interpretation?.topicUpdate?.kind === "new_topic" ||
+      input.interpretation?.userAct === "answer_now" ||
+      input.interpretation?.userAct === "decision_seek" ||
+      input.interpretation?.userAct === "direct_question";
+
+    const nextConstraints =
+      input.interpretation?.userAct === "context_update"
+        ? [
+            ...(active?.currentConstraints ?? []),
+            ...currentConstraints,
+          ]
+            .filter(Boolean)
+            .filter((entry, index, list) => list.indexOf(entry) === index)
+            .slice(-3)
+        : currentConstraints.slice(0, 3);
+
+    const openLoop = this.deriveWorkingMemoryOpenLoop(
+      trimmed,
+      input.interpretation ?? null,
+      input.directCapabilityId ?? null,
+      active,
+    );
+
+    if (!shouldOverwrite && !openLoop && nextConstraints.length === 0) {
+      return active;
+    }
+
+    return {
+      currentNeed: currentNeed || active?.currentNeed || trimmed,
+      currentConstraints: nextConstraints,
+      openLoop,
+      sceneState,
+      lastUpdatedTurn: this.relationship.turnCount + 1,
+    };
+  }
+
+  applyWorkingMemoryDraft(draft: WorkingMemory | null | undefined): void {
+    if (!workingMemoryEnabled()) return;
+    this.workingMemory = draft
+      ? {
+          currentNeed: draft.currentNeed,
+          currentConstraints: [...draft.currentConstraints],
+          openLoop: draft.openLoop,
+          sceneState: draft.sceneState,
+          lastUpdatedTurn: draft.lastUpdatedTurn,
+        }
+      : null;
+    this.invalidateDerivedCache();
+  }
+
+  buildWorkingMemoryPromptBlock(draft?: WorkingMemory | null): string | undefined {
+    if (!workingMemoryEnabled()) return undefined;
+    const workingMemory = draft ?? this.getActiveWorkingMemory();
+    if (!workingMemory) return undefined;
+
+    const parts = [
+      workingMemory.currentNeed
+        ? `当前需求：${workingMemory.currentNeed}`
+        : "",
+      workingMemory.currentConstraints.length > 0
+        ? `现实约束：${workingMemory.currentConstraints.join("；")}`
+        : "",
+      workingMemory.openLoop
+        ? `未收口问题：${workingMemory.openLoop}`
+        : "",
+      workingMemory.sceneState !== "none"
+        ? `场景状态：${describeWorkingMemoryScene(workingMemory.sceneState)}`
+        : "",
+    ].filter(Boolean);
+    if (parts.length === 0) return undefined;
+    return `【当前上下文】\n${clipWorkingMemoryText(parts.join("\n"), WORKING_MEMORY_MAX_CHARS)}`;
   }
 
   recordUserTurnActivity(userMessage?: string): void {
@@ -980,6 +1153,101 @@ export class SlowBrainStore {
     return this.buildConversationGuidance(userMessage, analysis).hints;
   }
 
+  private extractWorkingMemoryConstraints(userMessage: string): string[] {
+    const fragments = userMessage
+      .split(/[，。！？；;,.!?]/u)
+      .map((part) => clipWorkingMemoryText(part, 48))
+      .filter(Boolean);
+    const constraintLike = /(\d|钱|预算|负债|花呗|房租|贷款|offer|面试|时间|今天|这周|这个月|最近|已经|还|只能|不能|没法|不想|别|先不)/u;
+    return fragments.filter((entry) => constraintLike.test(entry)).slice(0, 3);
+  }
+
+  private deriveWorkingMemoryNeed(
+    trimmedUserMessage: string,
+    interpretation: TurnInterpretation | null,
+    directCapabilityId: string | null,
+  ): string {
+    if (directCapabilityId === "date_recap") {
+      return "用户想回顾某个日期聊过什么。";
+    }
+    if (directCapabilityId === "time") {
+      return "用户想确认当前时间或日期。";
+    }
+    if (!interpretation) {
+      return clipWorkingMemoryText(trimmedUserMessage, 64);
+    }
+
+    const label = interpretation.topicUpdate?.label?.trim();
+    switch (interpretation.userAct) {
+      case "decision_seek":
+        return label
+          ? `用户想就「${label}」得到明确判断。`
+          : `用户想得到明确判断：${clipWorkingMemoryText(trimmedUserMessage, 36)}`;
+      case "answer_now":
+        return `用户要直接回答：${clipWorkingMemoryText(trimmedUserMessage, 36)}`;
+      case "context_update":
+        return label
+          ? `用户在补充「${label}」的现实约束。`
+          : "用户在补充新的现实约束。";
+      case "scene_continue":
+        return `用户在继续当前场景：${clipWorkingMemoryText(trimmedUserMessage, 36)}`;
+      case "emotional_share":
+        return label
+          ? `用户在说「${label}」这条线上的感受。`
+          : `用户在表达当前感受：${clipWorkingMemoryText(trimmedUserMessage, 36)}`;
+      case "direct_question":
+        return `用户在问：${clipWorkingMemoryText(trimmedUserMessage, 36)}`;
+      default:
+        return clipWorkingMemoryText(trimmedUserMessage, 64);
+    }
+  }
+
+  private deriveWorkingMemorySceneState(
+    userMessage: string,
+    interpretation: TurnInterpretation | null,
+    directCapabilityId: string | null,
+  ): WorkingMemorySceneState {
+    if (directCapabilityId) return "decision";
+    if (interpretation?.sceneState === "already_in_scene" || interpretation?.userAct === "scene_continue") {
+      return "immersive";
+    }
+    if (
+      interpretation?.userAct === "decision_seek" ||
+      interpretation?.userAct === "answer_now" ||
+      interpretation?.userAct === "context_update" ||
+      interpretation?.userAct === "direct_question"
+    ) {
+      return "decision";
+    }
+    if (/计划|打算|准备|想要|目标|安排|下一步|之后/u.test(userMessage)) {
+      return "planning";
+    }
+    return "none";
+  }
+
+  private deriveWorkingMemoryOpenLoop(
+    trimmedUserMessage: string,
+    interpretation: TurnInterpretation | null,
+    directCapabilityId: string | null,
+    active: WorkingMemory | null,
+  ): string {
+    if (directCapabilityId) return "";
+    if (interpretation?.boundaryState === "veto_topic") return "";
+    if (interpretation?.userAct === "context_update") {
+      return active?.openLoop || active?.currentNeed || clipWorkingMemoryText(trimmedUserMessage, 52);
+    }
+    if (
+      interpretation?.userAct === "decision_seek" ||
+      interpretation?.userAct === "answer_now" ||
+      interpretation?.userAct === "direct_question" ||
+      interpretation?.userAct === "scene_continue" ||
+      interpretation?.userAct === "emotional_share"
+    ) {
+      return clipWorkingMemoryText(trimmedUserMessage, 52);
+    }
+    return active?.openLoop ?? "";
+  }
+
   markContinuityCueUsed(input: {
     proactiveCandidate?: string | null;
     sharedMomentCandidate?: string | null;
@@ -1004,6 +1272,21 @@ export class SlowBrainStore {
 
   private invalidateDerivedCache(): void {
     this.derivedCache = null;
+  }
+
+  private getActiveWorkingMemory(): WorkingMemory | null {
+    if (!this.workingMemory) return null;
+    if (this.relationship.turnCount - this.workingMemory.lastUpdatedTurn >= WORKING_MEMORY_TTL_TURNS) {
+      this.workingMemory = null;
+      return null;
+    }
+    return {
+      currentNeed: this.workingMemory.currentNeed,
+      currentConstraints: [...this.workingMemory.currentConstraints],
+      openLoop: this.workingMemory.openLoop,
+      sceneState: this.workingMemory.sceneState,
+      lastUpdatedTurn: this.workingMemory.lastUpdatedTurn,
+    };
   }
 
   private getActiveTopicBoundaryState(): TopicBoundaryState | null {
@@ -1038,6 +1321,7 @@ export class SlowBrainStore {
       sharedMoments: this.sharedMoments.map((entry) => ({ ...entry })),
       episodes,
       topicThreads,
+      workingMemory: this.getActiveWorkingMemory() ?? undefined,
       continuityCueState: { ...this.continuityCueState },
       topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),

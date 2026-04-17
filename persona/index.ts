@@ -16,6 +16,29 @@ export type ProactiveIntent =
   | "preference"  // 偏好表达：带一点她自己的倾向或观点
   | "none";       // 正常回应即可
 
+export type RelationalStanceMode =
+  | "light_presence"
+  | "steady_companion"
+  | "anchored_care"
+  | "close_warmth";
+
+export type RelationalBoundary = "light" | "steady" | "close";
+export type RelationalSoothingStyle =
+  | "listen_first"
+  | "gentle_checkin"
+  | "grounded_reassurance"
+  | "easy_banter";
+export type RelationalProactiveCadence = "low" | "guarded" | "balanced";
+export type RelationalExpressionDirectness = "soft" | "balanced" | "clear";
+
+export type RelationalStance = {
+  mode: RelationalStanceMode;
+  boundary: RelationalBoundary;
+  soothingStyle: RelationalSoothingStyle;
+  proactiveCadence: RelationalProactiveCadence;
+  expressionDirectness: RelationalExpressionDirectness;
+};
+
 export type PersonaLiveState = {
   // ── 6 核心状态 ──
   mood: string;               // 心情：平静/开心/委屈/好奇/低落
@@ -27,6 +50,7 @@ export type PersonaLiveState = {
 
   // ── Layer 4 信号 ──
   proactiveIntent: ProactiveIntent;
+  relationalStance: RelationalStance;
 
   // ── 内部辅助状态（不直接映射到设计的6字段，但驱动派生逻辑） ──
   recentInteractions: string[];
@@ -55,6 +79,7 @@ export type PersonaState = {
 };
 
 type BuildPersonaPromptOptions = {
+  currentContext?: string;
   priorityContext?: string;
   relationshipStageLabel?: string;
   replyShapeContract?: string;
@@ -80,6 +105,13 @@ export function createDefaultPersona(): PersonaState {
       lastInterrupted: false,
       topicPull: "",
       proactiveIntent: "none",
+      relationalStance: {
+        mode: "steady_companion",
+        boundary: "steady",
+        soothingStyle: "gentle_checkin",
+        proactiveCadence: "guarded",
+        expressionDirectness: "balanced",
+      },
       recentInteractions: [],
       isContinuingTopic: false,
       wasInterrupted: false,
@@ -88,6 +120,19 @@ export function createDefaultPersona(): PersonaState {
       lastTopicSummary: "无最近话题",
     },
   };
+}
+
+function relationalStanceGuidance(stance: RelationalStance): string {
+  switch (stance.mode) {
+    case "light_presence":
+      return "关系姿态先轻一点：稳住边界，先陪着接住，不要把关系说得太近，也不要连续追问。";
+    case "anchored_care":
+      return "关系姿态偏安抚：可以更明确地接住情绪、给一点落点，但仍然别像审问或说教。";
+    case "close_warmth":
+      return "关系姿态偏熟悉：可以更生活化、更自然地接话，允许一点自己的偏好和轻分享。";
+    default:
+      return "关系姿态以稳定陪伴为主：先接住，再轻轻推进，不抢关系、不端着。";
+  }
 }
 
 // ── 状态 → Prompt 翻译 ───────────────────────────────────────────
@@ -167,6 +212,9 @@ export function buildPersonaPrompt(
   const sections: string[] = [];
 
   // 1. 关系/策略上下文（慢脑注入，最高优先级）
+  if (options.currentContext?.trim()) {
+    sections.push(options.currentContext.trim());
+  }
   if (options.relationshipStageLabel?.trim()) {
     sections.push(`【关系阶段】\n${options.relationshipStageLabel.trim()}`);
   }
@@ -200,6 +248,7 @@ export function buildPersonaPrompt(
   sections.push(
     `【人格设定】${persona.profile.label}；${persona.profile.coreIdentity}；${persona.profile.toneGuide}；${persona.profile.proactiveGuide}`,
   );
+  sections.push(`【关系姿态】${relationalStanceGuidance(liveState.relationalStance)}`);
 
   // 4. Layer 2: 角色状态（6 个字段翻译为 prompt 指导）
   const stateLines: string[] = [

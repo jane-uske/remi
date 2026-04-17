@@ -14,6 +14,9 @@ final class RemiChatStore: ObservableObject {
     private static let duplexConnectingCaption = "Connecting voice..."
     private static let pushToTalkListeningCaption = "Listening... release to send"
     private static let pushToTalkResultTimeoutNs: UInt64 = 4_500_000_000
+    private static let pushToTalkPartialGraceTimeoutNs: UInt64 = 7_000_000_000
+    private static let audioDrainPollNs: UInt64 = 60_000_000
+    private static let audioDrainForceStopNs: UInt64 = 420_000_000
 
     @Published private(set) var messages: [ChatMessage] = []
     @Published private(set) var connectionPhase: ConnectionPhase = .closed
@@ -43,6 +46,7 @@ final class RemiChatStore: ObservableObject {
     private var historyCursor: HistoryCursor?
     private var historySource: HistorySource = .cache
     private var pendingChatPayloads: [[String: Any]] = []
+    private var didSendClientContextForCurrentSocket = false
     private let audioSession = RemiAudioSessionCoordinator()
     private let voiceCapture: RemiVoiceCapture
     private let voicePlayer: RemiVoicePlayer
@@ -50,12 +54,22 @@ final class RemiChatStore: ObservableObject {
     private var activeVoiceMode: VoiceCaptureMode?
     private var lastUserTranscriptAtMs: Int64 = 0
     private var lastMeaningfulVoicePartial = ""
+    private var acceptingCapturedAudioFrames = false
+    private var outboundAudioFrames: [Data] = []
+    private var audioFrameSendInFlight = false
+    private var pendingDuplexStopAfterDrain = false
+    private var audioDrainTask: Task<Void, Never>?
+    private var audioDrainForceDeadlineNs: UInt64?
+    private var duplexTxFrameCount = 0
 
     init() {
         voiceCapture = RemiVoiceCapture(audioSession: audioSession)
         voicePlayer = RemiVoicePlayer(audioSession: audioSession)
         voicePlayer.onPlaybackStart = { [weak self] generationId in
             self?.sendPlaybackStart(generationId: generationId)
+        }
+        voicePlayer.onPlaybackEnd = { [weak self] generationId in
+            self?.sendPlaybackEnd(generationId: generationId)
         }
         loadCachedMessages()
     }
@@ -77,6 +91,7 @@ final class RemiChatStore: ObservableObject {
         resetVoiceStatus()
         clearAssistantResponseWait()
         voicePlayer.stopAll()
+        resetOutboundAudioState(dropQueuedFrames: true)
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         connectionPhase = .closed
@@ -143,11 +158,15 @@ final class RemiChatStore: ObservableObject {
                 self.voiceRecording = true
                 self.voiceStartTask = nil
                 self.voiceStatusCaption = Self.pushToTalkListeningCaption
+                self.acceptingCapturedAudioFrames = true
+                self.log("voice capture ready mode=push_to_talk sampleRate=\(sampleRate)")
                 self.sendJSON([
                     "type": "duplex_start",
+                    "mode": "push_to_talk",
                     "sampleRate": sampleRate,
                 ])
             } catch {
+                self.log("voice capture failed mode=push_to_talk error=\(error.localizedDescription)")
                 self.voiceStartTask = nil
                 self.pendingVoiceStartMode = nil
                 self.activeVoiceMode = nil
@@ -241,11 +260,15 @@ final class RemiChatStore: ObservableObject {
                 self.voiceRecording = true
                 self.voiceStartTask = nil
                 self.voiceStatusCaption = Self.duplexIdleCaption
+                self.acceptingCapturedAudioFrames = true
+                self.log("voice capture ready mode=duplex sampleRate=\(sampleRate)")
                 self.sendJSON([
                     "type": "duplex_start",
+                    "mode": "duplex",
                     "sampleRate": sampleRate,
                 ])
             } catch {
+                self.log("voice capture failed mode=duplex error=\(error.localizedDescription)")
                 self.voiceStartTask = nil
                 self.pendingVoiceStartMode = nil
                 self.activeVoiceMode = nil
@@ -282,8 +305,10 @@ final class RemiChatStore: ObservableObject {
         activeVoiceMode = nil
         pushToTalkRecording = false
         voiceRecording = false
-        if sendDuplexStop, socket != nil {
-            sendJSON(["type": "duplex_stop"])
+        if sendDuplexStop {
+            requestDuplexStopAfterAudioDrain()
+        } else {
+            resetOutboundAudioState(dropQueuedFrames: true)
         }
         if clearStatus {
             resetVoiceStatus()
@@ -325,8 +350,10 @@ final class RemiChatStore: ObservableObject {
         voiceCapture.stop()
         activeVoiceMode = nil
         voiceRecording = false
-        if sendDuplexStop, socket != nil {
-            sendJSON(["type": "duplex_stop"])
+        if sendDuplexStop {
+            requestDuplexStopAfterAudioDrain()
+        } else {
+            resetOutboundAudioState(dropQueuedFrames: true)
         }
 
         if keepDesiredState {
@@ -356,7 +383,7 @@ final class RemiChatStore: ObservableObject {
     }
 
     private func connect() {
-        guard let url = URL(string: RemiChatConfig.wsURLString) else {
+        guard let url = RemiChatConfig.resolvedWebSocketURL() else {
             appendMessage(ChatMessage(role: .error, text: "Invalid WebSocket URL"))
             connectionPhase = .closed
             return
@@ -371,13 +398,20 @@ final class RemiChatStore: ObservableObject {
         reconnectTask = nil
 
         var request = URLRequest(url: url)
+        let authMode: String
         if let jwt = RemiChatConfig.jwtToken {
             request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+            authMode = "jwt"
         } else if let mobileKey = RemiChatConfig.mobileDevKey {
             request.setValue(mobileKey, forHTTPHeaderField: "X-Remi-Mobile-Key")
+            authMode = "mobile_dev_key"
+        } else {
+            authMode = "none"
         }
+        log("ws connect url=\(redactedWebSocketURL(url)) auth=\(authMode)")
 
         connectionPhase = .connecting
+        didSendClientContextForCurrentSocket = false
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         task.resume()
@@ -416,53 +450,67 @@ final class RemiChatStore: ObservableObject {
     private func consumeServerText(_ text: String) {
         if connectionPhase != .open {
             connectionPhase = .open
+            log("ws open")
+            sendClientContextIfNeeded()
             flushPendingChatPayloads()
             beginDuplexIfPossible()
         }
-        guard let data = text.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = payload["type"] as? String else {
+        guard let message = RemiServerWireMessageParser.parse(text) else {
+            log("server raw text (unparsed) \(text.prefix(160))")
             return
         }
 
-        switch type {
-        case "chat_chunk":
-            let chunk = payload["content"] as? String ?? ""
+        consumeServerMessage(message)
+    }
+
+    private func consumeServerMessage(_ message: RemiServerWireMessage) {
+        switch message {
+        case .chatChunk(let chunk, let generationId):
             guard !chunk.isEmpty else { return }
+            log("server chat_chunk gen=\(generationId.map(String.init) ?? "nil") chars=\(chunk.count)")
             clearAssistantResponseWait()
-            let generationId = intValue(payload["generationId"])
             appendAssistantChunk(chunk, generationId: generationId)
 
-        case "chat_end":
+        case .chatEnd(let fullContent, let generationId):
+            log("server chat_end gen=\(generationId.map(String.init) ?? "nil") chars=\(fullContent?.count ?? 0)")
             clearAssistantResponseWait()
-            let generationId = intValue(payload["generationId"])
-            let fullContent = payload["content"] as? String
             finalizeAssistantMessage(generationId: generationId, fullContent: fullContent)
 
-        case "emotion":
-            if let nextEmotion = payload["emotion"] as? String {
-                emotion = nextEmotion
-            }
+        case .emotion(let nextEmotion):
+            emotion = nextEmotion
 
-        case "voice":
-            if let audio = payload["audio"] as? String {
-                clearAssistantResponseWait()
-                voicePlayer.enqueue(base64Audio: audio, generationId: intValue(payload["generationId"]))
-            }
+        case .voice(let audio, let generationId):
+            log("server voice gen=\(generationId.map(String.init) ?? "nil") bytes=\(audio.count)")
+            clearAssistantResponseWait()
+            voicePlayer.enqueue(base64Audio: audio, generationId: generationId)
 
-        case "vad_start":
+        case .voicePcmChunk(let audio, let sampleRate, let channels, let bitsPerSample, let generationId):
+            log("server voice_pcm_chunk gen=\(generationId.map(String.init) ?? "nil") sr=\(sampleRate) ch=\(channels) bits=\(bitsPerSample) bytes=\(audio.count)")
+            clearAssistantResponseWait()
+            voicePlayer.enqueuePcmChunk(
+                base64Audio: audio,
+                sampleRate: sampleRate,
+                channels: channels,
+                bitsPerSample: bitsPerSample,
+                generationId: generationId
+            )
+
+        case .vadStart:
+            log("server vad_start")
             if duplexEnabled {
                 voiceStatusCaption = "Listening..."
             }
 
-        case "vad_end":
+        case .vadEnd:
+            log("server vad_end")
             if duplexEnabled {
                 voiceStatusCaption = "Heard you..."
             }
 
-        case "stt_partial":
-            let partial = (payload["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        case .sttPartial(let partial):
+            let partial = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !partial.isEmpty else { return }
+            log("server stt_partial \(partial)")
             if let elapsed = parseRecordingElapsed(partial) {
                 if pushToTalkRecording {
                     updateVoiceListeningCaption(elapsed: elapsed)
@@ -475,11 +523,15 @@ final class RemiChatStore: ObservableObject {
                     voiceStatusCaption = "Listening..."
                 } else if pushToTalkRecording {
                     voiceStatusCaption = Self.pushToTalkListeningCaption
+                } else if pushToTalkAwaitingResult {
+                    voiceStatusCaption = "Transcribing..."
+                    armPushToTalkResultTimeout(nanoseconds: Self.pushToTalkPartialGraceTimeoutNs)
                 }
             }
 
-        case "stt_final":
-            let transcript = (payload["content"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        case .sttFinal(let transcript):
+            let transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            log("server stt_final \(transcript)")
             cancelPushToTalkResultTimeout()
             if duplexEnabled {
                 lastMeaningfulVoicePartial = ""
@@ -493,17 +545,18 @@ final class RemiChatStore: ObservableObject {
                 markAwaitingAssistantResponse()
             }
 
-        case "interrupt":
+        case .interrupt:
+            log("server interrupt")
             voicePlayer.stopAll()
             if duplexEnabled {
                 voiceStatusCaption = Self.duplexIdleCaption
             }
 
-        case "history_page":
-            consumeHistoryPage(payload)
+        case .historyPage(let page):
+            consumeHistoryPage(page)
 
-        case "error":
-            let content = payload["content"] as? String ?? "Server error"
+        case .error(let content):
+            log("server error \(content)")
             historyLoadingMore = false
             cancelPushToTalkResultTimeout()
             if duplexEnabled {
@@ -561,6 +614,7 @@ final class RemiChatStore: ObservableObject {
                         Task { @MainActor in
                             if self.connectionPhase != .open {
                                 self.connectionPhase = .open
+                                self.log("ws open via ping")
                                 self.flushPendingChatPayloads()
                                 self.beginDuplexIfPossible()
                             }
@@ -572,14 +626,16 @@ final class RemiChatStore: ObservableObject {
     }
 
     private func sendPcmFrame(_ pcm16: Data, sampleRate: Int) {
-        guard voiceRecording, let socket else { return }
+        guard acceptingCapturedAudioFrames, socket != nil else { return }
         let frame = encodePcmAudioFrame(pcm16: pcm16, sampleRate: sampleRate)
-        socket.send(.data(frame)) { [weak self] error in
-            guard let self, let error else { return }
-            Task { @MainActor in
-                self.handleSocketFailure(error)
-            }
+        outboundAudioFrames.append(frame)
+        duplexTxFrameCount += 1
+        if duplexTxFrameCount == 1 {
+            log("duplex tx first_frame pcmBytes=\(pcm16.count) sampleRate=\(sampleRate)")
+        } else if duplexTxFrameCount % 50 == 0 {
+            log("duplex tx frames=\(duplexTxFrameCount) queued=\(outboundAudioFrames.count) sampleRate=\(sampleRate)")
         }
+        drainOutboundAudioFramesIfNeeded()
     }
 
     private func sendPlaybackStart(generationId: Int?) {
@@ -588,26 +644,32 @@ final class RemiChatStore: ObservableObject {
         if let generationId {
             payload["generationId"] = generationId
         }
-        sendJSON(payload)
+        sendVolatileJSON(payload)
     }
 
-    private func consumeHistoryPage(_ payload: [String: Any]) {
-        let mode = (payload["mode"] as? String) == "prepend" ? HistoryMode.prepend : .replace
-        let rawMessages = payload["messages"] as? [[String: Any]] ?? []
-        let pageMessages = rawMessages.compactMap(HistoryPageMessage.init(payload:)).map(\.chatMessage)
-        let cursor = HistoryCursor(payload: payload["nextCursor"])
-        let shouldAdoptServerHistory = mode == .prepend || !pageMessages.isEmpty || messages.isEmpty
+    private func sendPlaybackEnd(generationId: Int?) {
+        guard connectionPhase == .open, socket != nil else { return }
+        var payload: [String: Any] = ["type": "playback_end"]
+        if let generationId {
+            payload["generationId"] = generationId
+        }
+        sendVolatileJSON(payload)
+    }
+
+    private func consumeHistoryPage(_ page: RemiServerHistoryPage) {
+        let pageMessages = page.messages.map(\.chatMessage)
+        let shouldAdoptServerHistory = page.mode == .prepend || !pageMessages.isEmpty || messages.isEmpty
 
         if shouldAdoptServerHistory {
             historySource = .server
-            historyCursor = cursor?.isValid == true ? cursor : nil
-            historyHasMore = payload["hasMore"] as? Bool ?? false
+            historyCursor = page.nextCursor?.isValid == true ? page.nextCursor : nil
+            historyHasMore = page.hasMore
             hasSyncedServerHistory = true
             isShowingCachedHistory = false
         }
         historyLoadingMore = false
 
-        switch mode {
+        switch page.mode {
         case .replace:
             guard shouldAdoptServerHistory else { return }
             messages = deduplicatedMessages(from: pageMessages)
@@ -703,6 +765,7 @@ final class RemiChatStore: ObservableObject {
             appendMessage(ChatMessage(role: .error, text: "Encode failed"))
             return
         }
+        logPayload("send", payload)
 
         socket.send(.string(text)) { [weak self] error in
             guard let self else { return }
@@ -719,11 +782,36 @@ final class RemiChatStore: ObservableObject {
         }
     }
 
+    private func sendVolatileJSON(_ payload: [String: Any]) {
+        guard let socket else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        logPayload("send", payload)
+
+        socket.send(.string(text)) { [weak self] error in
+            guard let self, let error else { return }
+            Task { @MainActor in
+                self.handleSocketFailure(error)
+            }
+        }
+    }
+
+    private func sendClientContextIfNeeded() {
+        guard !didSendClientContextForCurrentSocket else { return }
+        didSendClientContextForCurrentSocket = true
+
+        sendJSON(RemiChatConfig.buildClientContextPayload(), queueOnFailure: true)
+    }
+
     private func handleSocketFailure(_ error: Error) {
         if socket == nil && connectionPhase == .closed {
             return
         }
         connectionPhase = .closed
+        didSendClientContextForCurrentSocket = false
+        resetOutboundAudioState(dropQueuedFrames: true)
         cancelPushToTalkResultTimeout()
         stopPushToTalk(sendDuplexStop: false, clearStatus: !duplexEnabled)
         stopDuplex(sendDuplexStop: false, keepDesiredState: duplexEnabled)
@@ -748,6 +836,24 @@ final class RemiChatStore: ObservableObject {
             self.connect()
         }
         log("ws failure: \(error.localizedDescription)")
+    }
+
+    private func logPayload(_ direction: String, _ payload: [String: Any]) {
+        guard let type = payload["type"] as? String else { return }
+        switch type {
+        case "client_context":
+            log("\(direction) client_context")
+        case "duplex_start":
+            log("\(direction) duplex_start mode=\(payload["mode"] ?? "nil") sampleRate=\(payload["sampleRate"] ?? "nil")")
+        case "duplex_stop":
+            log("\(direction) duplex_stop frames=\(duplexTxFrameCount)")
+        case "playback_start":
+            log("\(direction) playback_start gen=\(payload["generationId"] ?? "nil")")
+        case "playback_end":
+            log("\(direction) playback_end gen=\(payload["generationId"] ?? "nil")")
+        default:
+            break
+        }
     }
 
     private func connectionFailureMessage(for error: Error) -> String {
@@ -784,10 +890,14 @@ final class RemiChatStore: ObservableObject {
     }
 
     private func armPushToTalkResultTimeout() {
+        armPushToTalkResultTimeout(nanoseconds: RemiChatStore.pushToTalkResultTimeoutNs)
+    }
+
+    private func armPushToTalkResultTimeout(nanoseconds: UInt64) {
         cancelPushToTalkResultTimeout()
         pushToTalkAwaitingResult = true
         voiceResultTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.pushToTalkResultTimeoutNs)
+            try? await Task.sleep(nanoseconds: nanoseconds)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.handlePushToTalkResultTimeout()
@@ -916,45 +1026,116 @@ final class RemiChatStore: ObservableObject {
         autoScrollToBottomVersion &+= 1
     }
 
-    private func intValue(_ value: Any?) -> Int? {
-        if let value = value as? Int {
-            return value
-        }
-        if let value = value as? NSNumber {
-            return value.intValue
-        }
-        if let value = value as? String {
-            return Int(value)
-        }
-        return nil
-    }
-
     private func log(_ message: String) {
         #if DEBUG
         print("[RemiChatLite] \(message)")
         #endif
     }
-}
 
-private enum HistoryMode {
-    case replace
-    case prepend
+    private func redactedWebSocketURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.queryItems = components.queryItems?.map { item in
+            guard item.name == "token" else { return item }
+            return URLQueryItem(name: item.name, value: "<redacted>")
+        }
+        return components.string ?? url.absoluteString
+    }
+
+    private func drainOutboundAudioFramesIfNeeded() {
+        guard !audioFrameSendInFlight else { return }
+        guard let socket else {
+            resetOutboundAudioState(dropQueuedFrames: true)
+            return
+        }
+        guard !outboundAudioFrames.isEmpty else { return }
+
+        audioFrameSendInFlight = true
+        let frame = outboundAudioFrames.removeFirst()
+        socket.send(.data(frame)) { [weak self] error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.audioFrameSendInFlight = false
+                if let error {
+                    self.resetOutboundAudioState(dropQueuedFrames: true)
+                    self.handleSocketFailure(error)
+                    return
+                }
+                self.drainOutboundAudioFramesIfNeeded()
+            }
+        }
+    }
+
+    private func requestDuplexStopAfterAudioDrain() {
+        pendingDuplexStopAfterDrain = true
+        audioDrainForceDeadlineNs = DispatchTime.now().uptimeNanoseconds + Self.audioDrainForceStopNs
+        scheduleDuplexStopDrainPoll()
+    }
+
+    private func scheduleDuplexStopDrainPoll() {
+        audioDrainTask?.cancel()
+        audioDrainTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.audioDrainPollNs)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.pollPendingDuplexStopAfterDrain()
+            }
+        }
+    }
+
+    private func pollPendingDuplexStopAfterDrain() {
+        guard pendingDuplexStopAfterDrain else { return }
+        if outboundAudioFrames.isEmpty && !audioFrameSendInFlight {
+            finalizePendingDuplexStopAfterDrain(force: false)
+            return
+        }
+
+        let nowNs = DispatchTime.now().uptimeNanoseconds
+        if let deadlineNs = audioDrainForceDeadlineNs, nowNs < deadlineNs {
+            scheduleDuplexStopDrainPoll()
+            return
+        }
+
+        finalizePendingDuplexStopAfterDrain(force: true)
+    }
+
+    private func finalizePendingDuplexStopAfterDrain(force: Bool) {
+        guard pendingDuplexStopAfterDrain else { return }
+        pendingDuplexStopAfterDrain = false
+        audioDrainTask?.cancel()
+        audioDrainTask = nil
+        audioDrainForceDeadlineNs = nil
+        acceptingCapturedAudioFrames = false
+
+        if force && (!outboundAudioFrames.isEmpty || audioFrameSendInFlight) {
+            log("forcing duplex_stop with \(outboundAudioFrames.count) queued audio frame(s)")
+            outboundAudioFrames.removeAll()
+            audioFrameSendInFlight = false
+        }
+
+        if socket != nil {
+            sendJSON(["type": "duplex_stop"])
+        }
+    }
+
+    private func resetOutboundAudioState(dropQueuedFrames: Bool) {
+        audioDrainTask?.cancel()
+        audioDrainTask = nil
+        audioDrainForceDeadlineNs = nil
+        pendingDuplexStopAfterDrain = false
+        acceptingCapturedAudioFrames = false
+        duplexTxFrameCount = 0
+        if dropQueuedFrames {
+            outboundAudioFrames.removeAll()
+        }
+        audioFrameSendInFlight = false
+    }
 }
 
 private enum HistorySource {
     case cache
     case server
-}
-
-private extension HistoryCursor {
-    init?(payload: Any?) {
-        guard let payload = payload as? [String: Any],
-              let id = payload["id"] as? String,
-              let createdAt = payload["createdAt"] as? String else {
-            return nil
-        }
-        self.init(id: id, createdAt: createdAt)
-    }
 }
 
 private func encodePcmAudioFrame(pcm16: Data, sampleRate: Int) -> Data {

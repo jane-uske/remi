@@ -42,18 +42,24 @@
 
 - [x] **R-V2.1-02** 切换 episode 读路径
   - 已完成：`retrievePromptMemory()` 已优先使用 `episodeStore.findRelevant()`；失败时回退 snapshot，避免硬切导致线上退化
+  - 已完成：V2 prompt recall 已补“引用反馈”闭环；被选中的 `episode` 会回写 `last_referenced_at`，prediction-only 路径保持只读，不污染真实引用信号
+  - 已完成：召回 trace 已补 `episodeRecallSource / episodeRecallIds / episodeReferenceApplied / episodeRecallFallback`
   - 涉及位置：`memory/memory_agent.ts`、`brains/brain_router.ts`、`server/session/index.ts`
   - 证据：新增 `test/memory/prompt_memory_episode_store.test.ts`
 
 - [x] **R-V2.1-03** 接通 proactive planner 到主路径
   - 已完成：`fireSilenceNudge()` 已优先走 `planProactiveNudge()`，并保留 legacy plan 回退
+  - 已完成：planner 选中的 V2 `episode` 在搭话成功后会补 `markReferenced()`，避免 unresolved 线只会被反复捞起、不会产生引用反馈
   - 涉及位置：`server/session/index.ts`、`brains/proactive_planner.ts`
   - 证据：新增 planner user-message 生成测试；类型检查与相关回归已通过
 
 - [x] **R-V2.1-04** 清理 V1 episode 旧路径
   - 已完成：`PersistentRelationshipStateV1` 不再写出旧 `episodes/topicThreads` JSON；`memory/memory_agent.ts`、`brains/remi_session_context.ts`、`brains/slow_brain_store.ts` 主要读取侧已转向 `sharedMoments`
   - 已完成：`brains/slow_brain_store.ts::buildEpisodes()` / `buildTopicThreads()` 已移出主派生链并删除
+  - 已完成：补了显式 `workingMemory` 层（3 turn TTL、reconnect-only 持久化、独立 `【当前上下文】` prompt block），让短期上下文不再只靠 `history + sharedMoments` 拼出来
+  - 已完成：V2 lifecycle 已加第一版 flag 化状态机：`active / cooling / resolved` 与 `unresolved` 同步，解决 episode 只积累不收口的问题
   - 兼容策略：旧 payload 读取仍保留，避免历史数据恢复回退
+  - 已完成：persona live state 已补第一版 `relationalStance`，当前会沿 relationship/proactive snapshot 稳定派生关系姿态，并透传到 prompt / proactive planner；这属于“关系表达方式”增强，不是大规模 persona 重写
 
 ### 当前明确不优先做
 
@@ -155,10 +161,15 @@
 - [x] `episode_store` 编排层
 - [x] slow brain 写路径双写 V1 + V2
 - [x] `proactive_planner` 已实现
-- [x] 文档已明确：当前是验证写路径、准备切读路径，而不是一次性硬切换完成态
+- [x] 文档已明确：Memory V2 主链路已完成单路径验收，当前进入观察期与补证据阶段，而不是一次性硬切换完成态
 - [x] prompt 读路径已优先接到 `episodeStore.findRelevant()`
 - [x] silence nudge 主路径已接到 `planProactiveNudge()`
 - [x] 真实 WS 文本会话写路径已验收，`episodes` 可稳定写入并合并
+- [x] Memory V2 启发式审计工具已落地：`npm run memory:v2:audit -- --user <user-id>` 可生成 episode 质量观察报告
+- [x] embedding 降级观测已补到主链路：写路径 / 召回失败会带结构化健康状态，不再只是零散报错
+- [x] V2 recall / proactive 引用反馈已接通：prompt recall 与 silence nudge 成功路径都会更新 `last_referenced_at`
+- [x] `episode` lifecycle 第一版已落地：`active / cooling / resolved` 受 `REMI_EPISODE_LIFECYCLE_ENABLED` 控制，默认仍关闭，不再长期只靠 `unresolved` 布尔值漂移
+- [x] 短期显式 `workingMemory` 已接入文本主链路：仅用于 prompt 当前上下文与 reconnect 恢复，受 `REMI_WORKING_MEMORY_ENABLED` 控制，默认仍关闭；它不扩 prompt 预算，也不当作长期 episode 写入
 
 关键提交：
 - `e41543d` PR1 — embedding client + episodes 表 + repository
@@ -207,7 +218,17 @@
 
 ### A. 当前主线程未完成
 
+- [ ] Memory V2 真实质量审计
+  - 目标：不只确认 `episodes` 会写，还要确认“写得像同一条关系主线”
+  - 当前状态：已补 `memory:v2:audit` 脚本与启发式指标，但还缺真实用户抽样、人工复核与阈值基线
+  - 验收标准：至少一批真实样本产出审计报告，并能回答错合并 / 漏召回 / 重复回捞 / unresolved 命中四类问题的量级
 - [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
+  - 当前状态：已补一轮正向浏览器文本样本，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`
+  - 已确认：决策更新、话题切换、边界尊重、轻松话题切换、刷新后接续在真实浏览器文本里没有明显回退
+  - 剩余缺口：该样本里 `currentContextChars = 0`，还没真正覆盖新 `workingMemory` 注入；也不包含语音 / duplex
+- [ ] embedding 运行时健康门槛
+  - 目标：把“环境缺失时人格连续性静默掉级”变成可见、可判定、可追踪的问题
+  - 当前状态：已补 health snapshot 与降级告警；还没有形成正式的运维阈值、报警策略或 dashboard 口径
 
 ### B. 并行但非主线程
 
@@ -217,7 +238,7 @@
   - 验收标准：5 人试用通过、无 P0 崩溃、无串号反馈
 - [ ] **I-002** iOS 按住说话语音链路收口
   - 目标：让 `ios/RemiChatLite` 的按住说话至少达到“松手后稳定拿到 `stt_final`，并触发回复/TTS”的单路径可用
-  - 当前状态：UI 已有 mic press-and-hold 入口，iOS 端可本地录音并发送 duplex PCM；已在服务端补上“收到音频但 VAD 未起时，duplex_stop 后做一次受限 STT fallback”的兜底，并已补回归测试覆盖 no-VAD speech / silence / sparse-noise 场景。当前进度从“静默失败”推进到“最小单路径已有代码级兜底”，但仍缺真机 iOS 复测，不能先算 done
+  - 当前状态：UI 已有 mic press-and-hold 入口，iOS 端可本地录音并发送 duplex PCM；已在服务端补上“收到音频但 VAD 未起时，duplex_stop 后做一次受限 STT fallback”的兜底，并已补回归测试覆盖 no-VAD speech / silence / sparse-noise 场景。本轮继续沿关键路径收口了两层：1) iOS 客户端 PCM 改为串行发送队列，`duplex_stop` 不再在松手瞬间立刻发出，而是短暂等待尾部音频 frame 尽量送完，避免 stop 抢在末尾 PCM 之前导致服务端把尾包直接丢掉；2) 服务端现在明确区分 `push_to_talk` 和开放式 `duplex`，对 `push_to_talk` 放宽“弱语音 / no-preview / no-VAD fallback”抑制，避免把显式按住说话的低能量 iPhone 输入整段吞掉。相关 session 回归测试已覆盖 `push_to_talk` 低能量 no-VAD 样本并通过，但仍缺真机复测和当次服务日志证据，不能先算 done
   - 验收标准：真机下按住说话可稳定出现 transcript 或最终用户气泡，并触发 assistant 回复；异常时有明确错误态，而不是静默失败
 - [ ] **T-041** 结构化回合解释层观察期与 eval 扩充
   - 目标：继续用真实 bad case 校准 `TurnInterpretation -> ResponsePolicy`，减少答非所问、过度追问、场景出戏和边界回拉
@@ -226,7 +247,19 @@
 - [ ] **T-042** Prompt / latency budget 收口
   - 目标：把“感觉慢”拆成可量化阶段，并优先压掉 fast path 上不必要的 prompt 体积
   - 当前状态：已新增 `memory_recall_ms`、`structured_turn_analysis_ms`、`input_to_llm_request`、`input_to_llm_first_token`；文本普通回合 prompt memory 已收回到 4 条，默认 history token budget 由 `1400 -> 1200`，priority context 缺省裁剪由 `700 -> 500`；普通文本 fast path 现已把 `priorityContext` 分层为最多 3 个高价值动态块；分析路径也已改成精选动态块，不再整段灌入 `slowBrainContext`
-  - 当前判断：动态 prompt 收口是有效的，决策路径已从上轮样本的 `priorityChars≈2694 / 首 token≈10.9s` 回落到 `priorityChars=388 / 首 token≈4.13s`；但常驻 `systemChars` 再收一轮后（最小样本约 `478 -> 449`），真实 TTFT 没有稳定跟着下降，普通文本样本甚至出现 `17.5s` 波动，决策样本 25s 内未出首 token。当前更大的现实瓶颈是模型首 token 波动和运行时稳定性
+  - 已完成：voice final turn 进入 `runPipeline()` 前会先取消 partial prediction，避免后台预判继续占用同一 LLM/runtime 把正式回复首 token 人为拖慢；已补回归测试锁住“先 cancel，再 final，已完成预判仍可复用快照”。另外已确认 Edge consumer 端点当前拒绝 PCM `outputFormat`，流式 TTS 已改为请求受支持的 MP3 流并在服务端实时转成 `pcm16le` 后继续发送 `voice_pcm_chunk`；直接 `streamTextToSpeech()` 实测首个 PCM chunk 约 `1.75s`，重启服务后的 live duplex probe 已重新收到 `voice_pcm_chunk`，短句样本 `duplex_stop -> firstVoice` 约 `5.24s / 5.16s`
+  - 已完成：duplex 语音链路这轮继续收口了三个真实回归点，不再让 `pipelineChain` 把 STT 排队放大。服务端现在会在 `speech_end` / `duplex_stop` 立即冻结 `DuplexUtteranceJob`，把 STT decode 从 assistant pipeline 串行链里拆到独立 `sttChain`，并给每条 utterance 打 `utteranceSeq` / `sttJobSeq`；`prepareVoicePipelineTurn()` 负责提前发出 `stt_final` 与 `assistant_entering`，只有真正的 LLM/TTS 生成仍挂在 `pipelineChain` 后。这样一来，`queueWaitMs` 只反映 STT 自己的等待，不再被上一轮回复拖成 `7s / 22s`。同时已补上非 16k ingress 的服务端线性重采样与诊断日志，`audio_without_vad` 现在会明确区分 `true_silence`、`weak_low_energy_audio`、`speech_shape_not_confirmed`、`non_16k_normalized_still_no_vad`，并会在 stale job 晚到时明确记录 `[STT] dropped_stale_utterance`
+  - 已完成：开发环境 logger 现在默认自动落盘到 `artifacts/live/dev_server_*.log`，不再依赖额外 `tee` 才能复盘 localhost 实例；`logs:data-entry` 与 `duplex:data-entry` 也已经把这些 live logs 提升为主入口，避免继续误读过期的 `rem-ai.log`
+  - 已完成：LLM 流式打点口径已进一步拆开，新增 `llm_first_raw_chunk`、`llm_first_reasoning_chunk`、`llm_first_visible_content` 及对应 duration；这样可以明确区分“上游已开始流”“上游正在吐 reasoning”“用户真正看到正文”三件事，避免继续把 reasoning stream 误当成正文首包
+  - 已完成：已确认当前 `api/coding/v3` 路线支持在顶层传 `reasoning_effort=minimal` 来压掉 fast path 的 reasoning stream；此前 `extra_body` 试法无效，导致误以为路由不支持。现在 fast brain / partial prediction 已支持通过 `REMI_FAST_BRAIN_REASONING_EFFORT` 显式覆盖推理强度，本地默认已切到 `minimal` 以优先压 `llm_first_visible_content`
+  - 已完成：本机损坏的 `ggml-medium.bin` 已替换为官方可加载版本，dev 语音链路已切到 `whisper-server + ggml-medium.bin`。真实语音样本里 `transcribeMs` 已从 `2328 / 2498ms` 降到 `924 / 1082 / 1413ms` 量级；同时服务端现在会把 `fallback_energy` 下被 pre-STT suppress 的短片段暂存到 `duplex_stop`，再用一条更保守的 recovered-fallback 规则做一次补救式 STT，避免“短笑声 / 短反馈 / 软声插话”被整段吞掉，同时继续压住长垃圾 hallucination。相关 turn-taking / duplex regression 已补回归测试通过，但这仍只是 dev 单路径收口，不代表多场景稳定
+  - 已完成：已针对两条真实 duplex 状态机误判做了成对修复。服务端现在不会再把弱 `fallback_energy` 开口立刻广播成 `vad_start`，而是等到它拿到更像真实说话的证据后才把前端拉进“正在听”；同时在 correction 句子已进入 `semantic_hold` 的窗口里，极弱 fallback restart 不再轻易打断 pending commit，避免“明明已经说完、preview 也对了，却一直不提交，最后被 stale drop”的情况。前端也补了本地 `识别中…` 占位状态和超时兜底，不再在 `vad_end` 后立刻假装空闲。相关回归已锁住“弱噪声不再误触发 listening UI”和“pending correction commit 不再被弱重开口冲掉”
+  - 已完成：这轮继续针对真实 noisy duplex 样本收了三条更贴近体感的回归。1) interrupted assistant run 现在在 abort 后不会再傻等卡住的 TTS promise，`pipelineChain` 会更早释放，避免下一条像“等一下,等一下,我让你记录一下。”这种语音明明已出 `stt_final`，却还要在 `llm_request_start` 前被旧 generation 清理/收尾硬拖数秒；2) duplex interrupt 确认现在不会只靠 `fallback_energy + 时长` 成立，弱能量、弱 speech shape、无 meaningful preview 的键盘/环境噪声不再轻易打断 Remi；3) 即使弱噪声已经走进 `speech_buffer -> STT` 主路径，`谢谢!`、`谢谢观看!` 这类短、弱、无上下文支撑的 hallucination 也会在 post-STT suppression 被拦下。相关 session / pipeline regression 已补测通过，但这仍只是“单路径回归已收口”，还缺新的 localhost 真实噪声日志来证明多场景稳定
+  - 已完成：turn-taking Phase 1 这轮继续沿“规则+韵律优先”收口。final STT 现在会在提交前拒绝 `"[音乐]"`、`"[笑声]"`、`"谢谢观看"` 这类非语义 transcript，并把 `rejectedReason / rejectedTranscript / rejectedSource` 写进 latency trace；`TURN_PROSODY_ENABLED` 缺省改为开启，`decideTurnTaking()` 新增了基于尾部能量下降 + pitch 下行 + 短静音的 `prosody_fast_release`，把这类明确句末的 release target 收到约 `480ms`；同时 recovered fallback 对 `2–6` 字弱、无 preview 的短假词改为默认 suppress，而正常 `speech_buffer` 主路径的短真实反馈仍可通过。还新增了 `TurnTakingPredictor.score()` 的 heuristic 接口，但当前只作为 interrupt / recovered-fallback / non-speech reject 的辅助门控，不引入模型 sidecar，不代表 Phase 2 已启动
+  - 已完成：这轮又补了两个更接近真实 noisy localhost 的漏洞。1) assistant-speaking 下的 duplex interrupt gate 不再让 `strict` 路径直接绕过噪声门槛，低置信 strict burst 现在也会延后 `vad_start` / preview 外显，并要求更强证据后才允许真正 interrupt；这条是为 `Teddy`、键盘声、环境音把 Remi 提前打断的坏样本服务的。2) `runPipeline()` 在 abort 后不再继续傻等 `avatarIntentTask`，`avatar intent` 改成和 abort 做竞态等待，避免像“刚起床”这类语音 STT 明明很快，却还在 `llm_request_start` 前被上一轮被打断的 generation 卡上 `7s+`。相关 regression 已补过，但这仍只证明代码层回归收口，不代表 noisy 实机链路已经验收通过
+  - 已完成：这轮继续收了两个更贴近真实用户抱怨的剩余边界。1) server 现在单独维护 `assistantPlaybackActive / playbackGenerationId`，并接上前端 `playback_end` 回传，所以即使服务端 generation 已经自然结束、客户端还在播缓存音频，用户再说“等一下先别说”也仍然能向对应 generation 发出真正的停播 `interrupt`，不再要求 `interrupt.active` 还活着。2) recovered fallback 现在对短礼貌词更保守，`谢谢`、`谢谢呀`、`喂喂喂` 这类弱、无 preview 的 stop-time 幻觉会直接 suppress，不再像之前那样漏成 `[用户·语音 fallback/recovered] 谢谢!`。相关 duplex regression 与 typecheck 已通过，但这仍只证明“代码 + 回归”收口，尚未证明 noisy localhost 实测已经过线
+  - 已完成：这轮继续把“长时间开麦空闲后再开口变慢”的 runtime blocker 往前收口。服务端新增了 `duplexIdleGuardActive / duplexIdleSince / lastMeaningfulSpeechAt / lastAcceptedSpeechAt`，在 duplex 长时间空闲后会先挡住低价值环境噪声，不再让它们轻易形成 `speech_buffer -> STT` job；同时每条 STT job 现在都显式带 `high|low` 优先级、`allowCliFallback`、可中断 `AbortController`，新的高价值语音到来时会优先抢占正在转写的低价值 job，并把 stale 仲裁前移到 `before/during transcribe`，而不是等坏 job 先跑完十秒再判 stale。`whisper-server` 运行时也新增了 request-level degraded window：一旦请求超时/abort，短时间内低价值 job 会直接 skip，不再反复先吃一轮 server timeout 再掉到 `whisper-cli`；高价值 job 则直接走 degraded 路径，避免真实用户语句被前面几条 idle 噪声一起拖慢。latency trace / session log 也已补上 `sttPath`、`sttFallbackReason`、`sttJobPriority`、`sttQueueBlockedByPriorJob`、`idleGuardActive`、`sttPreemptReason`、`sttRequestDegraded`。相关 regression 与 runtime 测试已通过，但这仍只证明“代码层 + 回归层已收口”，并不等于 localhost 长时间 open-mic 场景已经验收通过
+  - 当前判断：这轮修复解决的是“语音链路既慢又乱”的真实回归点，不是把整条语音体验拉回生产可用。现在 `voice_pcm_chunk` 已恢复、STT 不再被旧 pipeline 串行卡住、interrupt 后的旧转写也会被硬丢弃；但 live trace 里 `speech_end -> stt_final` 和 `stt_final -> llm_first_token` 仍是更大的现实瓶颈，说明剩余关键路径已经收敛到 STT 终结延迟和远程 LLM 首 token 波动，而不是协议层和调度边界
   - 验收标准：普通文本首 token 继续下降，且 prompt 压缩不引入记忆/场景/边界明显回退
 - [ ] **T-043** 资源监控告警口径收口
   - 目标：把“内存 97%/98%”这类误导告警替换成真实可用的进程内存告警

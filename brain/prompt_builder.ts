@@ -20,6 +20,7 @@ interface BuildPromptInput {
   emotion: Emotion;
   history: PromptMessage[];
   userMessage: string;
+  currentContext?: string;
   /** 慢脑画像、对话策略等，置于 system 最前以便模型优先注意 */
   priorityContext?: string;
   /** Optional structured persona state for v1 personality system */
@@ -126,12 +127,20 @@ function stripPriorityBlocks(
 function buildSystemPrompt(
   memory: MemoryEntry[],
   emotion: Emotion,
+  currentContext?: string,
   priorityContext?: string,
   persona?: PersonaState,
 ): string {
   const maxPriorityChars = parsePositiveInt(process.env.MAX_PRIORITY_CONTEXT_CHARS, 500);
   const maxMemoryEntries = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
   const maxMemoryValueChars = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_VALUE_CHARS, 40);
+  const trimmedCurrentContext = currentContext?.trim()
+    ? trimTextByChars(currentContext.trim(), 180)
+    : undefined;
+  const remainingPriorityChars = Math.max(
+    0,
+    maxPriorityChars - (trimmedCurrentContext?.length ?? 0),
+  );
 
   // Use new persona system if provided
   if (persona) {
@@ -144,8 +153,9 @@ function buildSystemPrompt(
           .join("\n")
       : undefined;
     return buildPersonaPrompt(persona, {
-      priorityContext: reducedPriorityContext?.trim()
-        ? trimTextByChars(reducedPriorityContext.trim(), maxPriorityChars)
+      currentContext: trimmedCurrentContext,
+      priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
+        ? trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars)
         : undefined,
       relationshipStageLabel: slots.relationshipStageLabel
         ? trimTextByChars(slots.relationshipStageLabel, 120)
@@ -171,10 +181,14 @@ function buildSystemPrompt(
   const sections: string[] = [];
   const reducedPriorityContext = stripPriorityBlocks(priorityContext, PRIORITY_SLOT_HEADINGS);
 
-  if (reducedPriorityContext?.trim()) {
+  if (trimmedCurrentContext) {
+    sections.push(trimmedCurrentContext);
+  }
+
+  if (remainingPriorityChars > 0 && reducedPriorityContext?.trim()) {
     sections.push(
       "【优先参考（请自然融入对话，不要逐条复述）】\n" +
-        trimTextByChars(reducedPriorityContext.trim(), maxPriorityChars),
+        trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars),
     );
   }
 
@@ -203,11 +217,12 @@ export function buildPrompt({
   emotion,
   history,
   userMessage,
+  currentContext,
   priorityContext,
   persona,
 }: BuildPromptInput): PromptMessage[] {
   return [
-    { role: "system", content: buildSystemPrompt(memory, emotion, priorityContext, persona) },
+    { role: "system", content: buildSystemPrompt(memory, emotion, currentContext, priorityContext, persona) },
     ...history,
     { role: "user", content: userMessage },
   ];

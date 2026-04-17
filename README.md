@@ -69,10 +69,10 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 
 - **自然语言对话** — 双脑架构（Fast Brain 低延迟流式回复 + Slow Brain 后台深度分析），支持多轮上下文
 - **用户记忆** — 从对话中自动提取用户信息（姓名、城市、职业、偏好等），支持长期关系连续性
-- **关系层 / Memory V2** — episode store、向量召回、主动策略规划，正在验证并准备切主读路径
+- **关系层 / Memory V2** — episode store、向量召回、主动策略规划主路径已接通；当前处于观察期与补验收证据阶段
 - **情绪系统** — 基于关键词识别用户情绪，维护 AI 情绪状态（neutral / happy / curious / shy / sad），影响回复风格
 - **语音输入（STT）** — 支持 Whisper API 和 whisper-cpp，实时双工 PCM 流式传输 + VAD 语音活动检测
-- **语音输出（TTS）** — 支持 Edge TTS / Piper / OpenAI TTS 三种后端，逐句流式合成
+- **语音输出（TTS）** — 支持 Edge TTS / Piper / OpenAI TTS / 火山 TTS，逐句流式合成
 - **虚拟形象** — VRM 三维角色（Three.js）+ 情绪驱动；旧版含 SVG 表情头像
 - **实时通信** — WebSocket 全双工通信，支持打断控制、流式 token 推送、音频流传输
 - **3D Demo** — 独立 `/demo` 路由可离线切换模型、情绪、状态和动作，便于人工验收
@@ -159,7 +159,7 @@ npm run test --prefix web
 - `chat_end` 只表示文本流结束，不等于本地音频已经播放完；前端会在播放 drain 后再回到 `confirmed_end`。
 - 被打断的 assistant 半句只保留为 carry-forward 上下文，不进入正式 history、不进入 slow brain、也不会按正常 assistant 消息持久化。
 - 跨连接记忆当前采用“session overlay”方式：会话启动时可从持久层预加载少量事实型记忆到本地副本，live path 只读本地副本，持久层写回异步进行。
-- Memory V2 当前是“写路径已接通、读路径待切换”的状态：episode store 与 proactive planner 已就绪，但仍需真实数据验证后再切主读路径。
+- Memory V2 当前不是“准备切读路径”，而是“prompt recall / proactive 主路径已切到 V2，仍保留 snapshot/V1 fallback，并处于质量观察期”。
 
 ### 环境变量
 
@@ -168,11 +168,21 @@ npm run test --prefix web
 | `key` | LLM API Key |
 | `base_url` | LLM API Base URL |
 | `model` | 模型名称 |
-| `tts_provider` | TTS 后端（`edge` / `piper` / `openai`） |
+| `tts_provider` | TTS 后端（`edge` / `piper` / `openai` / `volc`） |
 | `tts_voice` | TTS 音色 |
+| `VOLC_TTS_API_KEY` | 火山引擎豆包语音新版控制台 API Key（`tts_provider=volc` 时） |
+| `VOLC_TTS_RESOURCE_ID` | 火山 TTS 资源 ID（如 `seed-tts-2.0`） |
+| `VOLC_TTS_VOICE_TYPE` | 火山 TTS 音色 ID（如 `zh_female_lingling_uranus_bigtts`） |
+| `TTS_EAGER_THRESHOLD` | 首句 eager 断句开始尝试软断点的长度阈值（默认 `24`）。 |
+| `TTS_EAGER_LOOKAHEAD_CHARS` | 首句 eager 在阈值后额外观察多少字符来等一个更自然的软断点（默认 `10`）。 |
+| `TTS_EAGER_SOFT_BREAK_MIN_CHARS` | 首句只有累计到这么长，才允许按 `，、；：~～…` 这类软断点提前送 TTS（默认 `24`）。 |
+| `TTS_CHUNK_MAX_CHARS` | 首句 eager 之后，无硬句末标点时普通逐句 TTS 的强制分段长度。 |
 | `stt_provider` | STT 后端（`openai` / `whisper-cpp`） |
 | `whisper_model` | Whisper 模型路径 |
 | `whisper_lang` | Whisper 语言 |
+| `REMI_STT_FINAL_DISAMBIG_ENABLED` | 是否启用 `stt_final` 热词级局部同音消歧（默认 `0`，仅影响语音 final transcript） |
+| `REMI_STT_FINAL_DISAMBIG_DICT_PATH` | 热词词表 JSON 路径；规则格式：`{ "id": "...", "canonical": "...", "aliases": ["..."] }` |
+| `REMI_STT_FINAL_DISAMBIG_LOG_DIFF` | 命中纠偏时是否记录 `raw -> corrected` diff 日志（默认 `1`） |
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `REDIS_URL` | Redis 连接串 |
 | `JWT_SECRET` | JWT 签名密钥 |
@@ -183,12 +193,18 @@ npm run test --prefix web
 | `REMI_SILENCE_NUDGE_MS` | 用户无消息后多久由 Remi 主动搭话（毫秒）；`0` 或不设为关闭 |
 | `REMI_SILENCE_NUDGE_MIN_TURNS` | 至少聊过几轮才允许沉默搭话（默认 `2`） |
 | `REMI_SLOW_BRAIN_ENABLED` | 是否启用 slow brain 后台分析（默认 `1`）。设为 `0`/`false` 可关闭后台提炼，避免与 fast path 抢同一模型预算。 |
+| `REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED` | 是否让沉默搭话主路径优先走 V2 proactive planner（默认 `1`）。关闭时回退到 legacy nudge plan。 |
+| `REMI_EPISODE_STORE_PROMPT_ENABLED` | 是否让 prompt recall 优先走 V2 `episodeStore.findRelevant()`（默认 `1`）。关闭时回退 snapshot/V1 recall。 |
+| `REMI_EPISODE_LIFECYCLE_ENABLED` | 是否启用 V2 `episode` lifecycle 状态机（默认 `0`）。开启后才会使用 `active / cooling / resolved` 收口。 |
+| `REMI_WORKING_MEMORY_ENABLED` | 是否启用显式 `workingMemory` prompt block（默认 `0`）。开启后会注入 `【当前上下文】`。 |
 | `REMI_AVATAR_INTENT_ENABLED` | 是否启用 reply-based avatar intent 推断（默认 `1`）。设为 `0`/`false` 时不再发送 `avatar_intent`，但主回复/TTS/turn lifecycle 不变。 |
 | `REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED` | 是否启用持久记忆 overlay（默认 `1`）。数据库可用时，会话启动阶段预加载少量事实型记忆到本地副本；设为 `0`/`false` 则完全回到纯会话内 memory。 |
 | `REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT` | 持久记忆启动预加载上限（默认 `12`）。prompt 仍会继续受 `MAX_PROMPT_MEMORY_ENTRIES` 裁剪。 |
 | `STT_PARTIAL_PREDICTION_ENABLED` | 是否启用 partial transcript 预判（默认关闭）。设为 `1`/`true` 后才会触发额外 prediction 调用。 |
 | `STT_PREDICTION_PUSH_ENABLED` | 是否把 prediction 结果以 `stt_prediction` 推到前端（默认关闭）。只有 `STT_PARTIAL_PREDICTION_ENABLED` 已开启时才生效。 |
 | `STT_PREDICTION_DEBOUNCE_MS` | partial prediction 的防抖毫秒数（默认 `300`）。 |
+| `REMI_FAST_BRAIN_REASONING_EFFORT` | fast brain / prediction 调用的 reasoning 强度覆盖；本地默认可切 `minimal` 以压首个可见正文。 |
+| `TURN_PROSODY_ENABLED` | 是否启用 prosody 辅助 turn-taking（当前默认 `1`）。关闭时退回无韵律旁路的规则判断。 |
 | `NEXT_PUBLIC_VRM_URL` | （前端）自定义 VRM 路径；不设则使用 `web/public/vrm/` 下默认模型。根目录 `npm run dev:web:standalone` 时 `next.config` 会读取**仓库根** `.env`。 |
 | `NEXT_PUBLIC_WS_URL` | WebSocket 地址，须含 `ws://` 或 `wss://`（勿写 `localhost:3000/ws` 无前缀）。 |
 | `NEXT_PUBLIC_VRM_YAW` | VRM 绕 Y 轴旋转（弧度），模型背对镜头时可调。 |

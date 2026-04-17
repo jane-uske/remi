@@ -88,6 +88,25 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【对话摘要】我们刚聊到最近失眠和晚上的散步习惯。"));
   });
 
+  it("renders current context ahead of long-term priority blocks", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "那我现在到底该先还哪笔",
+      currentContext: "【当前上下文】\n当前需求：用户想先判断先还哪笔债；现实约束：还欠花呗两万五；场景状态：decision",
+      priorityContext: "【对话摘要】我们刚聊到欠款和现金流。",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【当前上下文】"));
+    assert.ok(system.includes("现实约束：还欠花呗两万五"));
+    assert.ok(system.indexOf("【当前上下文】") < system.indexOf("【优先参考"));
+  });
+
   it("renders stable relationship slots from priority context blocks", () => {
     const persona = createDefaultPersona();
 
@@ -216,5 +235,29 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【语气合同】"));
     assert.ok(system.includes("像真人接话"));
     assert.ok(system.includes("少用这些开头"));
+  });
+
+  it("renders relational stance guidance from persona live state", () => {
+    const persona = createDefaultPersona();
+    persona.liveState.relationalStance = {
+      mode: "anchored_care",
+      boundary: "steady",
+      soothingStyle: "grounded_reassurance",
+      proactiveCadence: "guarded",
+      expressionDirectness: "clear",
+    };
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "sad",
+      history: [],
+      userMessage: "我最近有点撑不住",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【关系姿态】"));
+    assert.ok(system.includes("关系姿态偏安抚"));
+    assert.ok(system.includes("别像审问或说教"));
   });
 });

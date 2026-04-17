@@ -1,6 +1,6 @@
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
 
-export type TtsProvider = "openai" | "piper" | "edge";
+export type TtsProvider = "openai" | "piper" | "edge" | "volc";
 
 export type TtsTextNormalizationConfig = {
   maxChars: number;
@@ -98,6 +98,10 @@ export function buildTtsCacheVariant(
   if (provider === "openai") {
     const speed = getEmotionVoiceParams(emotion ?? "neutral").speed;
     return `${config.model}\0${config.voice}\0${speed}`;
+  }
+
+  if (provider === "volc") {
+    return `${config.voice}\0${config.lang}\0${config.model}\0${config.rate}\0${config.pitch}`;
   }
 
   return config.piperModel || "piper-default";

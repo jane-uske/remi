@@ -51,6 +51,9 @@ describe("soak session harness", () => {
       assert.equal(typeof trace.metrics.stt_final_to_llm_first, "number");
       assert.equal(typeof trace.metrics.llm_first_to_tts_first, "number");
       assert.equal(typeof trace.metrics.tts_first_to_playback, "number");
+      assert.equal(typeof trace.traceId, "string");
+      assert.equal(Array.isArray(trace.turnStateTransitions), true);
+      assert.equal(trace.finalTranscript, "你好，我在这里。");
     } finally {
       harness.restore();
     }

@@ -26,3 +26,5 @@ test-websocket.js
 *.vrm
 *.xcuserstate
 xcuserdata/
+whisper-server-*.wav
+whisper-server-*.wav_temp.wav

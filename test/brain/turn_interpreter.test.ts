@@ -97,6 +97,29 @@ describe("turn interpreter", () => {
     }
   });
 
+  it("treats stop-asking complaints as answer_now with zero question budget", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "不要一直问我，我成了你的助手了",
+        history: [
+          { role: "user", content: "等下班我再看。" },
+          { role: "assistant", content: "你什么时候启动这个任务？还有没有遗漏？" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.userAct, "answer_now");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.shouldGiveJudgment, true);
+      assert.ok(buildResponseShapeContract(result).includes("不要反问"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("treats added real-world constraints as context updates that must update the judgment", async () => {
     const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
     try {

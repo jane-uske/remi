@@ -101,6 +101,14 @@ export interface PersistentProactiveStrategyState {
   lastProactiveMode?: PersistentProactiveMode | "";
 }
 
+export interface PersistentWorkingMemory {
+  currentNeed: string;
+  currentConstraints: string[];
+  openLoop: string;
+  sceneState: "none" | "planning" | "decision" | "immersive";
+  lastUpdatedTurn: number;
+}
+
 export interface PersistentRelationshipStateV1 {
   version: "v1";
   updatedAt: number;
@@ -125,6 +133,7 @@ export interface PersistentRelationshipStateV1 {
   /** Legacy derived snapshot fields. New writes omit them; old payloads may still carry them. */
   episodes?: PersistentEpisode[];
   topicThreads?: PersistentTopicThread[];
+  workingMemory?: PersistentWorkingMemory;
   continuityCueState: PersistentContinuityCueState;
   proactiveLedger: PersistentProactiveLedgerEntry[];
   proactiveStrategyState: PersistentProactiveStrategyState;
@@ -435,6 +444,34 @@ function toProactiveStrategyState(value: unknown): PersistentProactiveStrategySt
   };
 }
 
+function toWorkingMemory(value: unknown): PersistentWorkingMemory | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const currentNeed =
+    typeof record.currentNeed === "string" ? record.currentNeed.trim().slice(0, 120) : "";
+  const openLoop =
+    typeof record.openLoop === "string" ? record.openLoop.trim().slice(0, 120) : "";
+  const sceneState =
+    record.sceneState === "planning" ||
+    record.sceneState === "decision" ||
+    record.sceneState === "immersive"
+      ? record.sceneState
+      : "none";
+  const currentConstraints = toStringList(record.currentConstraints, 3)
+    .map((entry) => entry.slice(0, 72));
+  const lastUpdatedTurn = Math.max(0, Math.floor(toFiniteNumber(record.lastUpdatedTurn, 0)));
+  if (!currentNeed && !openLoop && currentConstraints.length === 0 && sceneState === "none") {
+    return undefined;
+  }
+  return {
+    currentNeed,
+    currentConstraints,
+    openLoop,
+    sceneState,
+    lastUpdatedTurn,
+  };
+}
+
 export function relationshipStateEnabled(): boolean {
   return parseBooleanFlag(process.env.REMI_RELATIONSHIP_STATE_ENABLED, true);
 }
@@ -487,6 +524,7 @@ export function normalizePersistentRelationshipState(
     sharedMoments: toSharedMoments(record.sharedMoments),
     episodes: toEpisodes(record.episodes),
     topicThreads: toTopicThreads(record.topicThreads),
+    workingMemory: toWorkingMemory(record.workingMemory),
     continuityCueState: toContinuityCueState(record.continuityCueState),
     proactiveLedger: toProactiveLedger(record.proactiveLedger),
     proactiveStrategyState: toProactiveStrategyState(record.proactiveStrategyState),

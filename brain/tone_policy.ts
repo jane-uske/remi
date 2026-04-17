@@ -72,7 +72,7 @@ export function detectDecisionSeekingSignal(text: string): boolean {
 export function detectAnswerNowSignal(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  return /(?:我在问你|你怎么老是问我|别老问我|先回答我|直接说你的看法|我是在问你|^(你说|直说|直接说|说你的看法|说说你的判断)$)/u.test(
+  return /(?:我在问你|你怎么老是问我|别老问我|别一直问我|不要一直问我|一直问我问题|先回答我|直接说你的看法|我是在问你|你又不会帮我做|我成了你的助手|^(你说|直说|直接说|说你的看法|说说你的判断)$)/u.test(
     trimmed,
   );
 }

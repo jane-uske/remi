@@ -12,13 +12,31 @@ type SoakHarnessOptions = {
   ) => AsyncGenerator<string>;
   synthesizeImpl?: (text: string, signal?: AbortSignal, emotion?: string) => Promise<Buffer>;
   autoPlaybackStart?: boolean;
+  scenarioKey?: string;
 };
 
 type LatencyLog = {
   connId: string;
   traceId: string;
+  scenarioKey: string | null;
+  sessionId: string | null;
   generationId: number | null;
   source: string | null;
+  releaseReason: string | null;
+  releaseStableMs: number | null;
+  prosodyApplied: string | null;
+  usedNoVadFallback: boolean;
+  previewText: string | null;
+  finalTranscript: string | null;
+  interruptionType: string | null;
+  turnStateTransitions: Array<{
+    state: string;
+    reason: string;
+    at: number;
+    generationId?: number;
+    preview?: string | null;
+    interruptionType?: string | null;
+  }>;
   metrics: Record<string, number | null>;
   timestamps: Record<string, number | undefined>;
 };
@@ -86,7 +104,7 @@ function parseOutgoingMessage(raw: unknown): any | null {
   }
 }
 
-function patchLatencyCapture(latencyLogs: LatencyLog[]) {
+function patchLatencyCapture(latencyLogs: LatencyLog[], options: SoakHarnessOptions) {
   const latencyModulePath = path.resolve(__dirname, "../../infra/latency_tracer.ts");
   const latencyModule = require(latencyModulePath);
   const originalLog = latencyModule.LatencyTracer.prototype.log;
@@ -95,11 +113,22 @@ function patchLatencyCapture(latencyLogs: LatencyLog[]) {
     const traceStore = this.traces;
     const trace = traceStore?.get?.(traceId);
     if (trace && !trace.completed) {
+      const context = this.getContext(traceId) ?? {};
       latencyLogs.push({
         connId: this.connId,
         traceId,
-        generationId: trace.context?.generationId ?? null,
-        source: trace.context?.source ?? null,
+        scenarioKey: context.scenarioKey ?? options.scenarioKey ?? null,
+        sessionId: context.sessionId ?? null,
+        generationId: context.generationId ?? null,
+        source: context.source ?? null,
+        releaseReason: context.releaseReason ?? null,
+        releaseStableMs: context.releaseStableMs ?? null,
+        prosodyApplied: context.prosodyApplied ?? null,
+        usedNoVadFallback: context.usedNoVadFallback ?? false,
+        previewText: context.previewText ?? null,
+        finalTranscript: context.finalTranscript ?? null,
+        interruptionType: context.interruptionType ?? null,
+        turnStateTransitions: context.turnStateTransitions ?? [],
         metrics: latencyModule.LatencyTracer.normalizeMetrics(this.computeMetrics(traceId)),
         timestamps: this.getAllTimestamps(traceId),
       });
@@ -176,7 +205,7 @@ function loadSoakSessionHarness(options: SoakHarnessOptions = {}) {
   delete require.cache[sessionPath];
 
   const latencyLogs: LatencyLog[] = [];
-  const restoreLatencyCapture = patchLatencyCapture(latencyLogs);
+  const restoreLatencyCapture = patchLatencyCapture(latencyLogs, options);
 
   const { createSession } = require(sessionPath);
   const { getLatencyTracer } = require(path.resolve(__dirname, "../../infra/latency_tracer.ts"));
@@ -234,6 +263,7 @@ function loadSoakSessionHarness(options: SoakHarnessOptions = {}) {
   session.stt.canPreviewPcm = () => false;
   session.stt.previewPcmBuffer = async () => null;
   session.stt.endPcm = async () => transcript;
+  session.stt.transcribePcmSnapshot = async () => transcript;
   session.stt.reset = () => {};
   session.stt.cancelPcm = () => {};
   session.stt.cancelPreview = () => {};

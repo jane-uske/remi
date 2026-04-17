@@ -105,6 +105,20 @@ export function applyPersonaPreset(persona: PersonaState, presetId: PersonaPrese
 }
 
 export function resetPersonaLiveState(persona: PersonaState): void {
+  persona.liveState.mood = "neutral";
+  persona.liveState.energy = "medium";
+  persona.liveState.closeness = "normal";
+  persona.liveState.attention = "focused";
+  persona.liveState.lastInterrupted = false;
+  persona.liveState.topicPull = "";
+  persona.liveState.proactiveIntent = "none";
+  persona.liveState.relationalStance = {
+    mode: "steady_companion",
+    boundary: "steady",
+    soothingStyle: "gentle_checkin",
+    proactiveCadence: "guarded",
+    expressionDirectness: "balanced",
+  };
   persona.liveState.currentMood = "neutral";
   persona.liveState.emotionalState = "平静";
   persona.liveState.recentInteractions = [];

@@ -468,4 +468,77 @@ describe("routeMessage with session memory overlay", () => {
       restoreEnv();
     }
   });
+
+  it("injects and commits working memory only after a successful handled reply", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_WORKING_MEMORY_ENABLED: "1",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-working-memory");
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        currentContext: input.currentContext,
+      });
+      yield "先按这个判断。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "我到底该不该先把花呗还了，我还欠两万五", "neutral", undefined, {
+        inputSource: "text",
+        structuredAnalysis: {
+          interpretation: {
+            userAct: "decision_seek",
+            answerObligation: "answer_then_followup",
+            responseMode: "answer_first",
+            emotionalState: {
+              valence: "mixed",
+              intensity: "medium",
+              feltNeeds: ["clarity"],
+            },
+            relationalPosture: "serious",
+            topicUpdate: {
+              kind: "constraint_update",
+              label: "债务",
+            },
+            sceneState: "not_in_scene",
+            boundaryState: "none",
+            followupPermission: "none",
+            confidence: 0.9,
+          },
+          policy: {
+            openingMove: "direct_answer",
+            directness: "high",
+            warmth: "high",
+            questionBudget: 0,
+            shouldMirrorEmotion: true,
+            shouldGiveJudgment: true,
+            shouldUpdateDecisionContext: true,
+            bans: ["no_assistantese"],
+          },
+          source: "llm_structured",
+          latencyMs: 120,
+          timedOut: false,
+          mode: "on",
+          used: true,
+        },
+      })) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.ok(captured[0].currentContext.includes("【当前上下文】"));
+      assert.ok(captured[0].currentContext.includes("当前需求"));
+      assert.ok(captured[0].currentContext.includes("现实约束"));
+
+      const snapshot = ctx.slowBrain.getSnapshot();
+      assert.ok(snapshot.workingMemory);
+      assert.equal(snapshot.workingMemory.sceneState, "decision");
+      assert.equal(snapshot.workingMemory.currentConstraints.length > 0, true);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
 });

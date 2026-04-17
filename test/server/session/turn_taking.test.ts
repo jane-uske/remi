@@ -474,10 +474,28 @@ describe("turn taking stage2", () => {
         previewText: "",
         utteranceFrameCount: 120,
         utteranceStrongFrames: 6,
+        utteranceMaxRms: 0.02,
+        minUtteranceRms: 0.035,
         minStrongFrames: 8,
         minStrongRatio: 0.22,
       }),
       true,
+    );
+  });
+
+  it("keeps strict no-preview utterances when weak shape still carries strong energy", () => {
+    assert.equal(
+      shouldSuppressStrictNoPreviewUtterance({
+        vadMode: "strict",
+        previewText: "",
+        utteranceFrameCount: 13,
+        utteranceStrongFrames: 4,
+        utteranceMaxRms: 0.12,
+        minUtteranceRms: 0.035,
+        minStrongFrames: 8,
+        minStrongRatio: 0.22,
+      }),
+      false,
     );
   });
 
@@ -488,6 +506,8 @@ describe("turn taking stage2", () => {
         previewText: "",
         utteranceFrameCount: 100,
         utteranceStrongFrames: 34,
+        utteranceMaxRms: 0.08,
+        minUtteranceRms: 0.035,
         minStrongFrames: 8,
         minStrongRatio: 0.22,
       }),
@@ -502,6 +522,8 @@ describe("turn taking stage2", () => {
         previewText: "",
         utteranceFrameCount: 129,
         utteranceStrongFrames: 7,
+        utteranceMaxRms: 0.02,
+        minUtteranceRms: 0.035,
         minStrongFrames: 8,
         minStrongRatio: 0.22,
         recognizedText: "词曲 李宗盛",
