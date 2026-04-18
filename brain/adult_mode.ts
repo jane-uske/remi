@@ -103,6 +103,16 @@ const EXPLICIT_CONTINUE_PATTERNS = [
   /嗯啊/u,
 ];
 
+const EXPLICIT_ESCALATION_PATTERNS = [
+  /来点狠的/u,
+  /狠一点/u,
+  /再狠一点/u,
+  /骚一点/u,
+  /再骚一点/u,
+  /描述你现在怎么骚/u,
+  /描述[^，。！？!?]{0,24}怎么骚/u,
+];
+
 const EXPLICIT_SCENE_REPAIR_PATTERNS = [
   /说人话/u,
   /直接说/u,
@@ -320,6 +330,10 @@ export function classifyAdultIntent(
   }
 
   if (state.mode === "explicit" && EXPLICIT_ACK_PATTERN.test(trimmed)) {
+    return "explicit_scene_continue";
+  }
+
+  if (state.mode === "explicit" && hasAnyPattern(trimmed, EXPLICIT_ESCALATION_PATTERNS)) {
     return "explicit_scene_continue";
   }
 

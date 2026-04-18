@@ -2,6 +2,7 @@ const assert = require("assert").strict;
 
 const {
   createAdultSceneState,
+  classifyAdultIntent,
   advanceAdultSceneState,
   buildAdultScenePrompt,
 } = require("../../brain/adult_mode");
@@ -171,6 +172,29 @@ describe("adult_mode", () => {
         commanded.nextState.executionPlan?.nextBeat.includes("不要跳到插入、入口或顶入"),
         true,
       );
+    });
+  });
+
+  it("keeps explicit escalation asks inside the explicit scene instead of dropping to none", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      const entered = advanceAdultSceneState(createAdultSceneState(), {
+        userMessage: "Rem，今天好想你啊，鸡巴有点硬了呢",
+      }).nextState;
+
+      assert.equal(
+        classifyAdultIntent("Rem，来点狠的，描述你现在怎么骚", entered),
+        "explicit_scene_continue",
+      );
+
+      const continued = advanceAdultSceneState(entered, {
+        userMessage: "Rem，来点狠的，描述你现在怎么骚",
+      });
+
+      assert.equal(continued.intent, "explicit_scene_continue");
+      assert.equal(continued.reason, "explicit_scene_continue");
+      assert.equal(continued.nextState.mode, "explicit");
+      assert.equal(continued.nextState.allowedExplicit, true);
+      assert.equal(continued.nextState.cooldownOrBoundaryHit, false);
     });
   });
 

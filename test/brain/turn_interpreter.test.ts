@@ -331,4 +331,44 @@ describe("turn interpreter", () => {
       restoreEnv();
     }
   });
+
+  it("treats explicit escalation asks as staying in scene instead of an ordinary topic shift", async () => {
+    const restoreEnv = applyEnv({
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      REMI_ADULT_MODE: "1",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "Rem，来点狠的，描述你现在怎么骚",
+        history: [
+          { role: "user", content: "Rem，今天好想你啊，鸡巴有点硬了呢" },
+          { role: "assistant", content: "哈啊……主人想Remi了……骚屄一下子就湿透了呢……" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+        adultSceneState: {
+          mode: "explicit",
+          allowedExplicit: true,
+          initiatedByUser: true,
+          turnsSinceLastExplicitCue: 0,
+          cooldownOrBoundaryHit: false,
+          explicitCueStreak: 2,
+          beat: "sustain",
+          intensity: "explicit",
+          style: "fantasy_execute",
+          executionPlan: null,
+        },
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.adultIntent, "explicit_scene_continue");
+      assert.equal(result.interpretation.userAct, "scene_continue");
+      assert.equal(result.policy.openingMove, "scene_ack");
+    } finally {
+      restoreEnv();
+    }
+  });
 });
