@@ -9,6 +9,11 @@ import type {
   RemiTurnState,
   RemiTurnStateReason,
 } from "@/types/avatar";
+import type {
+  CanonicalAvatarConnection,
+  CanonicalAvatarPhase,
+  CanonicalAvatarPhaseReason,
+} from "@/runtime/remiRuntimeAdapter";
 
 export interface AvatarDevtoolsLogEntry {
   id: number;
@@ -34,6 +39,33 @@ export interface AvatarRuntimeSnapshot {
   activeCue?: string | null;
   runtimeState?: string;
   intent?: AvatarIntent | null;
+  runtimePhase?: CanonicalAvatarPhase;
+  runtimePhaseReason?: CanonicalAvatarPhaseReason;
+  connection?: CanonicalAvatarConnection;
+  userRecording?: boolean;
+  userSpeaking?: boolean;
+  assistantStreaming?: boolean;
+  assistantPlaybackActive?: boolean;
+  assistantPlaybackTailActive?: boolean;
+  mouthLevel?: number;
+  renderModel?: {
+    presenceLabel: string;
+    companionLine: string;
+    mouthOpen: number;
+    blink: number;
+    smile: number;
+    gazeX: number;
+    gazeY: number;
+    headYaw: number;
+    headPitch: number;
+    breath: number;
+    posture: {
+      translateX: number;
+      translateY: number;
+      scale: number;
+      rotateDeg: number;
+    };
+  } | null;
 }
 
 type AvatarDevtoolsState = {

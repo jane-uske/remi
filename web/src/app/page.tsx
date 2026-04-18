@@ -1,5 +1,10 @@
-import { RemiChatApp } from "@/components/RemiChatApp";
+import { RemiAuthProvider } from "@/components/RemiAuthProvider";
+import { RemiHomeGate } from "@/components/RemiHomeGate";
 
 export default function Home() {
-  return <RemiChatApp />;
+  return (
+    <RemiAuthProvider>
+      <RemiHomeGate />
+    </RemiAuthProvider>
+  );
 }

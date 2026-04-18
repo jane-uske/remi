@@ -2,7 +2,7 @@
  * WebSocket URL for Remi backend（/ws）。
  *
  * - 一体启动（根目录 `npm run dev`）：页面与 API 同端口，用 `ws://当前 host/ws` 即可。
- * - 仅前端（`npm run dev:web:standalone`）：Next 常在 **3001**，而后端仍在 **3000**，需指向 3000 或设置 `NEXT_PUBLIC_WS_URL`。
+ * - 仅前端（`npm run dev:web:standalone`）：Next 常在 **3001**，若后端不在同端口，需显式设置 `NEXT_PUBLIC_WS_URL`。
  *
  * 环境变量须为绝对 WebSocket URL。若写成 `localhost:3000/ws`（无 `ws://`），浏览器会当成相对路径，
  * 解析成 `http(s)://当前页/localhost:3000/ws`，地址栏易出现 `/localhost:3000/...` 嵌套。
@@ -48,14 +48,18 @@ function rewriteLoopbackEnvWsUrl(rawUrl: string): string {
   }
 }
 
-function appendTokenFromPage(wsUrl: string): string {
-  if (typeof window === "undefined") return wsUrl;
-  const token = new URLSearchParams(window.location.search).get("token");
-  if (!token) return wsUrl;
+export function appendTokenToWsUrl(wsUrl: string, token?: string | null): string {
+  if (typeof window === "undefined" && !token) return wsUrl;
+  const resolvedToken =
+    token ??
+    (typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("token")
+      : null);
+  if (!resolvedToken) return wsUrl;
   try {
     const url = new URL(wsUrl);
     if (!url.searchParams.get("token")) {
-      url.searchParams.set("token", token);
+      url.searchParams.set("token", resolvedToken);
     }
     return url.toString();
   } catch {
@@ -63,22 +67,15 @@ function appendTokenFromPage(wsUrl: string): string {
   }
 }
 
-export function getRemWsUrl(): string {
+export function getRemWsUrl(sessionToken?: string | null): string {
   const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
     const normalized = normalizeEnvWsUrl(fromEnv);
-    return appendTokenFromPage(rewriteLoopbackEnvWsUrl(normalized));
+    return appendTokenToWsUrl(rewriteLoopbackEnvWsUrl(normalized), sessionToken);
   }
   if (typeof window === "undefined") return "";
 
-  const hostname = window.location.hostname;
-  const port = window.location.port;
   const protocol = browserWsProtocol();
 
-  // Next 单独 dev 常见 3001/3002；后端默认 PORT=3000
-  if (port === "3001" || port === "3002") {
-    return appendTokenFromPage(`${protocol}://${hostname}:3000/ws`);
-  }
-
-  return appendTokenFromPage(`${protocol}://${window.location.host}/ws`);
+  return appendTokenToWsUrl(`${protocol}://${window.location.host}/ws`, sessionToken);
 }

@@ -12,6 +12,7 @@ import type {
   RemiTurnStateReason,
 } from "@/types/avatar";
 import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
+import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import {
   shouldAwaitPlaybackDrain,
   shouldFinalizeDeferredChatEnd,
@@ -27,8 +28,6 @@ import {
   MESSAGE_STORAGE_MAX,
   measurePcmFrame,
   REM_WS_RECONNECT_DELAY_MS,
-  resolveCurrentUserId,
-  resolveIsDefaultDevUser,
   resolveLegacyMessageStorageKey,
   resolveMessageStorageKey,
   resolveWsTargetLabel,
@@ -54,8 +53,19 @@ import { getRemWsUrl } from "@/lib/wsUrl";
 import { deriveAvatarIntent } from "@/lib/rem3d/avatarIntent";
 import {
   mergeAvatarRuntimeSnapshot,
+  publishAvatarRuntimeSnapshot,
   pushAvatarDevtoolsLog,
 } from "@/lib/rem3d/devtoolsStore";
+import { buildAvatarRenderModel } from "@/runtime/avatarRenderModel";
+import {
+  adaptRemiRuntimeState,
+  type CanonicalAvatarState,
+} from "@/runtime/remiRuntimeAdapter";
+import {
+  selectListeningHint,
+  selectThinkingHint,
+  toLegacyRemState,
+} from "@/runtime/remiRuntimeSelectors";
 
 /** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」） */
 const WS_CONNECT_TIMEOUT_MS = 12_000;
@@ -75,7 +85,7 @@ type HistoryCursor = {
 };
 
 type HistoryListMutation = "idle" | "replace" | "prepend" | "append";
-type DevCommandKind = "apply" | "reset";
+type DevCommandKind = "apply" | "reset" | "voice";
 type DevStatusTone = "idle" | "pending" | "success" | "error";
 
 type DevStatus = {
@@ -103,6 +113,7 @@ export function useRemiChat() {
     tone: "idle",
     message: "",
   });
+  const [runtimeClock, setRuntimeClock] = useState(0);
   const [streamingText, setStreamingText] = useState("");
   const [sttPartialText, setSttPartialText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -110,8 +121,6 @@ export function useRemiChat() {
   const [turnState, setTurnState] = useState<RemiTurnState>("confirmed_end");
   const [sttPredictionPreview, setSttPredictionPreview] = useState<string | null>(null);
   const [interruptionType, setInterruptionType] = useState<InterruptionType | null>(null);
-  /** 首 token 前：转成更弱的状态提示，不再直接显示“Remi 在想…” */
-  const thinkingHint = waiting && streamingText.length === 0;
   const [avatarAction, setAvatarAction] = useState<{
     action: AvatarActionCommand;
     nonce: number;
@@ -123,7 +132,15 @@ export function useRemiChat() {
   const [duplex, setDuplex] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [awaitingSpeechCommit, setAwaitingSpeechCommit] = useState(false);
-  const messageStorageKey = useMemo(() => resolveMessageStorageKey(), []);
+  const remiAuth = useRemiWebAuth();
+  const messageStorageKey = useMemo(
+    () =>
+      resolveMessageStorageKey({
+        currentUserId: remiAuth.currentUserId,
+        isDefaultDevUser: remiAuth.isDefaultDevUser,
+      }),
+    [remiAuth.currentUserId, remiAuth.isDefaultDevUser],
+  );
   const [browserIdentity, setBrowserIdentity] =
     useState<BrowserIdentityState>(INITIAL_BROWSER_IDENTITY);
   const { isDefaultDevUser, currentUserId, wsTargetLabel } = browserIdentity;
@@ -182,6 +199,8 @@ export function useRemiChat() {
   const micTxLastLogAtRef = useRef(0);
   const lastMicFaultAtRef = useRef(0);
   const startingDuplexRef = useRef(false);
+  const runtimeStateRef = useRef<CanonicalAvatarState | null>(null);
+  const runtimeLogKeyRef = useRef("");
   /** 连接超时主动 close 时，onclose 不再刷「已断开」系统提示（避免与超时错误重复） */
   const suppressDisconnectSysMsgRef = useRef(false);
   const avatarBeatTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -589,6 +608,65 @@ export function useRemiChat() {
     [avatarAction, avatarFrame, emotion, turnState],
   );
   const avatarIntent = avatarIntentOverride ?? derivedAvatarIntent;
+  const runtimeNowMs = Date.now() + runtimeClock * 0;
+  const runtimeState = useMemo(
+    () =>
+      adaptRemiRuntimeState(
+        {
+          nowMs: runtimeNowMs,
+          connection: connectionPhase,
+          turnState,
+          turnReason: turnStateMetaRef.current.reason,
+          turnPreviewText: sttPredictionPreview,
+          turnInterruptionType: interruptionType,
+          turnSinceAtMs: turnStateMetaRef.current.sinceAtMs,
+          recording,
+          duplexEnabled: duplex,
+          userSpeaking,
+          awaitingCommit: awaitingSpeechCommit,
+          waiting,
+          typing,
+          streamingText,
+          voiceActive,
+          emotion,
+          avatarIntent,
+          avatarFrame,
+          lipSignal: lipSignalRef.current,
+        },
+        runtimeStateRef.current,
+      ),
+    [
+      avatarFrame,
+      avatarIntent,
+      awaitingSpeechCommit,
+      connectionPhase,
+      duplex,
+      emotion,
+      recording,
+      runtimeNowMs,
+      streamingText,
+      sttPredictionPreview,
+      interruptionType,
+      turnState,
+      typing,
+      userSpeaking,
+      voiceActive,
+      waiting,
+      lipSignalRef,
+    ],
+  );
+  const avatarRenderModel = useMemo(
+    () => buildAvatarRenderModel(runtimeState),
+    [runtimeState],
+  );
+  const listeningHint = useMemo(
+    () => selectListeningHint(runtimeState, sttPartialText),
+    [runtimeState, sttPartialText],
+  );
+  const thinkingHint = useMemo(
+    () => selectThinkingHint(runtimeState),
+    [runtimeState],
+  );
 
   const lastIntentKeyRef = useRef("");
 
@@ -598,6 +676,126 @@ export function useRemiChat() {
     lastIntentKeyRef.current = key;
     pushAvatarDevtoolsLog("intent", "avatar intent updated", avatarIntent);
   }, [avatarIntent]);
+
+  useEffect(() => {
+    runtimeStateRef.current = runtimeState;
+  }, [runtimeState]);
+
+  useEffect(() => {
+    const expiresAt = Math.max(
+      runtimeState.timers?.speakingTailUntilMs ?? 0,
+      runtimeState.timers?.reactingUntilMs ?? 0,
+    );
+    if (!expiresAt || expiresAt <= Date.now()) return;
+    const timeout = window.setTimeout(() => {
+      setRuntimeClock((tick) => tick + 1);
+    }, Math.max(1, expiresAt - Date.now() + 1));
+    return () => window.clearTimeout(timeout);
+  }, [
+    runtimeState.timers?.reactingUntilMs,
+    runtimeState.timers?.speakingTailUntilMs,
+  ]);
+
+  useEffect(() => {
+    const snapshotTs = Date.now();
+    publishAvatarRuntimeSnapshot({
+      ts: snapshotTs,
+      emotion: runtimeState.affect.emotion,
+      remState: toLegacyRemState(runtimeState),
+      turnState: runtimeState.turn.serverState,
+      turnReason: runtimeState.turn.reason,
+      turnStateAtMs: runtimeState.turn.sinceAtMs,
+      sttPredictionPreview: runtimeState.turn.previewText,
+      interruptionType: runtimeState.turn.interruptionType,
+      voiceActive: runtimeState.assistant.playbackActive,
+      lipEnvelope: runtimeState.speech.envelope,
+      expressionWeights: avatarFrame?.face ?? {},
+      activeAction: avatarAction?.action ?? null,
+      activeCue: avatarIntent?.gesture ?? null,
+      runtimeState: runtimeState.phase,
+      intent: avatarIntent,
+      runtimePhase: runtimeState.phase,
+      runtimePhaseReason: runtimeState.phaseReason,
+      connection: runtimeState.connection,
+      userRecording: runtimeState.user.recording,
+      userSpeaking: runtimeState.user.speaking,
+      assistantStreaming:
+        runtimeState.assistant.streaming || runtimeState.assistant.waiting,
+      assistantPlaybackActive: runtimeState.assistant.playbackActive,
+      assistantPlaybackTailActive: runtimeState.assistant.playbackTailActive,
+      mouthLevel: runtimeState.speech.mouthLevel,
+      renderModel: {
+        presenceLabel: avatarRenderModel.presenceLabel,
+        companionLine: avatarRenderModel.companionLine,
+        mouthOpen: avatarRenderModel.mouthOpen,
+        blink: avatarRenderModel.blink,
+        smile: avatarRenderModel.smile,
+        gazeX: avatarRenderModel.gazeX,
+        gazeY: avatarRenderModel.gazeY,
+        headYaw: avatarRenderModel.headYaw,
+        headPitch: avatarRenderModel.headPitch,
+        breath: avatarRenderModel.breath,
+        posture: avatarRenderModel.posture,
+      },
+    });
+  }, [avatarAction, avatarFrame, avatarIntent, avatarRenderModel, runtimeState]);
+
+  useEffect(() => {
+    const key = [
+      runtimeState.phase,
+      runtimeState.phaseReason,
+      runtimeState.connection,
+      runtimeState.turn.serverState ?? "none",
+      runtimeState.user.recording ? "1" : "0",
+      runtimeState.user.speaking ? "1" : "0",
+      runtimeState.assistant.playbackActive ? "1" : "0",
+      runtimeState.assistant.playbackTailActive ? "1" : "0",
+    ].join("|");
+    if (key === runtimeLogKeyRef.current) return;
+    runtimeLogKeyRef.current = key;
+    pushAvatarDevtoolsLog("runtime", "derived runtime state", {
+      phase: runtimeState.phase,
+      phaseReason: runtimeState.phaseReason,
+      connection: runtimeState.connection,
+      turnState: runtimeState.turn.serverState,
+      turnReason: runtimeState.turn.reason,
+      userRecording: runtimeState.user.recording,
+      userSpeaking: runtimeState.user.speaking,
+      assistantStreaming:
+        runtimeState.assistant.streaming || runtimeState.assistant.waiting,
+      assistantPlaybackActive: runtimeState.assistant.playbackActive,
+      assistantPlaybackTailActive: runtimeState.assistant.playbackTailActive,
+      mouthLevel: runtimeState.speech.mouthLevel,
+    });
+  }, [runtimeState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (
+      !runtimeState.user.recording &&
+      !runtimeState.assistant.playbackActive &&
+      !runtimeState.assistant.playbackTailActive
+    ) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      const envelope = Math.max(0, Math.min(1, lipSignalRef.current.envelope ?? 0));
+      mergeAvatarRuntimeSnapshot({
+        ts: Date.now(),
+        lipEnvelope: envelope,
+        mouthLevel: envelope,
+        assistantPlaybackActive: runtimeStateRef.current?.assistant.playbackActive ?? false,
+        assistantPlaybackTailActive:
+          runtimeStateRef.current?.assistant.playbackTailActive ?? false,
+      });
+    }, 120);
+    return () => window.clearInterval(interval);
+  }, [
+    lipSignalRef,
+    runtimeState.assistant.playbackActive,
+    runtimeState.assistant.playbackTailActive,
+    runtimeState.user.recording,
+  ]);
 
   useEffect(() => {
     if (!avatarAction) return;
@@ -855,6 +1053,11 @@ export function useRemiChat() {
   const connectRef = useRef<() => void>(() => {});
 
   connectRef.current = () => {
+    if (remiAuth.clerkEnabled && (!remiAuth.ready || !remiAuth.signedIn)) {
+      return;
+    }
+    void (async () => {
+      const sessionToken = await remiAuth.getSessionToken();
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
       reconnectRef.current = null;
@@ -862,7 +1065,7 @@ export function useRemiChat() {
     setReconnectDeadline(null);
     setConnectionPhase("connecting");
     setConnLabel("连接中…");
-    const url = getRemWsUrl();
+      const url = getRemWsUrl(sessionToken);
     if (!url) {
       setConnectionPhase("closed");
       setConnLabel("无法解析 WS 地址");
@@ -1344,6 +1547,7 @@ export function useRemiChat() {
         }
 
         case "dev_preset_applied":
+        case "dev_tts_voice_applied":
         case "dev_state_reset": {
           pendingDevCommandRef.current = null;
           if (data.type === "dev_preset_applied") {
@@ -1364,6 +1568,15 @@ export function useRemiChat() {
               tone: "success",
               message:
                 parts.length > 0 ? `预设已应用 (${parts.join(" / ")})` : "预设已应用",
+            });
+          } else if (data.type === "dev_tts_voice_applied") {
+            const voiceType =
+              typeof data.voiceType === "string" && data.voiceType.trim()
+                ? data.voiceType.trim()
+                : "";
+            setDevStatus({
+              tone: "success",
+              message: voiceType ? `Volc 音色已切到 ${voiceType}` : "Volc 音色已恢复环境默认",
             });
           } else {
             const scope =
@@ -1472,16 +1685,16 @@ export function useRemiChat() {
       window.clearTimeout(connectTimer);
       pushAvatarDevtoolsLog("system", "ws error");
     };
+    })();
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     setBrowserIdentity({
-      isDefaultDevUser: resolveIsDefaultDevUser(),
-      currentUserId: resolveCurrentUserId(),
-      wsTargetLabel: resolveWsTargetLabel(),
+      isDefaultDevUser: remiAuth.isDefaultDevUser,
+      currentUserId: remiAuth.currentUserId,
+      wsTargetLabel: resolveWsTargetLabel(getRemWsUrl()),
     });
-  }, []);
+  }, [remiAuth.currentUserId, remiAuth.isDefaultDevUser]);
 
   useEffect(() => {
     // connectRef 已使用 ref pattern，总是读取最新闭包，因此依赖必须保持为空 —
@@ -1499,6 +1712,27 @@ export function useRemiChat() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    if (remiAuth.clerkEnabled && !remiAuth.ready) return;
+    if (remiAuth.clerkEnabled && !remiAuth.signedIn) {
+      if (reconnectRef.current) {
+        clearTimeout(reconnectRef.current);
+        reconnectRef.current = null;
+      }
+      wsRef.current?.close();
+      return;
+    }
+    if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+      connectRef.current?.();
+    }
+  }, [
+    remiAuth.clerkEnabled,
+    remiAuth.currentUserId,
+    remiAuth.ready,
+    remiAuth.signedIn,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1659,6 +1893,24 @@ export function useRemiChat() {
     [describeResetScope],
   );
 
+  const applyDevVolcVoiceType = useCallback((voiceType?: string | null) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    pendingDevCommandRef.current = { kind: "voice" };
+    setDevStatus({
+      tone: "pending",
+      message: voiceType?.trim()
+        ? `正在切换 Volc 音色到 ${voiceType.trim()}…`
+        : "正在恢复环境默认 Volc 音色…",
+    });
+    ws.send(
+      JSON.stringify({
+        type: "dev_set_tts_voice",
+        voiceType: voiceType?.trim() || "__env_default__",
+      }),
+    );
+  }, []);
+
   return {
     emotion,
     turnState,
@@ -1680,13 +1932,15 @@ export function useRemiChat() {
     typing,
     thinkingHint,
     waiting,
+    runtimeState,
+    avatarRenderModel,
     avatarAction,
     inputPlaceholder,
     recording,
     duplex,
     userSpeaking,
     awaitingSpeechCommit,
-    listeningHint: recording && userSpeaking && !sttPartialText,
+    listeningHint,
     voiceActive,
     /** TTS 音量包络 0–1，供 3D 口型同步 */
     lipEnvelopeRef,
@@ -1699,6 +1953,7 @@ export function useRemiChat() {
     sendText,
     loadMoreHistory,
     applyDevPreset,
+    applyDevVolcVoiceType,
     resetDevState,
     devStatus,
     devCommandPending: devStatus.tone === "pending",

@@ -29,9 +29,9 @@
   --remi-page-bg-image: url("/rem-ui-bg.svg");
   --remi-page-overlay: linear-gradient(
     165deg,
-    rgba(4, 8, 14, 0.75) 0%,
-    rgba(6, 14, 22, 0.45) 45%,
-    rgba(3, 6, 12, 0.65) 100%
+    rgba(4, 8, 14, 0.84) 0%,
+    rgba(8, 14, 24, 0.76) 44%,
+    rgba(4, 8, 14, 0.88) 100%
   );
   --remi-stage-veil: radial-gradient(
     ellipse 80% 60% at 50% 40%,
@@ -61,9 +61,9 @@
     --remi-bubble-rem: rgba(255, 255, 255, 0.82);
     --remi-page-overlay: linear-gradient(
       165deg,
-      rgba(248, 252, 252, 0.88) 0%,
-      rgba(236, 248, 246, 0.78) 50%,
-      rgba(230, 242, 240, 0.85) 100%
+      rgba(248, 252, 252, 0.94) 0%,
+      rgba(235, 245, 243, 0.9) 48%,
+      rgba(227, 239, 237, 0.95) 100%
     );
     --remi-stage-veil: radial-gradient(
       ellipse 80% 60% at 50% 40%,
@@ -132,6 +132,66 @@ body {
   min-height: 100dvh;
   min-height: 100svh;
   width: 100%;
+}
+
+.remi-chat-shell {
+  position: relative;
+}
+
+.remi-airi-app {
+  background:
+    radial-gradient(circle at 50% 26%, rgba(14, 108, 132, 0.16), transparent 28%),
+    linear-gradient(180deg, #0b0d10 0%, #0d1013 100%);
+}
+
+.remi-stage-grid {
+  background-color: transparent;
+  background-image:
+    linear-gradient(
+      transparent 47%,
+      rgba(9, 95, 118, 0.28) 47%,
+      rgba(9, 95, 118, 0.28) 53%,
+      transparent 53%
+    ),
+    linear-gradient(
+      90deg,
+      transparent 47%,
+      rgba(9, 95, 118, 0.28) 47%,
+      rgba(9, 95, 118, 0.28) 53%,
+      transparent 53%
+    );
+  background-size: 68px 68px;
+  background-position: 0 0, 0 0;
+}
+
+.remi-anime-stage {
+  isolation: isolate;
+}
+
+.remi-chat-shell::before,
+.remi-chat-shell::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(52px);
+  opacity: 0.48;
+}
+
+.remi-chat-shell::before {
+  left: -8%;
+  top: 12%;
+  height: 14rem;
+  width: 14rem;
+  background: rgba(45, 212, 191, 0.12);
+}
+
+.remi-chat-shell::after {
+  right: -5%;
+  bottom: 8%;
+  height: 15rem;
+  width: 15rem;
+  background: rgba(125, 211, 252, 0.12);
 }
 
 /* 3D 舞台：透明，让 body 背景透出；WebGL canvas 亦 alpha */
@@ -237,6 +297,21 @@ body {
   animation: remMicPulse 1s ease-in-out infinite;
 }
 
+@keyframes remPortraitFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(var(--remi-breath-offset, 6px) * -0.2));
+  }
+}
+
+.remi-portrait-figure {
+  animation: remPortraitFloat 4.6s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
 @keyframes remThinking {
   0%,
   100% {
@@ -255,7 +330,8 @@ body {
   .remi-msg-pop,
   .remi-typing-dot,
   .remi-mic-pulse,
-  .remi-thinking-bubble {
+  .remi-thinking-bubble,
+  .remi-portrait-figure {
     animation: none !important;
   }
 

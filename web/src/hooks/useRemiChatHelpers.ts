@@ -1,7 +1,16 @@
 "use client";
 
-import { getRemWsUrl } from "@/lib/wsUrl";
-import type { ChatMessage } from "@/types/chat";
+import { getRemWsUrl } from "../lib/wsUrl";
+import type { ChatMessage } from "../types/chat";
+import {
+  DEFAULT_DEV_USER_ID,
+  LEGACY_MESSAGE_STORAGE_KEY,
+  MESSAGE_STORAGE_KEY,
+  resolveAuthCapabilities as resolveAuthCapabilitiesBase,
+  resolveCurrentUserId as resolveCurrentUserIdBase,
+  resolveIsDefaultDevUser as resolveIsDefaultDevUserBase,
+  resolveMessageStorageKey as resolveMessageStorageKeyBase,
+} from "../lib/browserIdentity";
 
 function normalizeTranscriptForMerge(text: string): string {
   return text.replace(/\s+/g, "").replace(/[，。！？,.!?、；;:“”"'`~·\-]/g, "");
@@ -12,13 +21,11 @@ export function uid() {
 }
 
 const AUDIO_FRAME_HEADER_BYTES = 16;
-const MESSAGE_STORAGE_KEY = "remi-chat-messages-v1";
-const LEGACY_MESSAGE_STORAGE_KEY = "rem-chat-messages-v1";
 const STT_FALLBACK_PREFIX = "录音中";
 
 export const MESSAGE_STORAGE_MAX = 200;
 export const REM_WS_RECONNECT_DELAY_MS = 3000;
-export const DEFAULT_DEV_USER_ID = "00000000-0000-4000-8000-000000000001";
+export { DEFAULT_DEV_USER_ID };
 
 export type BrowserIdentityState = {
   isDefaultDevUser: boolean;
@@ -123,19 +130,9 @@ export function mergeTranscriptTexts(prev: string, next: string): string | null 
   return null;
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const json = atob(padded);
-    const payload = JSON.parse(json) as unknown;
-    if (!payload || typeof payload !== "object") return null;
-    return payload as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+export function getQueryTokenFromWindow(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("token");
 }
 
 export function resolveLegacyMessageStorageKey(storageKey: string): string {
@@ -157,38 +154,52 @@ function sanitizePersistedMessages(raw: unknown): ChatMessage[] {
     .slice(-MESSAGE_STORAGE_MAX);
 }
 
-export function resolveMessageStorageKey(): string {
-  if (typeof window === "undefined") return MESSAGE_STORAGE_KEY;
-  const token = new URLSearchParams(window.location.search).get("token");
-  if (!token) return MESSAGE_STORAGE_KEY;
-  const payload = decodeJwtPayload(token);
-  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
-  if (!userId) return MESSAGE_STORAGE_KEY;
-  return `${MESSAGE_STORAGE_KEY}:${userId}`;
+export function resolveMessageStorageKey(input?: {
+  clerkUserId?: string | null;
+  legacyToken?: string | null;
+  currentUserId?: string | null;
+  isDefaultDevUser?: boolean;
+}): string {
+  return resolveMessageStorageKeyBase({
+    ...input,
+    legacyToken: input?.legacyToken ?? getQueryTokenFromWindow(),
+  });
 }
 
-export function resolveIsDefaultDevUser(): boolean {
-  if (typeof window === "undefined") return true;
-  const token = new URLSearchParams(window.location.search).get("token");
-  if (!token) return true;
-  const payload = decodeJwtPayload(token);
-  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
-  if (!userId) return true;
-  return userId === DEFAULT_DEV_USER_ID;
+export function resolveIsDefaultDevUser(input?: {
+  clerkUserId?: string | null;
+  legacyToken?: string | null;
+}): boolean {
+  return resolveIsDefaultDevUserBase({
+    ...input,
+    legacyToken: input?.legacyToken ?? getQueryTokenFromWindow(),
+  });
 }
 
-export function resolveCurrentUserId(): string {
-  if (typeof window === "undefined") return DEFAULT_DEV_USER_ID;
-  const token = new URLSearchParams(window.location.search).get("token");
-  if (!token) return DEFAULT_DEV_USER_ID;
-  const payload = decodeJwtPayload(token);
-  const userId = typeof payload?.id === "string" ? payload.id.trim() : "";
-  return userId || DEFAULT_DEV_USER_ID;
+export function resolveCurrentUserId(input?: {
+  clerkUserId?: string | null;
+  legacyToken?: string | null;
+}): string {
+  return resolveCurrentUserIdBase({
+    ...input,
+    legacyToken: input?.legacyToken ?? getQueryTokenFromWindow(),
+  });
 }
 
-export function resolveWsTargetLabel(): string {
-  if (typeof window === "undefined") return "";
-  const wsUrl = getRemWsUrl();
+export function resolveAuthCapabilities(input?: {
+  clerkEnabled?: boolean;
+  clerkSignedIn?: boolean;
+  legacyToken?: string | null;
+}) {
+  return resolveAuthCapabilitiesBase({
+    ...input,
+    legacyToken: input?.legacyToken ?? getQueryTokenFromWindow(),
+  });
+}
+
+export function resolveWsTargetLabel(wsUrlInput?: string): string {
+  if (typeof window === "undefined" && !wsUrlInput) return "";
+  const wsUrl = wsUrlInput ?? getRemWsUrl();
   if (!wsUrl) return "";
   try {
     const url = new URL(wsUrl);

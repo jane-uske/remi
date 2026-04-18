@@ -2,8 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage } from "@/types/chat";
-import type { RemiTurnState } from "@/types/avatar";
 import { MessageBubble } from "@/components/MessageBubble";
+import type { ChatWindowStatusModel } from "@/runtime/remiRuntimeSelectors";
 
 export type ChatWindowProps = {
   messages: ChatMessage[];
@@ -14,31 +14,8 @@ export type ChatWindowProps = {
   listMutationNonce: number;
   sttPartialText: string;
   streamingText: string;
-  listeningHint: boolean;
-  /** STT 结束或发送消息后、首 token 到达前 */
-  thinkingHint: boolean;
-  turnState: RemiTurnState;
+  statusModel: ChatWindowStatusModel;
 };
-
-function getTurnStateLabel(turnState: RemiTurnState): string | null {
-  switch (turnState) {
-    case "listening_active":
-      return "听着";
-    case "listening_hold":
-      return "还在听";
-    case "likely_end":
-      return "准备回应";
-    case "confirmed_end":
-      return "准备回复";
-    case "assistant_entering":
-      return "开口中";
-    case "interrupted_by_user":
-      return "被打断";
-    case "assistant_speaking":
-    default:
-      return null;
-  }
-}
 
 export function ChatWindow({
   messages,
@@ -49,9 +26,7 @@ export function ChatWindow({
   listMutationNonce,
   sttPartialText,
   streamingText,
-  listeningHint,
-  thinkingHint,
-  turnState,
+  statusModel,
 }: ChatWindowProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const prevStreamingRef = useRef("");
@@ -121,7 +96,13 @@ export function ChatWindow({
     }
     const behavior: ScrollBehavior = addedMessage ? "smooth" : "auto";
     scroller.scrollTo({ top: scroller.scrollHeight, behavior });
-  }, [messages, sttPartialText, streamingText, listeningHint, thinkingHint]);
+  }, [
+    messages,
+    sttPartialText,
+    streamingText,
+    statusModel.badgeLabel,
+    statusModel.responseBusy,
+  ]);
 
   useEffect(() => {
     const next = streamingText;
@@ -134,16 +115,8 @@ export function ChatWindow({
     }
   }, [streamingText]);
 
-  const statusLabel = getTurnStateLabel(turnState);
-  const responseBusy =
-    Boolean(streamingText) ||
-    (thinkingHint &&
-      turnState !== "listening_active" &&
-      turnState !== "listening_hold") ||
-    turnState === "likely_end" ||
-    turnState === "confirmed_end" ||
-    turnState === "assistant_entering" ||
-    turnState === "interrupted_by_user";
+  const statusLabel = statusModel.badgeLabel;
+  const responseBusy = statusModel.responseBusy;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-transparent">
@@ -158,11 +131,11 @@ export function ChatWindow({
         aria-busy={responseBusy}
         tabIndex={0}
         onScroll={handleScroll}
-        className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 outline-none min-[480px]:px-4 min-[480px]:py-4 sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 outline-none sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
         {loadingMoreHistory ? (
           <div className="flex justify-center px-1 pb-1">
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--remi-dim)] backdrop-blur-md">
+            <div className="rounded-full border border-[#0f7287]/35 bg-black/20 px-2.5 py-1 text-[11px] text-[#92bfca] backdrop-blur-md">
               正在加载更早的记录…
             </div>
           </div>
@@ -171,7 +144,7 @@ export function ChatWindow({
           <div className="flex justify-start px-1 pb-1">
             <div
               role="status"
-              className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[var(--remi-dim)] backdrop-blur-md"
+              className="rounded-full border border-[#0f7287]/35 bg-black/20 px-2.5 py-1 text-[11px] text-[#9fd1db] backdrop-blur-md"
             >
               {statusLabel}
             </div>

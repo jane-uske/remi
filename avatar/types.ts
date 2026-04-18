@@ -239,6 +239,11 @@ export type RemiServerMessage =
       resetScope: "session" | "relationship" | "all";
     }
   | {
+      type: "dev_tts_voice_applied";
+      voiceType: string | null;
+      source: "runtime_override" | "env_default";
+    }
+  | {
       type: "dev_state_reset";
       scope: "session" | "relationship" | "all";
     }

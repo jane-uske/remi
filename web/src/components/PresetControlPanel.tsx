@@ -10,6 +10,7 @@ type PresetControlPanelProps = {
     personaPreset?: string;
     relationshipPreset?: string;
   }) => void;
+  onApplyVolcVoiceType: (voiceType?: string | null) => void;
   onReset: (scope: ResetScope) => void;
   busy?: boolean;
   devStatus?: {
@@ -34,6 +35,64 @@ export const RELATIONSHIP_PRESETS = [
   { value: "long_term", label: "长期陪伴" },
 ];
 
+const VOLC_VOICE_OPTIONS = [
+  {
+    value: "__env_default__",
+    label: "环境默认",
+    voiceType: null,
+  },
+  {
+    value: "zh_female_lingling_uranus_bigtts",
+    label: "玲玲",
+    voiceType: "zh_female_lingling_uranus_bigtts",
+  },
+  {
+    value: "zh_female_qingchezizi_uranus_bigtts",
+    label: "清澈梓梓",
+    voiceType: "zh_female_qingchezizi_uranus_bigtts",
+  },
+  {
+    value: "zh_female_jiaochuannv_uranus_bigtts",
+    label: "娇喘女",
+    voiceType: "zh_female_jiaochuannv_uranus_bigtts",
+  },
+  {
+    value: "zh_female_roumeinvyou_uranus_bigtts",
+    label: "柔美女友2.0",
+    voiceType: "zh_female_roumeinvyou_uranus_bigtts",
+  },
+  {
+    value: "zh_female_vv_uranus_bigtts",
+    label: "vivi2.0",
+    voiceType: "zh_female_vv_uranus_bigtts",
+  },
+  {
+    value: "zh_female_gujie_uranus_bigtts",
+    label: "guli",
+    voiceType: "zh_female_gujie_uranus_bigtts",
+  },
+  {
+    value: "zh_female_zhixingnv_uranus_bigtts",
+    label: "知性女生",
+    voiceType: "zh_female_zhixingnv_uranus_bigtts",
+  },
+  {
+    value: "zh_female_meilinvyou_uranus_bigtts",
+    label: "魅力女友",
+    voiceType: "zh_female_meilinvyou_uranus_bigtts",
+  },
+  {
+    value: "saturn_zh_female_tiaopigongzhu_tob",
+    label: "调皮公主",
+    voiceType: "saturn_zh_female_tiaopigongzhu_tob",
+  },
+  {
+    value: "saturn_zh_female_keainvsheng_tob",
+    label: "可爱女生",
+    voiceType: "saturn_zh_female_keainvsheng_tob",
+  },
+];
+
 const RESET_SCOPE_OPTIONS: Array<{ value: ResetScope; label: string }> = [
   { value: "session", label: "只清本轮会话" },
   { value: "relationship", label: "重置关系层" },
@@ -43,6 +102,7 @@ const RESET_SCOPE_OPTIONS: Array<{ value: ResetScope; label: string }> = [
 export function PresetControlPanel({
   connected,
   onApply,
+  onApplyVolcVoiceType,
   onReset,
   busy = false,
   devStatus,
@@ -50,6 +110,7 @@ export function PresetControlPanel({
   const [open, setOpen] = useState(false);
   const [personaPreset, setPersonaPreset] = useState("warm_companion");
   const [relationshipPreset, setRelationshipPreset] = useState("warming_up");
+  const [volcVoiceType, setVolcVoiceType] = useState("__env_default__");
   const statusTone = devStatus?.tone ?? "idle";
   const statusMessage = devStatus?.message?.trim() ?? "";
   const statusClassName =
@@ -62,7 +123,7 @@ export function PresetControlPanel({
           : "border-white/10 bg-white/[0.04] text-[var(--remi-dim)]";
 
   return (
-    <section className="border-b border-white/10 bg-black/10 px-3 py-2 backdrop-blur-md min-[480px]:px-4 sm:px-5">
+    <section className="rounded-[1.35rem] border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -71,7 +132,9 @@ export function PresetControlPanel({
         disabled={!connected}
       >
         <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--foreground)]">关系 / 人格预设</div>
+          <div className="text-sm font-medium text-[var(--foreground)]">
+            关系 / 人格预设
+          </div>
           <div className="text-[11px] text-[var(--remi-dim)]">
             开发测试用：快速切人格、切关系阶段、重置污染状态
           </div>
@@ -85,7 +148,9 @@ export function PresetControlPanel({
         <div className="mt-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-[var(--foreground)]">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-[var(--remi-dim)]">人格预设</span>
+              <span className="text-[11px] text-[var(--remi-dim)]">
+                人格预设
+              </span>
               <select
                 value={personaPreset}
                 onChange={(e) => setPersonaPreset(e.target.value)}
@@ -100,7 +165,9 @@ export function PresetControlPanel({
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-[var(--remi-dim)]">关系预设</span>
+              <span className="text-[11px] text-[var(--remi-dim)]">
+                关系预设
+              </span>
               <select
                 value={relationshipPreset}
                 onChange={(e) => setRelationshipPreset(e.target.value)}
@@ -113,6 +180,46 @@ export function PresetControlPanel({
                 ))}
               </select>
             </label>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--remi-dim)]">
+                Volc 音色 ID（当前会话即时生效）
+              </span>
+              <select
+                value={volcVoiceType}
+                onChange={(e) => setVolcVoiceType(e.target.value)}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
+              >
+                {VOLC_VOICE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                    {option.voiceType ? ` · ${option.voiceType}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!connected || busy}
+                onClick={() =>
+                  onApplyVolcVoiceType(
+                    volcVoiceType === "__env_default__" ? null : volcVoiceType,
+                  )
+                }
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-[var(--foreground)] transition hover:bg-white/[0.08] disabled:cursor-default disabled:opacity-40"
+              >
+                {busy ? "切换中…" : "切换音色"}
+              </button>
+            </div>
+
+            <p className="text-[11px] leading-5 text-[var(--remi-dim)]">
+              这里只改当前 websocket 会话的 Volc `voiceType`，不改
+              `.env`，也不需要重启服务。
+            </p>
           </div>
 
           <div className="mt-3 grid gap-3">
@@ -131,16 +238,19 @@ export function PresetControlPanel({
             </button>
 
             <p className="text-[11px] leading-5 text-[var(--remi-dim)]">
-              上方只会应用当前人格 / 关系模板，不会清空数据库，也不会删除当前消息历史。
+              上方只会应用当前人格 /
+              关系模板，不会清空数据库，也不会删除当前消息历史。
             </p>
           </div>
 
           <div className="mt-4 border-t border-white/10 pt-3">
-            <div className="text-[11px] font-medium text-[var(--foreground)]">纯清空</div>
+            <div className="text-[11px] font-medium text-[var(--foreground)]">
+              纯清空
+            </div>
             <p className="mt-1 text-[11px] leading-5 text-[var(--remi-dim)]">
-              下面按钮才会真清空。不会自动回写任何人格或关系预设。
-              `重置关系层` 会删关系状态、V2 episodes 和消息历史。
-              `全部清空` 会把当前用户打回白纸：连同持久 facts memory 一起删掉。
+              下面按钮才会真清空。不会自动回写任何人格或关系预设。 `重置关系层`
+              会删关系状态、V2 episodes 和消息历史。 `全部清空`
+              会把当前用户打回白纸：连同持久 facts memory 一起删掉。
             </p>
           </div>
 

@@ -214,6 +214,10 @@ export function AvatarDevtoolsPanel({
     () => safeStringify(deferredSnapshot?.expressionWeights ?? {}),
     [deferredSnapshot],
   );
+  const renderModelJson = useMemo(
+    () => safeStringify(deferredSnapshot?.renderModel ?? null),
+    [deferredSnapshot],
+  );
   const turnStateLabel = getTurnStateLabel(deferredSnapshot?.turnState);
   const turnReasonLabel = getTurnReasonLabel(deferredSnapshot?.turnReason);
   const turnElapsed = deferredSnapshot?.turnStateAtMs
@@ -371,6 +375,18 @@ export function AvatarDevtoolsPanel({
                   <div className="mt-1 font-medium">{deferredSnapshot.remState}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">Runtime Phase</div>
+                  <div className="mt-1 font-medium">
+                    {deferredSnapshot.runtimePhase ?? "none"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">Phase Reason</div>
+                  <div className="mt-1 font-medium">
+                    {deferredSnapshot.runtimePhaseReason ?? "none"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
                   <div className="text-[10px] text-[var(--remi-dim)]">Turn</div>
                   <div
                     className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getTurnStateAccent(deferredSnapshot.turnState)}`}
@@ -391,13 +407,42 @@ export function AvatarDevtoolsPanel({
                   <div className="mt-1 font-medium">{deferredSnapshot.lipEnvelope.toFixed(2)}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">Mouth</div>
+                  <div className="mt-1 font-medium">
+                    {typeof deferredSnapshot.mouthLevel === "number"
+                      ? deferredSnapshot.mouthLevel.toFixed(2)
+                      : "--"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
                   <div className="text-[10px] text-[var(--remi-dim)]">Voice</div>
                   <div className="mt-1 font-medium">{deferredSnapshot.voiceActive ? "active" : "idle"}</div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">Connection</div>
+                  <div className="mt-1 font-medium">
+                    {deferredSnapshot.connection ?? "none"}
+                  </div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
                   <div className="text-[10px] text-[var(--remi-dim)]">Prediction</div>
                   <div className="mt-1 break-words font-medium">
                     {deferredSnapshot.sttPredictionPreview ?? "none"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">User</div>
+                  <div className="mt-1 font-medium">
+                    rec:{deferredSnapshot.userRecording ? "1" : "0"} / speak:
+                    {deferredSnapshot.userSpeaking ? "1" : "0"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="text-[10px] text-[var(--remi-dim)]">Assistant</div>
+                  <div className="mt-1 font-medium">
+                    stream:{deferredSnapshot.assistantStreaming ? "1" : "0"} / play:
+                    {deferredSnapshot.assistantPlaybackActive ? "1" : "0"} / tail:
+                    {deferredSnapshot.assistantPlaybackTailActive ? "1" : "0"}
                   </div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
@@ -435,6 +480,15 @@ export function AvatarDevtoolsPanel({
             </summary>
             <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-black/25 p-3 text-[11px] leading-5 text-[var(--foreground)]/85">
               {expressionWeightsJson}
+            </pre>
+          </details>
+
+          <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
+              Render Model
+            </summary>
+            <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-black/25 p-3 text-[11px] leading-5 text-[var(--foreground)]/85">
+              {renderModelJson}
             </pre>
           </details>
         </div>

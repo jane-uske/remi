@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint src",
-    "test": "TS_NODE_PROJECT=tsconfig.test.json mocha --require ts-node/register --require tsconfig-paths/register \"test/**/*.test.ts\""
+    "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_COMPILER_OPTIONS='{\"jsx\":\"react-jsx\"}' mocha --require ts-node/register --require tsconfig-paths/register \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.17.0",
     "@pixiv/three-vrm": "^3.5.1",
     "next": "15.5.14",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
     "three": "^0.183.2"
   },
   "devDependencies": {
