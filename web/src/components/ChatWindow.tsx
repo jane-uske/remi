@@ -67,6 +67,7 @@ export function ChatWindow({
     const scroller = scrollerRef.current;
     if (!scroller) return;
     scroller.scrollTop = scroller.scrollHeight;
+    shouldStickRef.current = true;
     didInitialScrollRef.current = true;
   }, [messages.length]);
 
@@ -88,19 +89,12 @@ export function ChatWindow({
 
     if (listMutation === "replace") {
       scroller.scrollTop = scroller.scrollHeight;
+      shouldStickRef.current = true;
       didInitialScrollRef.current = true;
       pendingPrependHeightRef.current = null;
       return;
     }
   }, [listMutation, listMutationNonce]);
-
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const distanceToBottom =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    shouldStickRef.current = distanceToBottom < 72;
-  });
 
   const handleScroll = () => {
     const scroller = scrollerRef.current;
@@ -115,11 +109,16 @@ export function ChatWindow({
   };
 
   useEffect(() => {
-    if (!shouldStickRef.current) return;
     const addedMessage = messages.length !== prevMessagesLenRef.current;
     prevMessagesLenRef.current = messages.length;
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    const latestMessage = messages[messages.length - 1];
+    const forceStickToBottom = addedMessage && latestMessage?.role === "user";
+    if (!shouldStickRef.current && !forceStickToBottom) return;
+    if (forceStickToBottom) {
+      shouldStickRef.current = true;
+    }
     const behavior: ScrollBehavior = addedMessage ? "smooth" : "auto";
     scroller.scrollTo({ top: scroller.scrollHeight, behavior });
   }, [messages, sttPartialText, streamingText, listeningHint, thinkingHint]);

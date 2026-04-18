@@ -1,5 +1,6 @@
 import type { PersonaState } from "../persona";
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
+import { createAdultSceneState } from "../brain/adult_mode";
 
 export type PersonaPresetId =
   | "warm_companion"
@@ -119,6 +120,7 @@ export function resetPersonaLiveState(persona: PersonaState): void {
     proactiveCadence: "guarded",
     expressionDirectness: "balanced",
   };
+  persona.liveState.adultSceneState = createAdultSceneState();
   persona.liveState.currentMood = "neutral";
   persona.liveState.emotionalState = "平静";
   persona.liveState.recentInteractions = [];

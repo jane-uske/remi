@@ -163,3 +163,19 @@ export async function getUserMessagesInRange(
     throw e;
   }
 }
+
+export async function deleteMessagesByUser(userId: string): Promise<number> {
+  try {
+    const res = await query(
+      `DELETE FROM messages m
+       USING sessions s
+       WHERE m.session_id = s.id
+         AND s.user_id = $1`,
+      [userId]
+    );
+    return res.rowCount ?? 0;
+  } catch (e) {
+    console.log('[Storage] deleteMessagesByUser failed:', e);
+    throw e;
+  }
+}

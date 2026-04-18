@@ -3,7 +3,7 @@
 // Pipeline: local heuristics → LLM deep analysis → state update.
 // NEVER blocks the response path.
 
-import { complete, type ChatMessage } from "../llm/qwen_client";
+import { complete, hasLlmConfig, type ChatMessage } from "../llm/qwen_client";
 import { extractMemory } from "../memory/memory_agent";
 import type { EpisodeLifecycleStatus } from "../memory/episode_store";
 import { ingest } from "../memory/episode_store";
@@ -49,8 +49,7 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
   extractMemory(userMessage, memoryRepo);
   localAnalysis(slowBrain, userMessage);
 
-  const configured =
-    process.env.key && process.env.base_url && process.env.model;
+  const configured = hasLlmConfig();
   let llmAborted = false;
 
   if (configured) {

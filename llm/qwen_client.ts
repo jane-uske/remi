@@ -22,11 +22,35 @@ export interface StreamTokensCallbacks {
 
 export interface StreamTokensOptions {
   reasoningEffort?: string;
+  model?: string;
 }
 
 let client: OpenAI | null = null;
 
+function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === "") return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true") return true;
+  if (normalized === "0" || normalized === "false") return false;
+  return fallback;
+}
+
+export function localLlmEnabled(): boolean {
+  return parseBooleanFlag(
+    process.env.REMI_LOCAL_LLM_ENABLED ?? process.env.REM_LOCAL_LLM_ENABLED,
+    true,
+  );
+}
+
+export function hasLlmConfig(modelOverride?: string): boolean {
+  const model = (modelOverride ?? process.env.model)?.trim();
+  return localLlmEnabled() && Boolean(process.env.key && process.env.base_url && model);
+}
+
 function getClient(): OpenAI {
+  if (!localLlmEnabled()) {
+    throw new Error("LLM 已禁用：REMI_LOCAL_LLM_ENABLED=0");
+  }
   if (client) return client;
   const apiKey = process.env.key;
   const baseURL = process.env.base_url;
@@ -87,7 +111,7 @@ export async function* streamTokens(
   options?: StreamTokensOptions,
 ): AsyncGenerator<string> {
   const openai = getClient();
-  const model = process.env.model;
+  const model = options?.model ?? process.env.model;
   if (!model) throw new Error("LLM 未配置：缺少 model");
   const onFirstRawChunk = callbacks?.onFirstRawChunk;
   const onFirstChunk = callbacks?.onFirstChunk;

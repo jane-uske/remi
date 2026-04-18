@@ -273,6 +273,20 @@ export async function getUnresolvedEpisodes(userId: string): Promise<DbEpisode[]
   }
 }
 
+export async function deleteEpisodesByUser(userId: string): Promise<number> {
+  try {
+    const res = await query(
+      `DELETE FROM episodes
+       WHERE user_id = $1`,
+      [userId]
+    );
+    return res.rowCount ?? 0;
+  } catch (e) {
+    console.log('[Storage] deleteEpisodesByUser failed:', e);
+    throw e;
+  }
+}
+
 export async function deleteEpisode(id: string): Promise<void> {
   try {
     await query(`DELETE FROM episodes WHERE id = $1`, [id]);

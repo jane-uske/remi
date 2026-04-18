@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 type ResetScope = "session" | "relationship" | "all";
 
@@ -9,9 +9,13 @@ type PresetControlPanelProps = {
   onApply: (options: {
     personaPreset?: string;
     relationshipPreset?: string;
-    resetScope?: ResetScope;
   }) => void;
   onReset: (scope: ResetScope) => void;
+  busy?: boolean;
+  devStatus?: {
+    tone: "idle" | "pending" | "success" | "error";
+    message: string;
+  };
 };
 
 export const PERSONA_PRESETS = [
@@ -30,26 +34,32 @@ export const RELATIONSHIP_PRESETS = [
   { value: "long_term", label: "长期陪伴" },
 ];
 
-const RESET_SCOPE_OPTIONS: Array<{ value: ResetScope; label: string; help: string }> = [
-  { value: "session", label: "只清本轮会话", help: "清掉当前草稿、消息和打断状态。" },
-  { value: "relationship", label: "重置关系层", help: "清掉关系、episode、主动策略。" },
-  { value: "all", label: "全部清空", help: "清掉会话状态 + 关系系统状态，不清除持久事实记忆。" },
+const RESET_SCOPE_OPTIONS: Array<{ value: ResetScope; label: string }> = [
+  { value: "session", label: "只清本轮会话" },
+  { value: "relationship", label: "重置关系层" },
+  { value: "all", label: "全部清空" },
 ];
 
 export function PresetControlPanel({
   connected,
   onApply,
   onReset,
+  busy = false,
+  devStatus,
 }: PresetControlPanelProps) {
   const [open, setOpen] = useState(false);
   const [personaPreset, setPersonaPreset] = useState("warm_companion");
   const [relationshipPreset, setRelationshipPreset] = useState("warming_up");
-  const [resetScope, setResetScope] = useState<ResetScope>("session");
-
-  const resetHelp = useMemo(
-    () => RESET_SCOPE_OPTIONS.find((option) => option.value === resetScope)?.help ?? "",
-    [resetScope],
-  );
+  const statusTone = devStatus?.tone ?? "idle";
+  const statusMessage = devStatus?.message?.trim() ?? "";
+  const statusClassName =
+    statusTone === "error"
+      ? "border-red-400/20 bg-red-500/10 text-red-100"
+      : statusTone === "success"
+        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+        : statusTone === "pending"
+          ? "border-amber-400/20 bg-amber-500/10 text-amber-100"
+          : "border-white/10 bg-white/[0.04] text-[var(--remi-dim)]";
 
   return (
     <section className="border-b border-white/10 bg-black/10 px-3 py-2 backdrop-blur-md min-[480px]:px-4 sm:px-5">
@@ -105,46 +115,41 @@ export function PresetControlPanel({
             </label>
           </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-[var(--remi-dim)]">应用前重置范围</span>
-              <select
-                value={resetScope}
-                onChange={(e) => setResetScope(e.target.value as ResetScope)}
-                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-              >
-                {RESET_SCOPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
+          <div className="mt-3 grid gap-3">
             <button
               type="button"
-              disabled={!connected}
+              disabled={!connected || busy}
               onClick={() =>
                 onApply({
                   personaPreset,
                   relationshipPreset,
-                  resetScope,
                 })
               }
               className="h-11 rounded-xl bg-gradient-to-br from-[var(--remi-accent)] to-[var(--remi-accent-dim)] px-4 text-sm font-semibold text-[#042f2e] shadow-md shadow-teal-500/15 transition hover:opacity-95 disabled:cursor-default disabled:opacity-40"
             >
-              应用预设
+              {busy ? "发送中…" : "仅应用预设"}
             </button>
+
+            <p className="text-[11px] leading-5 text-[var(--remi-dim)]">
+              上方只会应用当前人格 / 关系模板，不会清空数据库，也不会删除当前消息历史。
+            </p>
           </div>
 
-          <p className="mt-2 text-[11px] leading-5 text-[var(--remi-dim)]">{resetHelp}</p>
+          <div className="mt-4 border-t border-white/10 pt-3">
+            <div className="text-[11px] font-medium text-[var(--foreground)]">纯清空</div>
+            <p className="mt-1 text-[11px] leading-5 text-[var(--remi-dim)]">
+              下面按钮才会真清空。不会自动回写任何人格或关系预设。
+              `重置关系层` 会删关系状态、V2 episodes 和消息历史。
+              `全部清空` 会把当前用户打回白纸：连同持久 facts memory 一起删掉。
+            </p>
+          </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
             {RESET_SCOPE_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                disabled={!connected}
+                disabled={!connected || busy}
                 onClick={() => onReset(option.value)}
                 className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] text-[var(--remi-dim)] transition hover:bg-white/[0.08] hover:text-[var(--foreground)] disabled:cursor-default disabled:opacity-40"
               >
@@ -152,6 +157,16 @@ export function PresetControlPanel({
               </button>
             ))}
           </div>
+
+          {statusMessage ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`mt-3 rounded-xl border px-3 py-2 text-[11px] leading-5 ${statusClassName}`}
+            >
+              {statusMessage}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>

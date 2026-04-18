@@ -1,4 +1,4 @@
-import type { Request, RequestHandler, Response } from "express";
+import type { IncomingMessage, ServerResponse } from "http";
 
 export interface RateLimitConfig {
   windowMs: number;
@@ -60,7 +60,7 @@ function startHttpCleanup(windowMs: number): void {
   }
 }
 
-function clientIp(req: Request): string {
+function clientIp(req: IncomingMessage): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.length > 0) {
     return forwarded.split(",")[0].trim();
@@ -70,13 +70,13 @@ function clientIp(req: Request): string {
 
 export function createRateLimiter(
   config?: Partial<RateLimitConfig>,
-): RequestHandler {
+): (req: IncomingMessage, res: ServerResponse, next: () => void) => void {
   const windowMs = config?.windowMs ?? DEFAULT_HTTP.windowMs;
   const maxRequests = config?.maxRequests ?? DEFAULT_HTTP.maxRequests;
   const maxBuckets = config?.maxBuckets ?? DEFAULT_HTTP.maxBuckets;
   startHttpCleanup(windowMs);
 
-  return (req: Request, res: Response, next: () => void) => {
+  return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const key = clientIp(req);
     const now = Date.now();
     let b = httpBuckets.get(key);
@@ -86,7 +86,9 @@ export function createRateLimiter(
       ensureBucketLimit(httpBuckets, maxBuckets!);
     }
     if (b.count >= maxRequests) {
-      res.status(429).json({ error: "Too many requests" });
+      res.statusCode = 429;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ error: "Too many requests" }));
       return;
     }
     b.count += 1;

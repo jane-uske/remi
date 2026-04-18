@@ -58,6 +58,51 @@ async function runHealth() {
   );
 }
 
+async function runRateLimit() {
+  await withGateway(
+    () => setEnv("JWT_SECRET", "test-secret"),
+    async (port) => {
+      const target = `http://127.0.0.1:${port}/health`;
+
+      for (let i = 0; i < 100; i += 1) {
+        const res = await fetch(target);
+        assert.equal(res.status, 200);
+      }
+
+      const limited = await fetch(target);
+      assert.equal(limited.status, 429);
+      assert.equal(limited.headers.get("content-type")?.startsWith("application/json"), true);
+      const payload = await limited.json();
+      assert.deepEqual(payload, { error: "Too many requests" });
+    },
+  );
+}
+
+async function runRateLimitSkipsDevAssets() {
+  await withGateway(
+    () => setEnv("JWT_SECRET", "test-secret"),
+    async (port) => {
+      const saturateTarget = `http://127.0.0.1:${port}/health`;
+
+      for (let i = 0; i < 100; i += 1) {
+        const res = await fetch(saturateTarget);
+        assert.equal(res.status, 200);
+      }
+
+      const limited = await fetch(saturateTarget);
+      assert.equal(limited.status, 429);
+
+      const favicon = await fetch(`http://127.0.0.1:${port}/favicon.ico`);
+      assert.notEqual(favicon.status, 429);
+
+      const nextAsset = await fetch(
+        `http://127.0.0.1:${port}/_next/static/chunks/does-not-exist.js`,
+      );
+      assert.notEqual(nextAsset.status, 429);
+    },
+  );
+}
+
 async function runWsMobileDevAuth({ headerValue, shouldOpen }) {
   await withGateway(
     () => {
@@ -108,6 +153,12 @@ async function main() {
       return;
     case "ws-mobile-reject":
       await runWsMobileDevAuth({ headerValue: "wrong-key", shouldOpen: false });
+      return;
+    case "rate-limit":
+      await runRateLimit();
+      return;
+    case "rate-limit-skips-dev-assets":
+      await runRateLimitSkipsDevAssets();
       return;
     default:
       throw new Error(`Unknown gateway test case: ${testCase}`);

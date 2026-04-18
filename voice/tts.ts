@@ -13,6 +13,7 @@ import {
   type TtsProvider,
 } from "./tts_helpers";
 import { resolveVolcTtsConfig, speakWithVolc } from "./tts_volc";
+import type { TtsRequestContext } from "./tts_request_context";
 import { createLogger } from "../infra/logger";
 import { withRetry } from "../utils/retry";
 
@@ -761,10 +762,11 @@ async function speakWithProvider(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  context?: TtsRequestContext,
 ): Promise<Buffer> {
   if (provider === "edge") return speakWithEdge(text, signal, emotion);
   if (provider === "piper") return speakWithPiper(text, signal, emotion);
-  if (provider === "volc") return speakWithVolc(text, signal, emotion);
+  if (provider === "volc") return speakWithVolc(text, signal, emotion, context);
   return speakWithOpenAI(text, signal, emotion);
 }
 
@@ -973,6 +975,7 @@ export async function textToSpeech(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  context?: TtsRequestContext,
 ): Promise<Buffer> {
   throwIfAborted(signal);
   const ttsText = normalizeTtsText(text);
@@ -998,7 +1001,7 @@ export async function textToSpeech(
   let buf: Buffer;
   try {
     buf = await withRetry(
-      () => speakWithProvider(provider, ttsText, signal, emotion),
+      () => speakWithProvider(provider, ttsText, signal, emotion, context),
       { retries: 1, label: `textToSpeech(${provider})` },
     );
   } catch (err) {
@@ -1012,7 +1015,7 @@ export async function textToSpeech(
       error: (err as Error).message,
     });
     buf = await withRetry(
-      () => speakWithProvider(fallback, ttsText, signal, emotion),
+      () => speakWithProvider(fallback, ttsText, signal, emotion, context),
       { retries: 0, label: `textToSpeech(${fallback})` },
     );
   }

@@ -71,6 +71,9 @@ export function logStartupDiagnostics(): void {
             resourceId: volc.resourceId,
             voiceType: volc.voiceType,
             baseUrl: volc.baseUrl,
+            dynamicStyleEnabled: volc.dynamicStyleEnabled,
+            contextText: volc.contextText ?? null,
+            emotion: volc.emotion ?? null,
           }
         : {
             missing: ["VOLC_TTS_API_KEY", "VOLC_TTS_RESOURCE_ID", "VOLC_TTS_VOICE_TYPE"],
