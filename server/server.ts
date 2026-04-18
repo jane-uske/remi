@@ -7,6 +7,7 @@ import { setDbReady, setRedisReady } from "../infra/app_state";
 import { startDecayTimer, stopDecayTimer } from "../memory/memory_decay";
 import { getMemoryRepository, setMemoryRepository } from "../memory/memory_store";
 import { initDatabase, closeDatabase } from "../storage/database";
+import { ensureStorageSchema } from "../storage/schema_manager";
 import { initRedis, closeRedis } from "../storage/redis";
 import { ensureDevUser } from "../storage/repositories/dev_identity";
 import { getPgMemoryRepository } from "../storage/repositories/pg_memory_repository";
@@ -127,6 +128,7 @@ async function bootstrap() {
   if (process.env.DATABASE_URL) {
     try {
       await initDatabase();
+      await ensureStorageSchema();
       dbInitialized = true;
       setDbReady(true);
       const devUserId = await ensureDevUser();

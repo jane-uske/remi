@@ -31,7 +31,7 @@ import {
   type TurnTakingState,
 } from "./turn_taking";
 import { buildCarryForwardHint, classifyInterruption } from "./interruption";
-import { resolveRequestUserId } from "../../infra/user_identity";
+import { resolveRequestUserIdentity } from "../../infra/user_identity";
 import { initializeSessionStorage } from "./bootstrap";
 import {
   fireSessionSilenceNudge,
@@ -42,6 +42,7 @@ import {
 } from "./continuity";
 import {
   applyDeveloperPreset,
+  applyDeveloperTtsVoiceOverride,
   resetDeveloperState,
   resetDeveloperLiveSessionState,
   runSessionDevCommand,
@@ -123,6 +124,7 @@ import {
   type ProsodySample,
 } from "../../voice/prosody_detector";
 import {
+  classifyPreviewlessShortDuplexTranscript,
   classifyNonSpeechTranscript,
   heuristicTurnTakingPredictor,
   type PredictorScores,
@@ -143,6 +145,7 @@ import {
   type SessionTtsTransport,
 } from "./tts_transport";
 import { applyPcm16Gain, normalizeDuplexPcm16Mono } from "./audio_resample";
+import { clearSessionTtsRuntimeOverride } from "../../voice/tts_runtime_overrides";
 
 const logger = createLogger("session");
 const HISTORY_PAGE_SIZE = 15;
@@ -216,6 +219,7 @@ export class ConnectionSession {
   readonly interrupt: InterruptController;
   readonly avatar: AvatarController;
   readonly storageUserId: string;
+  readonly authPrincipal: ReturnType<typeof resolveRequestUserIdentity>["authPrincipal"];
   readonly clientFamily: SessionClientFamily;
   private readonly resolvedTtsTransport: SessionTtsTransport;
   private readonly handshakeTtsTransportRaw: string | null;
@@ -393,7 +397,9 @@ export class ConnectionSession {
     this.vad = new VadDetector();
     this.interrupt = new InterruptController();
     this.avatar = new AvatarController();
-    this.storageUserId = resolveRequestUserId(req);
+    const requestIdentity = resolveRequestUserIdentity(req);
+    this.storageUserId = requestIdentity.storageUserId;
+    this.authPrincipal = requestIdentity.authPrincipal;
     const transportMeta = resolveSessionTransportFromRequest(req);
     this.clientFamily = transportMeta.clientFamily;
     this.resolvedTtsTransport = transportMeta.ttsTransport;
@@ -429,6 +435,7 @@ export class ConnectionSession {
     await initializeSessionStorage({
       connId: this.connId,
       storageUserId: this.storageUserId,
+      authPrincipal: this.authPrincipal,
       brain: this.brain,
       historyPageSize: HISTORY_PAGE_SIZE,
       setSessionId: (sessionId) => {
@@ -698,8 +705,22 @@ export class ConnectionSession {
       assistantSpeaking: this.turnState === "assistant_speaking",
     });
     const nonSpeechDecision = classifyNonSpeechTranscript(text);
+    const previewlessShortDecision =
+      this.shouldApplyDuplexNoiseSuppression() && !this.isPushToTalkCapture()
+        ? classifyPreviewlessShortDuplexTranscript({
+            text,
+            previewText: job.previewText,
+            userSpeechScore: predictorScores.pUserSpeech,
+            nonSpeechMediaScore: predictorScores.pNonSpeechMedia,
+          })
+        : {
+            reject: false,
+            reason: null,
+            normalizedTranscript: nonSpeechDecision.normalizedTranscript,
+          };
     const predictorRejectAsNoisePhrase =
       !nonSpeechDecision.reject &&
+      !previewlessShortDecision.reject &&
       !getMeaningfulTurnPreview(job.previewText) &&
       nonSpeechDecision.normalizedTranscript.length > 0 &&
       nonSpeechDecision.normalizedTranscript.length <= 6 &&
@@ -707,9 +728,15 @@ export class ConnectionSession {
       predictorScores.pUserSpeech <= 0.25;
     const rejectedReason =
       nonSpeechDecision.reason ??
+      previewlessShortDecision.reason ??
       (predictorRejectAsNoisePhrase ? "noise_phrase_rejected" : null);
     if (rejectedReason) {
-      logger.info("[STT] reject non-speech transcript", {
+      const rejectLogMessage =
+        rejectedReason === "previewless_short_feedback_rejected" ||
+        rejectedReason === "noise_like_short_utterance"
+          ? "[STT] reject previewless short duplex utterance"
+          : "[STT] reject non-speech transcript";
+      logger.info(rejectLogMessage, {
         ...this.duplexStopDebugMeta({
           traceId: job.traceId,
           utteranceSeq: job.utteranceSeq,
@@ -730,7 +757,13 @@ export class ConnectionSession {
         rejectedTranscript: text,
         rejectedSource: job.source,
       });
-      this.armSuppressedNoiseCooldown("stt_rejected_non_speech", job.vadMode);
+      this.armSuppressedNoiseCooldown(
+        rejectedReason === "previewless_short_feedback_rejected" ||
+          rejectedReason === "noise_like_short_utterance"
+          ? "stt_rejected_previewless_short"
+          : "stt_rejected_non_speech",
+        job.vadMode,
+      );
       await this.maybeRecoverDeferredDuplexUtterance(job.utteranceSeq);
       return;
     }
@@ -2705,6 +2738,9 @@ export class ConnectionSession {
       runDevApplyPreset: (data) => {
         this.runDevCommand(this.handleDevApplyPreset(data));
       },
+      runDevSetTtsVoice: (data) => {
+        this.runDevCommand(this.handleDevSetTtsVoice(data));
+      },
       runDevResetState: (data) => {
         this.runDevCommand(this.handleDevResetState(data));
       },
@@ -2759,6 +2795,7 @@ export class ConnectionSession {
 
   private async handleDevApplyPreset(data: any): Promise<void> {
     await applyDeveloperPreset({
+      connId: this.connId,
       ws: this.ws,
       brain: this.brain,
       resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
@@ -2767,8 +2804,23 @@ export class ConnectionSession {
     }, data);
   }
 
+  private async handleDevSetTtsVoice(data: any): Promise<void> {
+    await applyDeveloperTtsVoiceOverride(
+      {
+        connId: this.connId,
+        ws: this.ws,
+        brain: this.brain,
+        resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
+        persistRelationshipContinuityState: () =>
+          this.persistRelationshipContinuityState(),
+      },
+      data,
+    );
+  }
+
   private async handleDevResetState(data: any): Promise<void> {
     await resetDeveloperState({
+      connId: this.connId,
       ws: this.ws,
       brain: this.brain,
       resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
@@ -3376,6 +3428,7 @@ export class ConnectionSession {
       setDuplexActive: (active) => {
         this.duplexActive = active;
       },
+      clearDevRuntimeOverrides: () => clearSessionTtsRuntimeOverride(this.connId),
       resetVad: () => this.vad.reset(),
       clearPendingUtteranceTimer: () => this.clearPendingUtteranceTimer(),
       clearSilenceNudgeTimer: () => this.clearSilenceNudgeTimer(),

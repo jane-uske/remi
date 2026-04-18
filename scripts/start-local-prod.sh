@@ -13,6 +13,8 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+node ./scripts/ensure_local_whisper_host.cjs "$ENV_FILE"
+
 ./scripts/check-local-prod.sh
 
 REMI_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f docker-compose.local-prod.yml up -d --build

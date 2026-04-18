@@ -13,6 +13,7 @@ const {
 } = require("../../../server/session/turn_taking");
 const {
   classifyNonSpeechTranscript,
+  classifyPreviewlessShortDuplexTranscript,
   heuristicTurnTakingPredictor,
 } = require("../../../server/session/turn_taking_predictor");
 
@@ -552,6 +553,94 @@ describe("turn taking stage2", () => {
       reason: "noise_phrase_rejected",
       normalizedTranscript: "谢谢观看",
     });
+  });
+
+  it("rejects media sign-off variants like 谢谢大家的观看 before they become user turns", () => {
+    assert.deepEqual(classifyNonSpeechTranscript("谢谢大家的观看!"), {
+      reject: true,
+      reason: "noise_phrase_rejected",
+      normalizedTranscript: "谢谢大家的观看",
+    });
+  });
+
+  it("rejects cough-like onomatopoeia transcripts before they become user turns", () => {
+    assert.deepEqual(classifyNonSpeechTranscript("咳咳。"), {
+      reject: true,
+      reason: "onomatopoeia_rejected",
+      normalizedTranscript: "咳咳",
+    });
+  });
+
+  it("does not reject normal speech that merely starts with a laughter syllable", () => {
+    assert.deepEqual(classifyNonSpeechTranscript("哈喽哈喽能听到我说话吗？"), {
+      reject: false,
+      reason: null,
+      normalizedTranscript: "哈喽哈喽能听到我说话吗",
+    });
+  });
+
+  it("rejects previewless short feedback like 谢谢 under conservative duplex gating", () => {
+    assert.deepEqual(
+      classifyPreviewlessShortDuplexTranscript({
+        text: "谢谢。",
+        previewText: "",
+        userSpeechScore: 0.74,
+        nonSpeechMediaScore: 0.18,
+      }),
+      {
+        reject: true,
+        reason: "previewless_short_feedback_rejected",
+        normalizedTranscript: "谢谢",
+      },
+    );
+  });
+
+  it("rejects previewless ambiguous short utterances when semantic evidence is weak", () => {
+    assert.deepEqual(
+      classifyPreviewlessShortDuplexTranscript({
+        text: "好的。",
+        previewText: "",
+        userSpeechScore: 0.3,
+        nonSpeechMediaScore: 0.82,
+      }),
+      {
+        reject: true,
+        reason: "noise_like_short_utterance",
+        normalizedTranscript: "好的",
+      },
+    );
+  });
+
+  it("keeps short feedback when a meaningful preview already exists", () => {
+    assert.deepEqual(
+      classifyPreviewlessShortDuplexTranscript({
+        text: "谢谢。",
+        previewText: "谢谢",
+        userSpeechScore: 0.74,
+        nonSpeechMediaScore: 0.18,
+      }),
+      {
+        reject: false,
+        reason: null,
+        normalizedTranscript: "谢谢",
+      },
+    );
+  });
+
+  it("does not reject longer speech that merely starts with short politeness", () => {
+    assert.deepEqual(
+      classifyPreviewlessShortDuplexTranscript({
+        text: "谢谢你能听到我说话吗？",
+        previewText: "",
+        userSpeechScore: 0.91,
+        nonSpeechMediaScore: 0.08,
+      }),
+      {
+        reject: false,
+        reason: null,
+        normalizedTranscript: "谢谢你能听到我说话吗",
+      },
+    );
   });
 
   it("keeps interrupt validity low for previewless weak fallback noise while assistant is speaking", () => {

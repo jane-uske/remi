@@ -129,36 +129,45 @@ export class SentenceChunker {
     this.buffer += token;
     const sentences: SentenceChunk[] = [];
 
-    let match: RegExpExecArray | null;
-    while ((match = SENTENCE_END.exec(this.buffer)) !== null) {
-      const idx = match.index + match[0].length;
-      const sentence = this.buffer.slice(0, idx).trim();
-      this.buffer = this.buffer.slice(idx);
-      SENTENCE_END.lastIndex = 0;
-      if (sentence) {
-        sentences.push({
-          text: sentence,
-          boundaryType: "hard_end",
-        });
-      }
-    }
-
-    if (this._eager && this.buffer.length >= this.eagerCharThreshold && sentences.length === 0) {
-      const eagerChunk = this.takeEagerChunk();
-      if (eagerChunk) {
-        sentences.push(eagerChunk);
-      }
-    } else if (!this._eager) {
-      while (this.buffer.length >= this.maxChunkChars) {
-        const chunk = this.buffer.slice(0, this.maxChunkChars).trim();
-        this.buffer = this.buffer.slice(this.maxChunkChars);
-        if (chunk) {
-          sentences.push({
-            text: chunk,
-            boundaryType: "max_chunk",
-          });
+    while (true) {
+      if (this._eager && sentences.length === 0 && this.buffer.length >= this.eagerCharThreshold) {
+        const eagerChunk = this.takeEagerChunk();
+        if (eagerChunk) {
+          sentences.push(eagerChunk);
+          continue;
         }
       }
+
+      const hardEndMatch = SENTENCE_END.exec(this.buffer);
+      SENTENCE_END.lastIndex = 0;
+      if (hardEndMatch) {
+        const hardEndIdx = hardEndMatch.index + hardEndMatch[0].length;
+        if (hardEndIdx > this.maxChunkChars) {
+          const overflowChunk = this.takeOverflowChunk();
+          if (overflowChunk) {
+            sentences.push(overflowChunk);
+            continue;
+          }
+        }
+
+        const sentence = this.buffer.slice(0, hardEndIdx).trim();
+        this.buffer = this.buffer.slice(hardEndIdx);
+        if (sentence) {
+          sentences.push({
+            text: sentence,
+            boundaryType: "hard_end",
+          });
+        }
+        continue;
+      }
+
+      const overflowChunk = this.takeOverflowChunk();
+      if (overflowChunk) {
+        sentences.push(overflowChunk);
+        continue;
+      }
+
+      break;
     }
 
     return this.applyMinTtsLength(sentences);
@@ -182,6 +191,31 @@ export class SentenceChunker {
     }
 
     return null;
+  }
+
+  private takeOverflowChunk(): SentenceChunk | null {
+    if (this.buffer.length < this.maxChunkChars) return null;
+    const softBreakIdx = this.findSoftBreakBefore(this.maxChunkChars);
+    const splitIdx = softBreakIdx >= 0 ? softBreakIdx + 1 : this.maxChunkChars;
+    const chunk = this.buffer.slice(0, splitIdx).trim();
+    this.buffer = this.buffer.slice(splitIdx);
+    if (!chunk) return null;
+    return {
+      text: chunk,
+      boundaryType: softBreakIdx >= 0 ? "soft_break" : "max_chunk",
+    };
+  }
+
+  private findSoftBreakBefore(limit: number): number {
+    const searchLimit = Math.min(this.buffer.length, limit);
+    const minIndex = Math.max(0, this.minTtsChars - 1);
+    let candidate = -1;
+    for (let i = minIndex; i < searchLimit; i++) {
+      if (SOFT_BREAK_RE.test(this.buffer[i] || "")) {
+        candidate = i;
+      }
+    }
+    return candidate;
   }
 
   private findSoftBreakAfterThreshold(): number {

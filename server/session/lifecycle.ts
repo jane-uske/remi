@@ -11,6 +11,7 @@ export function cleanupSessionResources(input: {
   connId: string;
   sessionId: string | null;
   setDuplexActive: (active: boolean) => void;
+  clearDevRuntimeOverrides: () => void;
   resetVad: () => void;
   clearPendingUtteranceTimer: () => void;
   clearSilenceNudgeTimer: () => void;
@@ -47,6 +48,7 @@ export function cleanupSessionResources(input: {
 
     input.clearSpeechBuffer();
     input.resetPreRoll();
+    input.clearDevRuntimeOverrides();
 
     if (isDbReady() && input.sessionId) {
       void endSession(input.sessionId).catch((error) => {

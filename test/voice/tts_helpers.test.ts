@@ -22,6 +22,19 @@ describe("tts helpers", () => {
     );
   });
 
+  it("returns empty when the input is only stripped stage directions", () => {
+    const normalized = normalizeTtsTextWithConfig(
+      "（指尖蜷着攥住你的衣袖，软发蹭着你脖颈，鼻息都发颤）",
+      {
+        maxChars: 120,
+        stripParenthetical: true,
+        stripEmoji: true,
+      },
+    );
+
+    assert.equal(normalized, "");
+  });
+
   it("keeps cache variant and key derivation stable", () => {
     const edgeVariant = buildTtsCacheVariant("edge", "neutral", {
       voice: "zh-CN-XiaoyiNeural",

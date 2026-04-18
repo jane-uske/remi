@@ -30,4 +30,9 @@ describe("/health", () => {
     this.timeout(20000);
     assert.doesNotThrow(() => runGatewayCase("rate-limit-skips-dev-assets"));
   });
+
+  it("serves the web entrypoint without a token in clerk mode", async function () {
+    this.timeout(20000);
+    assert.doesNotThrow(() => runGatewayCase("clerk-root-no-token"));
+  });
 });

@@ -39,14 +39,28 @@ export function logStartupDiagnostics(): void {
   const whisperModelPath = process.env.whisper_model;
   const whisperModelStatus = filePresence(whisperModelPath);
   if ((process.env.stt_provider || "openai").toLowerCase() === "whisper-cpp") {
-    emit(
-      whisperModelStatus === "exists" ? "info" : "warn",
-      "[Startup] whisper.cpp model check",
-      {
-        path: whisperModelPath ?? null,
-        status: whisperModelStatus,
-      },
-    );
+    const useServerRaw = (process.env.whisper_use_server ?? "1").trim().toLowerCase();
+    const useServer = useServerRaw !== "0" && useServerRaw !== "false";
+    const autostartRaw = (process.env.whisper_server_autostart ?? "1").trim().toLowerCase();
+    const autostart = autostartRaw !== "0" && autostartRaw !== "false";
+    const serverUrl = process.env.whisper_server_url?.trim() || null;
+
+    if (useServer && !autostart && serverUrl) {
+      emit("info", "[Startup] whisper.cpp remote server mode", {
+        serverUrl,
+        localModelPath: whisperModelPath ?? null,
+        localModelStatus: whisperModelStatus,
+      });
+    } else {
+      emit(
+        whisperModelStatus === "exists" ? "info" : "warn",
+        "[Startup] whisper.cpp model check",
+        {
+          path: whisperModelPath ?? null,
+          status: whisperModelStatus,
+        },
+      );
+    }
   }
 
   const piperModelPath = process.env.piper_model;

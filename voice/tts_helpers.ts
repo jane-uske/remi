@@ -54,6 +54,7 @@ export function normalizeTtsTextWithConfig(
   raw: string,
   config: TtsTextNormalizationConfig,
 ): string {
+  const rawHadVisibleContent = raw.trim().length > 0;
   const clean = stripDecorativeTailForTts(
     stripEmojiForTts(
       stripParentheticalStageDirections(raw, config.stripParenthetical),
@@ -63,7 +64,7 @@ export function normalizeTtsTextWithConfig(
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!clean) return "嗯。";
+  if (!clean) return rawHadVisibleContent ? "" : "嗯。";
   if (clean.length <= config.maxChars) return clean;
 
   const cut = clean.slice(0, config.maxChars);

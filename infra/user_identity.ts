@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import type { IncomingMessage } from "http";
 
+import type { AuthPrincipal } from "./auth";
 import { verifyToken } from "./auth";
 
 export const DEV_STORAGE_USER_ID = "00000000-0000-4000-8000-000000000001";
@@ -21,7 +22,10 @@ function stableUuidFromString(input: string): string {
   return `${timeLow}-${timeMid}-${timeHighAndVersion}-${clockSeq}${clockSeqLow}-${node}`.toLowerCase();
 }
 
-function readHeaderValue(req: Pick<IncomingMessage, "headers"> | null | undefined, name: string): string | null {
+function readHeaderValue(
+  req: Pick<IncomingMessage, "headers"> | null | undefined,
+  name: string,
+): string | null {
   const headers = req?.headers;
   if (!headers || typeof headers !== "object") return null;
   const raw = headers[name.toLowerCase()];
@@ -55,8 +59,38 @@ export function normalizeToStorageUserId(rawUserId?: string | null): string {
   return stableUuidFromString(`rem-user:${trimmed}`);
 }
 
-export function resolveRequestUserId(req: IncomingMessage): string {
+export function authPrincipalToStorageUserId(principal: AuthPrincipal): string {
+  if (principal.provider === "legacy_jwt") {
+    return normalizeToStorageUserId(principal.subject);
+  }
+  return stableUuidFromString(`rem-auth:${principal.provider}:${principal.subject}`);
+}
+
+export type RequestUserIdentity = {
+  authPrincipal: AuthPrincipal | null;
+  authPrincipalStorageUserId: string | null;
+  storageUserId: string;
+};
+
+export function resolveRequestUserIdentity(req: IncomingMessage): RequestUserIdentity {
   const token = extractQueryToken(req) ?? extractBearerToken(req);
-  const payload = token ? verifyToken(token) : null;
-  return normalizeToStorageUserId(payload?.id);
+  const principal = token ? verifyToken(token) : null;
+  if (!principal) {
+    return {
+      authPrincipal: null,
+      authPrincipalStorageUserId: null,
+      storageUserId: DEV_STORAGE_USER_ID,
+    };
+  }
+
+  const storageUserId = authPrincipalToStorageUserId(principal);
+  return {
+    authPrincipal: principal,
+    authPrincipalStorageUserId: storageUserId,
+    storageUserId,
+  };
+}
+
+export function resolveRequestUserId(req: IncomingMessage): string {
+  return resolveRequestUserIdentity(req).storageUserId;
 }

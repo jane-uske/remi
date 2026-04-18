@@ -3,6 +3,16 @@ export interface DbUser {
   created_at: Date;
 }
 
+export interface DbUserAuthIdentity {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_user_id: string;
+  email: string | null;
+  created_at: Date;
+  last_seen_at: Date;
+}
+
 export interface DbSession {
   id: string;
   user_id: string;

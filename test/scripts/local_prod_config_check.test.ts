@@ -86,4 +86,56 @@ describe("local prod config check", () => {
       ),
     );
   });
+
+  it("fails when DATABASE_URL and POSTGRES_PASSWORD drift apart", () => {
+    const result = evaluateLocalProdConfig({
+      ...baseEnv,
+      DATABASE_URL: "postgresql://rem:one-password@postgres:5432/rem_ai",
+      POSTGRES_PASSWORD: "another-password",
+      REMI_AUTH_MODE: "legacy_jwt",
+      JWT_SECRET: "super-secret",
+    });
+
+    assert.equal(result.hasError, true);
+    assert.ok(
+      result.messages.includes(
+        "MISS env: DATABASE_URL password does not match POSTGRES_PASSWORD; local-prod app/db credentials will drift",
+      ),
+    );
+  });
+
+  it("allows the default local postgres password when the app credentials stay aligned", () => {
+    const result = evaluateLocalProdConfig({
+      ...baseEnv,
+      DATABASE_URL: "postgresql://rem:rem_password@postgres:5432/rem_ai",
+      POSTGRES_PASSWORD: "rem_password",
+      REMI_AUTH_MODE: "legacy_jwt",
+      JWT_SECRET: "super-secret",
+    });
+
+    assert.equal(result.hasError, false);
+    assert.ok(
+      result.messages.includes(
+        "WARN env: POSTGRES_PASSWORD is the local default 'rem_password'; acceptable for isolated local-prod only",
+      ),
+    );
+  });
+
+  it("fails whisper-cpp local-prod config when remote server mode is enabled without a server url", () => {
+    const result = evaluateLocalProdConfig({
+      ...baseEnv,
+      REMI_AUTH_MODE: "legacy_jwt",
+      JWT_SECRET: "super-secret",
+      stt_provider: "whisper-cpp",
+      whisper_use_server: "1",
+      whisper_server_autostart: "0",
+    });
+
+    assert.equal(result.hasError, true);
+    assert.ok(
+      result.messages.includes(
+        "MISS env: whisper_server_url is required when whisper-cpp local-prod disables autostart",
+      ),
+    );
+  });
 });

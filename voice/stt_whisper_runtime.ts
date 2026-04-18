@@ -98,6 +98,19 @@ export type WhisperServerRuntime = {
 
 const defaultLogger = createLogger("stt");
 
+function requiresLocalWhisperModel(config: WhisperServerConfig): boolean {
+  if (!config.useServer) return true;
+  return config.autostart;
+}
+
+function hasLocalWhisperModel(config: WhisperServerConfig): boolean {
+  return typeof config.model === "string" && config.model.trim() !== "";
+}
+
+function canUseLocalCliFallback(config: WhisperServerConfig): boolean {
+  return hasLocalWhisperModel(config);
+}
+
 export function readWhisperServerConfig(env: NodeJS.ProcessEnv = process.env): WhisperServerConfig {
   const useServerRaw = (env.whisper_use_server ?? env.WHISPER_USE_SERVER ?? "1").trim();
   const useServer = useServerRaw !== "0" && useServerRaw.toLowerCase() !== "false";
@@ -160,12 +173,13 @@ export function readWhisperServerConfig(env: NodeJS.ProcessEnv = process.env): W
 }
 
 export function buildWhisperServerArgs(config: WhisperServerConfig): string[] {
-  if (!config.model) {
+  if (!hasLocalWhisperModel(config)) {
     throw new Error("STT 未配置：请设置 whisper_model 指向 ggml 模型文件");
   }
-  const args = [
+  const model = config.model!;
+  const args: string[] = [
     "-m",
-    config.model,
+    model,
     "-l",
     config.lang,
     "--host",
@@ -493,14 +507,15 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
 
   async function whisperTranscribeCli(wavPath: string): Promise<string> {
     const current = config();
-    if (!current.model) {
+    if (!hasLocalWhisperModel(current)) {
       throw new Error("STT 未配置：请设置 whisper_model 指向 ggml 模型文件");
     }
+    const model = current.model!;
 
     const cmd = (env.whisper_cmd ?? "whisper-cli").trim() || "whisper-cli";
-    const args = [
+    const args: string[] = [
       "-m",
-      current.model,
+      model,
       "-f",
       wavPath,
       "-l",
@@ -538,7 +553,7 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
   ): Promise<WhisperTranscribeResult> {
     const current = config();
     const jobPriority = options?.jobPriority ?? "high";
-    const allowCliFallback = options?.allowCliFallback ?? true;
+    const allowCliFallback = (options?.allowCliFallback ?? true) && canUseLocalCliFallback(current);
     const degraded = requestDegraded();
     if (degraded) {
       if (jobPriority === "low" || !allowCliFallback) {
@@ -616,7 +631,7 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
 
   async function transcribeWebm(audio: Buffer): Promise<string> {
     const current = config();
-    if (!current.model) {
+    if (requiresLocalWhisperModel(current) && !hasLocalWhisperModel(current)) {
       throw new Error("STT 未配置：请设置 whisper_model 指向 ggml 模型文件");
     }
 
@@ -665,7 +680,7 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     options?: WhisperTranscribeOptions,
   ): Promise<WhisperTranscribeResult> {
     const current = config();
-    if (!current.model) {
+    if (requiresLocalWhisperModel(current) && !hasLocalWhisperModel(current)) {
       throw new Error("STT 未配置：请设置 whisper_model 指向 ggml 模型文件");
     }
 
@@ -724,7 +739,7 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
 
   async function previewWav(wav: Buffer, sourceRate: number, externalSignal?: AbortSignal): Promise<string | null> {
     const current = config();
-    if (!current.model) return null;
+    if (requiresLocalWhisperModel(current) && !hasLocalWhisperModel(current)) return null;
     const wavPath = tmpPath("wav");
     fs.writeFileSync(wavPath, wav);
     try {

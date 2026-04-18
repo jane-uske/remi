@@ -15,6 +15,7 @@ import {
 import { deleteEpisodesByUser } from "../../storage/repositories/episode_repository";
 import { deleteMemoriesByUser } from "../../storage/repositories/memory_repository";
 import { deleteMessagesByUser } from "../../storage/repositories/message_repository";
+import { setSessionVolcVoiceTypeOverride } from "../../voice/tts_runtime_overrides";
 import { send } from "../gateway";
 
 const logger = createLogger("session");
@@ -68,6 +69,7 @@ export async function clearPersistentFactMemory(
 }
 
 interface SessionDeveloperRuntime {
+  connId: string;
   ws: WebSocket;
   brain: RemiSessionContext;
   resetDeveloperLiveState(): void;
@@ -154,6 +156,35 @@ export async function applyDeveloperPreset(
     personaPreset: personaPreset || null,
     relationshipPreset: relationshipPreset || null,
     resetScope: "session",
+  });
+}
+
+export async function applyDeveloperTtsVoiceOverride(
+  runtime: SessionDeveloperRuntime,
+  data: any,
+): Promise<void> {
+  const rawVoiceType = typeof data.voiceType === "string" ? data.voiceType.trim() : "";
+  const resetToEnv =
+    rawVoiceType === "" ||
+    rawVoiceType === "__env_default__" ||
+    rawVoiceType === "__default__";
+
+  if (
+    !resetToEnv &&
+    !/^[a-z0-9_./-]{3,128}$/i.test(rawVoiceType)
+  ) {
+    send(runtime.ws, {
+      type: "error",
+      content: `非法 voiceType：${rawVoiceType}`,
+    });
+    return;
+  }
+
+  setSessionVolcVoiceTypeOverride(runtime.connId, resetToEnv ? null : rawVoiceType);
+  send(runtime.ws, {
+    type: "dev_tts_voice_applied",
+    voiceType: resetToEnv ? null : rawVoiceType,
+    source: resetToEnv ? "env_default" : "runtime_override",
   });
 }
 

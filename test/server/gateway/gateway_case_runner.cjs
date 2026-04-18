@@ -103,6 +103,31 @@ async function runRateLimitSkipsDevAssets() {
   );
 }
 
+async function runClerkRootNoToken() {
+  await withGateway(
+    () => {
+      const restores = [
+        setEnv("REMI_AUTH_MODE", "clerk"),
+        setEnv("JWT_SECRET", undefined),
+        setEnv("REMI_AUTH_ALLOW_LOOPBACK_BYPASS", "0"),
+      ];
+      return () => {
+        for (const restore of restores.reverse()) restore();
+      };
+    },
+    async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: {
+          Host: "app-rem.remi.run",
+        },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.text();
+      assert.equal(body.includes("Remi AI"), true);
+    },
+  );
+}
+
 async function runWsMobileDevAuth({ headerValue, shouldOpen }) {
   await withGateway(
     () => {
@@ -159,6 +184,9 @@ async function main() {
       return;
     case "rate-limit-skips-dev-assets":
       await runRateLimitSkipsDevAssets();
+      return;
+    case "clerk-root-no-token":
+      await runClerkRootNoToken();
       return;
     default:
       throw new Error(`Unknown gateway test case: ${testCase}`);

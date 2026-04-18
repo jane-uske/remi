@@ -1,6 +1,7 @@
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { isDbReady } from "../../infra/app_state";
 import { createLogger } from "../../infra/logger";
+import type { AuthPrincipal } from "../../infra/auth";
 import {
   loadPersistentRelationshipState,
   relationshipStateEnabled,
@@ -15,12 +16,14 @@ import {
 } from "../../storage/repositories/message_repository";
 import { getPgMemoryRepository } from "../../storage/repositories/pg_memory_repository";
 import { createSession as createDbSession } from "../../storage/repositories/session_repository";
+import { ensureUserAuthIdentity } from "../../storage/repositories/user_auth_identity_repository";
 
 const logger = createLogger("session");
 
 export async function initializeSessionStorage(input: {
   connId: string;
   storageUserId: string;
+  authPrincipal: AuthPrincipal | null;
   brain: RemiSessionContext;
   historyPageSize: number;
   setSessionId: (sessionId: string) => void;
@@ -29,7 +32,14 @@ export async function initializeSessionStorage(input: {
   if (!isDbReady()) return;
 
   try {
-    const userId = await ensureStorageUser(input.storageUserId);
+    const userId = input.authPrincipal
+      ? await ensureUserAuthIdentity({
+          userId: input.storageUserId,
+          provider: input.authPrincipal.provider,
+          providerUserId: input.authPrincipal.subject,
+          email: input.authPrincipal.email,
+        })
+      : await ensureStorageUser(input.storageUserId);
     input.brain.setUserId(userId);
     const session = await createDbSession(userId);
     input.setSessionId(session.id);

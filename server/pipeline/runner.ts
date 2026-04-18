@@ -552,6 +552,7 @@ async function ttsSend(
       responsePolicy: ctx.lastResponsePolicy ?? null,
     });
     if (signal?.aborted) return;
+    if (!audio || audio.length === 0) return;
     if (isFirstSentence && latencyTracer) {
       latencyTracer.mark("tts_first_audio", traceId);
     }

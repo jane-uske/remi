@@ -49,9 +49,21 @@ print("Runtime", [
 
 const sttLines = [];
 if (sttProvider === "whisper-cpp") {
-  sttLines.push(`whisper_model exists: ${exists(process.env.whisper_model) ? "yes" : "no"}`);
-  sttLines.push(`whisper_model path: ${process.env.whisper_model || "(missing)"}`);
-  sttLines.push(`whisper server autostart: ${(process.env.whisper_server_autostart ?? "1")}`);
+  const useServer = !["0", "false"].includes((process.env.whisper_use_server ?? "1").toLowerCase());
+  const autostart = !["0", "false"].includes(
+    (process.env.whisper_server_autostart ?? "1").toLowerCase(),
+  );
+  const serverUrl = process.env.whisper_server_url?.trim();
+  sttLines.push(`whisper server enabled: ${useServer ? "yes" : "no"}`);
+  sttLines.push(`whisper server autostart: ${autostart ? "yes" : "no"}`);
+  if (useServer && !autostart && serverUrl) {
+    sttLines.push(`whisper remote server url: ${serverUrl}`);
+    sttLines.push(`whisper local model path: ${process.env.whisper_model || "(optional)"}`);
+    sttLines.push(`whisper local model exists: ${exists(process.env.whisper_model) ? "yes" : "no"}`);
+  } else {
+    sttLines.push(`whisper_model exists: ${exists(process.env.whisper_model) ? "yes" : "no"}`);
+    sttLines.push(`whisper_model path: ${process.env.whisper_model || "(missing)"}`);
+  }
 } else {
   sttLines.push(`stt_key set: ${process.env.stt_key?.trim() ? "yes" : "no"}`);
   sttLines.push(`stt_base_url set: ${process.env.stt_base_url?.trim() ? "yes" : "no"}`);

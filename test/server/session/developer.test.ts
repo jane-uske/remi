@@ -3,6 +3,10 @@ const path = require("path");
 
 describe("session developer preset helpers", () => {
   const developerPath = path.resolve(__dirname, "../../../server/session/developer.ts");
+  const ttsRuntimeOverridesPath = path.resolve(
+    __dirname,
+    "../../../voice/tts_runtime_overrides.ts",
+  );
   const episodeRepoPath = path.resolve(
     __dirname,
     "../../../storage/repositories/episode_repository.ts",
@@ -17,6 +21,7 @@ describe("session developer preset helpers", () => {
   afterEach(() => {
     database.query = originalQuery;
     delete require.cache[developerPath];
+    delete require.cache[ttsRuntimeOverridesPath];
     delete require.cache[episodeRepoPath];
   });
 
@@ -171,5 +176,39 @@ describe("session developer preset helpers", () => {
     assert.deepEqual(personaPresets, ["playful"]);
     assert.equal(relationshipStates.length, 1);
     assert.equal(persisted, 1);
+  });
+
+  it("applies and clears a per-session Volc voice runtime override", async () => {
+    const { applyDeveloperTtsVoiceOverride } = require(developerPath);
+    const {
+      getSessionTtsRuntimeOverride,
+    } = require(ttsRuntimeOverridesPath);
+
+    const ws = {
+      readyState: 1,
+      send() {},
+    };
+    const runtime = {
+      connId: "conn-dev-voice",
+      ws,
+      brain: {
+        userId: "user-dev-1",
+      },
+      resetDeveloperLiveState() {},
+      persistRelationshipContinuityState: async () => {},
+    };
+
+    await applyDeveloperTtsVoiceOverride(runtime, {
+      voiceType: "zh_female_lingling_uranus_bigtts",
+    });
+    assert.equal(
+      getSessionTtsRuntimeOverride("conn-dev-voice")?.volcVoiceType,
+      "zh_female_lingling_uranus_bigtts",
+    );
+
+    await applyDeveloperTtsVoiceOverride(runtime, {
+      voiceType: "__env_default__",
+    });
+    assert.equal(getSessionTtsRuntimeOverride("conn-dev-voice"), null);
   });
 });

@@ -4,6 +4,7 @@ import { createLogger } from "../infra/logger";
 import { isAdultModeEnabled } from "../brain/character_rules";
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
 import type { TtsRequestContext } from "./tts_request_context";
+import { getSessionTtsRuntimeOverride } from "./tts_runtime_overrides";
 
 const logger = createLogger("tts_volc");
 
@@ -306,7 +307,10 @@ export function resolveVolcTtsConfig(
   context?: TtsRequestContext,
 ): VolcTtsConfig | null {
   const apiKey = firstEnv("volc_tts_api_key", "VOLC_TTS_API_KEY", "tts_key");
-  const voiceType = firstEnv("volc_tts_voice_type", "VOLC_TTS_VOICE_TYPE", "tts_voice");
+  const runtimeOverride = getSessionTtsRuntimeOverride(context?.connId);
+  const voiceType =
+    runtimeOverride?.volcVoiceType ??
+    firstEnv("volc_tts_voice_type", "VOLC_TTS_VOICE_TYPE", "tts_voice");
   if (!apiKey || !voiceType) return null;
 
   const expression = planVolcExpression(text || "", emotion, context);

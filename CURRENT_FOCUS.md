@@ -17,7 +17,7 @@ Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实
 
 ## 当前最高优先级
 
-Memory V2 验收收尾与观察期
+Memory V2 验收收尾与观察期（当前真实质量观察因样本不足处于 `observe / blocked`）
 
 ## 当前进度
 
@@ -60,6 +60,7 @@ Memory V2 验收收尾与观察期
 - ✅ `2026-04-18` 观察期第二轮补强已落地：`episode_store` 已补“宽 episode 不再继续跨 topic 吞并”的守门，`findRelevant()` 已开始压制“宽 topic + 刚被提过 + 当前 query 没锚点”的统治型召回，`memory_agent` 也不再让低 rank core 回填 prompt，且低权重混合-topic active episode 不再被轻易抬成 `长期关系主线`
 - ✅ `2026-04-18` 存量治理最小工具已落地：`npm run memory:v2:hygiene -- --user <user-id> [--lang zh] [--apply]` 现可对历史 `episode` 做 dry-run / apply 级别的归档候选筛查；当前只内置中文规则包，但接口按 language pack 组织，后续可以增补多语言规则而不改 recall 主逻辑。第一版只做 `status='archived'` + `unresolved=false`，不删库；默认召回与相似 episode 搜索也已排除 archived，避免存量脏 episode 继续污染 prompt
 - ⚠️ 这不等于 Memory V2 质量已经验收：当前真实样本里 `repeatedResurfaceRate` 已从 `0.923` 降到 `0`，说明“同一脏 episode 反复霸榜”的问题明显收住；但 `duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在，当前只是“停止继续恶化 + 收窄 prompt 放大器”，不是“历史污染已清理”
+- ⚠️ 当前继续推进“Memory V2 真实质量观察”的前提暂时不足：本地/开发环境缺少新的可审计 `episodes` 与足够多样的真实用户样本；如果继续围绕 `audit / hygiene` 扩工具，只会得到低信号 proxy 结论，而不是新的真实产品判断。现阶段应把这项降级为 `observe / blocked`，保留工具 readiness，等新数据到位后再重启
 - ✅ latency / turn-taking 证据链已补到样本级：trace 现可携带 `scenarioKey`、`sessionId`、`releaseReason`、`releaseStableMs`、`prosodyApplied`、`usedNoVadFallback`、`previewText` / `finalTranscript` 摘要、关键 `turnState` 转移与 `interruptionType`；`duplex_soak_report` 也已新增浏览器 duplex 的 3 个验收场景、最小 trace 数门槛、`p50/p95` 对比、误判 taxonomy 与样本表
 - ✅ 已补一条窄时间问答能力：直接时间问题（`现在几点` / `今天几号` / `今天星期几`）会优先按客户端上报的用户时区直答；拿不到有效客户端时区时再回退服务器时区；但这仍不等于“完整时间概念”，当前没有相对时间推理和泛化时间感
 - ✅ 已补第一版按日期回顾聊天能力：显式问题（`今天/昨天/前天/4月14号我们聊了什么`）会优先按用户时区把日期解析成自然日范围，直接查原始 `messages` 做受控摘要，而不是让 memory / LLM 去猜；当前仍不支持 `上周/最近几天/整个月` 这类宽时间范围
@@ -72,15 +73,15 @@ Memory V2 验收收尾与观察期
 - ✅ 资源监控已改口径：内存告警不再看 `heapUsed / heapTotal` 这种误导指标，而是改看进程 `rss`、`heapUsed / heapLimit` 和告警节流；当前旧日志里的 “97%/98%” 不应再被当作“服务快 OOM”的证据
 
 ### 下一步
-1. **Memory V2 真实质量观察**：先用 `memory:v2:audit` 对真实用户样本做抽样，重点看 `episode` 错合并、漏召回、重复回捞、`unresolved` 命中；这一步比继续改 persona 文案更接近北极星
-   当前重点已经从“有没有工具”切到“怎么用工具做存量治理”：最小归档/排除 recall 脚本已经有了，下一步应继续抽样人工复核 `duplicateLineRate` 高的用户，并决定先做按样本 apply + 复跑审计，还是继续扩充规则包 / 拆分策略
+1. **Memory V2 真实质量观察（暂缓 / blocked）**：当前缺少新的可审计 `episodes` 和足够多样的真实用户样本；继续硬推只会产生低信号 proxy 结论，而不是新的真实产品判断
+   现在该做的是保留 `memory:v2:audit / hygiene` readiness，不再继续为“验证而验证”扩工具；等有新的真实 `episodes` / 多用户样本后，再恢复抽样人工复核、按样本 apply 和复跑审计
 2. **浏览器 spot-check**：再补一轮显式打开 `workingMemory` 的前端对话，确认 `【当前上下文】` 注入、V2 recall feedback、history/local cache 与文本主链路没有交互回退
    对 Web Auth 这条支线，下一步不是继续堆账号功能，而是做真实邮箱双账号 smoke：确认不同 Clerk 用户会落到不同 `user_auth_identities -> users -> sessions/messages/episodes`，且 legacy token 兜底没被回归打坏
-3. **embedding 健康门槛**：基于新告警补最低可运行门槛与 dashboard/日志口径，否则人格连续性仍会在环境缺失时直接掉级
-4. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
-5. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
-6. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
-7. **浏览器 duplex 实采**：当前 `p50/p95 + 误判样本` 只把口径和聚合链路做完了，仍缺真实浏览器 duplex trace 与人工复核；在拿到真实样本前，不要把 turn-taking 说成“已基本稳定”
+3. **浏览器 duplex 实采 / runtime spot-check**：当前 `p50/p95 + 误判样本` 只把口径和聚合链路做完了，仍缺真实浏览器 duplex trace 与人工复核；在拿到真实样本前，不要把 turn-taking 说成“已基本稳定”
+4. **embedding 健康门槛**：基于新告警补最低可运行门槛与 dashboard/日志口径，否则人格连续性仍会在环境缺失时直接掉级
+5. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
+6. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
+7. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
 8. **语气/理解观察期**：继续收集“回答优先级、现实约束更新、场景承接、边界尊重”真实 bad cases；本轮已补 `不要一直问我` / `你又不会帮我做` 一类样本，但还不代表整条线稳定
 9. **STT 热词词表观察**：先用真实语音对话收集 10-20 个最痛热词错例，验证轻量词表纠偏的收益；在出现明确开放域 bad case 之前，不建议把它扩成上下文推断或 LLM 纠错
 

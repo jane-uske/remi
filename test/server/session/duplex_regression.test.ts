@@ -74,13 +74,32 @@ describe("duplex ws+pcm regression", () => {
     }
   });
 
-  it("keeps short real feedback on the main speech_buffer path", async () => {
-    const { ws, restore } = loadSessionHarness({ transcript: "谢谢" });
+  it("keeps short real feedback when meaningful preview already exists", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "谢谢" });
     try {
       emitDuplexStart(ws);
-      emitFrames(ws, repeatFrames(makeSineFrame(0.18), 14));
-      emitFrames(ws, repeatFrames(makeSilenceFrame(), 8));
-      emitDuplexStop(ws);
+
+      session.duplexSampleRate = 16_000;
+      session.lastVadStartMode = "strict";
+
+      const pcm = Buffer.concat(repeatFrames(makeSineFrame(0.18), 36));
+      const job = session.createDuplexUtteranceJob({
+        utteranceSeq: session.nextUtteranceSeq(),
+        source: "speech_buffer",
+        pcm,
+        durationMs: 720,
+        previewText: "谢谢",
+        vadMode: "strict",
+        usedNoVadFallback: false,
+        utteranceFrameCount: 36,
+        utteranceStrongFrames: 30,
+        utteranceMaxRms: 0.18,
+        utteranceMaxPeak: 0.18,
+        rawFrameCount: 36,
+        rawStrongFrames: 30,
+        rawMaxRms: 0.18,
+      });
+      session.enqueueDuplexSttJob(job);
 
       await new Promise((resolve) => setTimeout(resolve, 450));
 
@@ -88,6 +107,138 @@ describe("duplex ws+pcm regression", () => {
       const sttFinal = messages.find((msg) => msg && msg.type === "stt_final");
       assert.ok(sttFinal, `messages=${JSON.stringify(messages)}`);
       assert.equal(sttFinal.content, "谢谢");
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects previewless strict cough-like transcripts before they become user turns", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "咳咳。" });
+    try {
+      emitDuplexStart(ws);
+      session.duplexSampleRate = 16_000;
+      session.lastVadStartMode = "strict";
+
+      const pcm = Buffer.concat(repeatFrames(makeSineFrame(0.18), 36));
+      const job = session.createDuplexUtteranceJob({
+        utteranceSeq: session.nextUtteranceSeq(),
+        source: "speech_buffer",
+        pcm,
+        durationMs: 720,
+        previewText: "",
+        vadMode: "strict",
+        usedNoVadFallback: false,
+        utteranceFrameCount: 36,
+        utteranceStrongFrames: 30,
+        utteranceMaxRms: 0.18,
+        utteranceMaxPeak: 0.18,
+        rawFrameCount: 36,
+        rawStrongFrames: 30,
+        rawMaxRms: 0.18,
+      });
+      session.enqueueDuplexSttJob(job);
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      const messages = ws.parsedMessages();
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "stt_final"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "turn_state" && msg.state === "assistant_entering"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects previewless strict blow-pop transcripts before they become user turns", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "噗!" });
+    try {
+      emitDuplexStart(ws);
+      session.duplexSampleRate = 16_000;
+      session.lastVadStartMode = "strict";
+
+      const pcm = Buffer.concat(repeatFrames(makeSineFrame(0.18), 36));
+      const job = session.createDuplexUtteranceJob({
+        utteranceSeq: session.nextUtteranceSeq(),
+        source: "speech_buffer",
+        pcm,
+        durationMs: 720,
+        previewText: "",
+        vadMode: "strict",
+        usedNoVadFallback: false,
+        utteranceFrameCount: 36,
+        utteranceStrongFrames: 30,
+        utteranceMaxRms: 0.18,
+        utteranceMaxPeak: 0.18,
+        rawFrameCount: 36,
+        rawStrongFrames: 30,
+        rawMaxRms: 0.18,
+      });
+      session.enqueueDuplexSttJob(job);
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      const messages = ws.parsedMessages();
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "stt_final"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "turn_state" && msg.state === "assistant_entering"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects previewless strict short politeness before it becomes a user turn", async () => {
+    const { ws, session, restore } = loadSessionHarness({ transcript: "谢谢。" });
+    try {
+      emitDuplexStart(ws);
+      session.duplexSampleRate = 16_000;
+      session.lastVadStartMode = "strict";
+
+      const pcm = Buffer.concat(repeatFrames(makeSineFrame(0.18), 36));
+      const job = session.createDuplexUtteranceJob({
+        utteranceSeq: session.nextUtteranceSeq(),
+        source: "speech_buffer",
+        pcm,
+        durationMs: 720,
+        previewText: "",
+        vadMode: "strict",
+        usedNoVadFallback: false,
+        utteranceFrameCount: 36,
+        utteranceStrongFrames: 30,
+        utteranceMaxRms: 0.18,
+        utteranceMaxPeak: 0.18,
+        rawFrameCount: 36,
+        rawStrongFrames: 30,
+        rawMaxRms: 0.18,
+      });
+      session.enqueueDuplexSttJob(job);
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      const messages = ws.parsedMessages();
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "stt_final"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "turn_state" && msg.state === "assistant_entering"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
     } finally {
       restore();
     }
@@ -746,7 +897,11 @@ describe("duplex ws+pcm regression", () => {
         `messages=${JSON.stringify(messages)}`,
       );
       assert.ok(
-        captureLogs.some((entry) => entry.message === "[STT] suppress recovered fallback utterance"),
+        captureLogs.some(
+          (entry) =>
+            entry.message === "[STT] reject previewless short duplex utterance" &&
+            entry.data?.rejectedReason === "previewless_short_feedback_rejected",
+        ),
         `logs=${JSON.stringify(captureLogs)}`,
       );
     } finally {

@@ -17,6 +17,8 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-rem}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rem_ai}
       REDIS_URL: redis://redis:6379
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:${PORT:-3000}:3000"
     depends_on:

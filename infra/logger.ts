@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import pino, { multistream } from "pino";
-import pretty from "pino-pretty";
 
 export interface Logger {
   info(message: string, data?: Record<string, unknown>): void;
@@ -45,8 +44,30 @@ function buildDevLogFilePath(now = new Date()): string {
 
 const activeDevLogFilePath = autoFileSinkEnabled ? buildDevLogFilePath() : null;
 
+type PrettyStreamFactory = (options: Record<string, unknown>) => NodeJS.WritableStream;
+
+let prettyStreamFactory: PrettyStreamFactory | null | undefined;
+
+function getPrettyStreamFactory(): PrettyStreamFactory | null {
+  if (prettyStreamFactory !== undefined) {
+    return prettyStreamFactory;
+  }
+  try {
+    const loaded = require("pino-pretty") as PrettyStreamFactory;
+    prettyStreamFactory = loaded;
+  } catch {
+    prettyStreamFactory = null;
+  }
+  return prettyStreamFactory;
+}
+
 function createBaseLogger() {
   if (!isDev) {
+    return pino({ level });
+  }
+
+  const pretty = getPrettyStreamFactory();
+  if (!pretty) {
     return pino({ level });
   }
 

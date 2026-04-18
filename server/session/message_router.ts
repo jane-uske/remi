@@ -82,6 +82,7 @@ export function attachSessionMessageHandlers(input: {
   ) => Promise<void>;
   handleAudioPcm: (pcm: Buffer, sampleRate: number, transport: "binary" | "json") => void;
   runDevApplyPreset: (data: any) => void;
+  runDevSetTtsVoice: (data: any) => void;
   runDevResetState: (data: any) => void;
   handleDuplexStart: (data: any) => void;
   handleDuplexStop: () => void;
@@ -140,6 +141,13 @@ export function attachSessionMessageHandlers(input: {
           break;
         }
         input.runDevApplyPreset(data);
+        break;
+      case "dev_set_tts_voice":
+        if (!devPresetCommandsEnabled()) {
+          send(input.ws as any, { type: "error", content: "开发预设命令已禁用" });
+          break;
+        }
+        input.runDevSetTtsVoice(data);
         break;
       case "dev_reset_state":
         if (!devPresetCommandsEnabled()) {

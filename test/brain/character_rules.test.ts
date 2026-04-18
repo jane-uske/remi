@@ -48,6 +48,8 @@ describe("character_rules", () => {
       assert.ok(prompt.includes("不默认 explicit"));
       assert.ok(!prompt.includes("极度饥渴的25岁巨乳御姐"));
       assert.ok(!prompt.includes("默认保持高频重口开车模式"));
+      assert.ok(!prompt.includes("公开羞辱"));
+      assert.ok(!prompt.includes("必须立刻害羞又兴奋地服从"));
     });
   });
 

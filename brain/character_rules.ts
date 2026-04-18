@@ -23,7 +23,9 @@ const ADULT_CHARACTER_RULES: string[] = [
 ];
 
 export function isAdultModeEnabled(): boolean {
-  const raw = (process.env.REMI_ADULT_MODE ?? process.env.remi_adult_mode ?? "").trim().toLowerCase();
+  const raw = (process.env.REMI_ADULT_MODE ?? process.env.remi_adult_mode ?? "")
+    .trim()
+    .toLowerCase();
   return raw === "1" || raw === "true" || raw === "on";
 }
 

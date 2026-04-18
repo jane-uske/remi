@@ -71,11 +71,15 @@ const TTS_CACHE_MAX_CHARS = Number(process.env.tts_cache_max_chars ?? 24);
 const TTS_CACHE_MAX_ENTRIES = Number(process.env.tts_cache_max_entries ?? 80);
 const ttsShortAudioCache = new Map<string, Buffer>();
 
-function getTtsCacheVariant(provider: TtsProvider, emotion: Emotion | undefined): string {
+function getTtsCacheVariant(
+  provider: TtsProvider,
+  emotion: Emotion | undefined,
+  context?: TtsRequestContext,
+): string {
   return buildTtsCacheVariant(provider, emotion, {
     voice:
       provider === "volc"
-        ? resolveVolcTtsConfig(emotion)?.voiceType ||
+        ? resolveVolcTtsConfig(emotion, undefined, context)?.voiceType ||
           process.env.volc_tts_voice_type ||
           process.env.VOLC_TTS_VOICE_TYPE ||
           process.env.tts_voice ||
@@ -83,22 +87,22 @@ function getTtsCacheVariant(provider: TtsProvider, emotion: Emotion | undefined)
         : process.env.tts_voice || (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
     lang:
       provider === "volc"
-        ? resolveVolcTtsConfig(emotion)?.resourceId ||
+        ? resolveVolcTtsConfig(emotion, undefined, context)?.resourceId ||
           process.env.volc_tts_resource_id ||
           process.env.VOLC_TTS_RESOURCE_ID ||
           "seed-tts-2.0"
         : process.env.tts_lang || "zh-CN",
     rate:
       provider === "volc"
-        ? String(resolveVolcTtsConfig(emotion)?.speechRate ?? 0)
+        ? String(resolveVolcTtsConfig(emotion, undefined, context)?.speechRate ?? 0)
         : process.env.tts_rate || "default",
     pitch:
       provider === "volc"
-        ? String(resolveVolcTtsConfig(emotion)?.sampleRate ?? 24_000)
+        ? String(resolveVolcTtsConfig(emotion, undefined, context)?.sampleRate ?? 24_000)
         : process.env.tts_pitch || "default",
     model:
       provider === "volc"
-        ? resolveVolcTtsConfig(emotion)?.format || "mp3"
+        ? resolveVolcTtsConfig(emotion, undefined, context)?.format || "mp3"
         : process.env.tts_model || "tts-1",
     piperModel: getPiperModel(),
   });
@@ -979,6 +983,7 @@ export async function textToSpeech(
 ): Promise<Buffer> {
   throwIfAborted(signal);
   const ttsText = normalizeTtsText(text);
+  if (!ttsText) return Buffer.alloc(0);
   const provider = getProvider();
   if (!isTtsEnabled()) {
     warnTtsDisabledOnce(provider);
@@ -987,7 +992,7 @@ export async function textToSpeech(
 
   const shortKey =
     ttsText.length > 0 && ttsText.length <= TTS_CACHE_MAX_CHARS
-      ? buildTtsShortCacheKey(provider, ttsText, emotion, getTtsCacheVariant(provider, emotion))
+      ? buildTtsShortCacheKey(provider, ttsText, emotion, getTtsCacheVariant(provider, emotion, context))
       : null;
   if (shortKey) {
     const hit = getTtsShortCache(shortKey);
@@ -1028,7 +1033,7 @@ export async function textToSpeech(
           actualProvider,
           ttsText,
           emotion,
-          getTtsCacheVariant(actualProvider, emotion),
+          getTtsCacheVariant(actualProvider, emotion, context),
         ),
         buf,
       );
@@ -1102,6 +1107,7 @@ export async function streamTextToSpeech(
 ): Promise<void> {
   throwIfAborted(signal);
   const ttsText = normalizeTtsText(text);
+  if (!ttsText) return;
   const provider = getProvider();
   if (!isTtsEnabled()) {
     warnTtsDisabledOnce(provider);

@@ -134,6 +134,46 @@ describe("stt whisper runtime", () => {
     assert.deepEqual(killSignals, ["SIGTERM"]);
   });
 
+  it("supports remote whisper-server mode without requiring a local model file", async () => {
+    const runtime = createWhisperServerRuntime({
+      env: {
+        whisper_use_server: "1",
+        whisper_server_autostart: "0",
+        whisper_server_url: "http://host.docker.internal:8080",
+        whisper_server_request_path: "/inference",
+        whisper_lang: "zh",
+      },
+      sleep: async () => {},
+      fetch: async (_input, init) => {
+        const method = init?.method || "GET";
+        if (method === "POST") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ text: "远程识别成功" }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+        };
+      },
+    });
+
+    const result = await runtime.transcribeWav(Buffer.from("fake wav"), 16000, {
+      allowCliFallback: false,
+      jobPriority: "high",
+      traceId: "trace-remote-only",
+    });
+    assert.deepEqual(result, {
+      text: "远程识别成功",
+      path: "server",
+      fallbackReason: null,
+      requestDegraded: false,
+    });
+  });
+
   it("enters a degraded window after a failed server request, skips low-value jobs, and routes high-value jobs straight to cli", async () => {
     let now = 1_000;
     let postCalls = 0;
@@ -243,5 +283,72 @@ describe("stt whisper runtime", () => {
     assert.equal(afterWindow.fallbackReason, "request_abort");
     assert.equal(postCalls, 2);
     assert.equal(cliCalls, 3);
+  });
+
+  it("skips instead of throwing when remote-only whisper-server mode degrades and no local cli fallback exists", async () => {
+    let now = 1_000;
+    const runtime = createWhisperServerRuntime({
+      env: {
+        whisper_use_server: "1",
+        whisper_server_autostart: "0",
+        whisper_server_url: "http://127.0.0.1:8080",
+        whisper_server_request_path: "/inference",
+        whisper_server_request_timeout_ms: "1500",
+        whisper_lang: "zh",
+      },
+      now: () => now,
+      sleep: async () => {},
+      fetch: async (_input, init) => {
+        const method = init?.method || "GET";
+        if (method === "POST") {
+          const error = new Error("request aborted");
+          error.name = "AbortError";
+          throw error;
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => "",
+        };
+      },
+    });
+
+    const firstFailure = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        throw new Error("cli should not run");
+      },
+      {
+        jobPriority: "high",
+        allowCliFallback: true,
+        traceId: "trace-remote-failure-1",
+      },
+    );
+    assert.deepEqual(firstFailure, {
+      text: "",
+      path: "skipped",
+      fallbackReason: "request_abort",
+      requestDegraded: true,
+    });
+
+    now += 100;
+
+    const degradedRetry = await runtime.transcribePreferServer(
+      Buffer.from("fake wav"),
+      async () => {
+        throw new Error("cli should not run");
+      },
+      {
+        jobPriority: "high",
+        allowCliFallback: true,
+        traceId: "trace-remote-failure-2",
+      },
+    );
+    assert.deepEqual(degradedRetry, {
+      text: "",
+      path: "skipped",
+      fallbackReason: "degraded_window",
+      requestDegraded: true,
+    });
   });
 });

@@ -29,7 +29,10 @@ export interface TurnTakingPredictor {
 
 export type NonSpeechRejectReason =
   | "non_speech_tag_rejected"
-  | "noise_phrase_rejected";
+  | "noise_phrase_rejected"
+  | "onomatopoeia_rejected"
+  | "previewless_short_feedback_rejected"
+  | "noise_like_short_utterance";
 
 export interface NonSpeechRejectDecision {
   reject: boolean;
@@ -61,9 +64,51 @@ const NOISE_PHRASES = [
   "打赏",
   "点赞订阅转发",
 ] as const;
+const NOISE_PHRASE_PATTERNS = [/谢谢(?:大家)?的?(?:观看|收看)/u] as const;
+
+const ONOMATOPOEIA_TRANSCRIPTS = [
+  "咳",
+  "咳咳",
+  "咳咳咳",
+  "噗",
+  "噗噗",
+  "噗哧",
+  "呃",
+  "呃呃",
+  "啊",
+  "啊啊",
+  "唔",
+  "唔唔",
+  "哼",
+  "哼哼",
+  "哈",
+  "哈哈",
+  "呵",
+  "呵呵",
+  "噢",
+  "哦",
+] as const;
+
+const PREVIEWLESS_SHORT_FEEDBACKS = [
+  "嗯",
+  "嗯嗯",
+  "对",
+  "对啊",
+  "对呀",
+  "对呢",
+  "谢谢",
+  "谢谢啊",
+  "谢谢呀",
+  "谢谢啦",
+  "谢谢你",
+  "谢啦",
+  "好吧",
+] as const;
 
 const NON_SPEECH_TAG_SET = new Set<string>(NON_SPEECH_TAGS);
 const NOISE_PHRASE_SET = new Set<string>(NOISE_PHRASES);
+const ONOMATOPOEIA_SET = new Set<string>(ONOMATOPOEIA_TRANSCRIPTS);
+const PREVIEWLESS_SHORT_FEEDBACK_SET = new Set<string>(PREVIEWLESS_SHORT_FEEDBACKS);
 const BRACKET_TAG_RE = /^[\[(（【<＜]\s*([^()[\]（）【】<>＜＞]+?)\s*[\])）】>＞]$/u;
 
 function clamp01(value: number): number {
@@ -95,8 +140,51 @@ export function isNoisePhraseTranscript(text: string | null | undefined): boolea
   const compact = compactTranscript(text);
   if (!compact) return false;
   if (NOISE_PHRASE_SET.has(compact)) return true;
+  for (const pattern of NOISE_PHRASE_PATTERNS) {
+    if (pattern.test(compact)) return true;
+  }
   for (const phrase of NOISE_PHRASES) {
     if (compact.includes(phrase)) return true;
+  }
+  return false;
+}
+
+export function isOnomatopoeiaTranscript(text: string | null | undefined): boolean {
+  const compact = compactTranscript(text);
+  if (!compact) return false;
+  if (ONOMATOPOEIA_SET.has(compact)) return true;
+  for (const phrase of ONOMATOPOEIA_TRANSCRIPTS) {
+    if (compact === phrase) {
+      return true;
+    }
+    if (
+      compact.length > phrase.length &&
+      compact.length % phrase.length === 0 &&
+      compact === phrase.repeat(compact.length / phrase.length)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isPreviewlessShortFeedbackTranscript(
+  text: string | null | undefined,
+): boolean {
+  const compact = compactTranscript(text);
+  if (!compact) return false;
+  if (PREVIEWLESS_SHORT_FEEDBACK_SET.has(compact)) return true;
+  for (const phrase of PREVIEWLESS_SHORT_FEEDBACKS) {
+    if (compact === phrase) {
+      return true;
+    }
+    if (
+      compact.length > phrase.length &&
+      compact.length % phrase.length === 0 &&
+      compact === phrase.repeat(compact.length / phrase.length)
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -126,6 +214,70 @@ export function classifyNonSpeechTranscript(
       normalizedTranscript,
     };
   }
+  if (isOnomatopoeiaTranscript(text)) {
+    return {
+      reject: true,
+      reason: "onomatopoeia_rejected",
+      normalizedTranscript,
+    };
+  }
+  return {
+    reject: false,
+    reason: null,
+    normalizedTranscript,
+  };
+}
+
+export interface PreviewlessShortDuplexRejectInput {
+  text: string | null | undefined;
+  previewText?: string | null;
+  userSpeechScore?: number | null;
+  nonSpeechMediaScore?: number | null;
+  maxChars?: number;
+}
+
+export function classifyPreviewlessShortDuplexTranscript(
+  input: PreviewlessShortDuplexRejectInput,
+): NonSpeechRejectDecision {
+  const normalizedTranscript = compactTranscript(input.text);
+  if (!normalizedTranscript) {
+    return {
+      reject: false,
+      reason: null,
+      normalizedTranscript,
+    };
+  }
+
+  if (previewLength(input.previewText) > 0) {
+    return {
+      reject: false,
+      reason: null,
+      normalizedTranscript,
+    };
+  }
+
+  if (isPreviewlessShortFeedbackTranscript(input.text)) {
+    return {
+      reject: true,
+      reason: "previewless_short_feedback_rejected",
+      normalizedTranscript,
+    };
+  }
+
+  const maxChars = Math.max(1, Math.floor(input.maxChars ?? 4));
+  const userSpeechScore = clamp01(input.userSpeechScore ?? 1);
+  const nonSpeechMediaScore = clamp01(input.nonSpeechMediaScore ?? 0);
+  const shortEnough = normalizedTranscript.length <= maxChars;
+  const weakSemanticEvidence = userSpeechScore <= 0.42 || nonSpeechMediaScore >= 0.72;
+
+  if (shortEnough && weakSemanticEvidence) {
+    return {
+      reject: true,
+      reason: "noise_like_short_utterance",
+      normalizedTranscript,
+    };
+  }
+
   return {
     reject: false,
     reason: null,

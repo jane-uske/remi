@@ -1,18 +1,31 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS user_auth_identities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users (id),
+  provider TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  email TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT user_auth_identities_provider_user_unique UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_auth_identities_user_id ON user_auth_identities (user_id);
+
+CREATE TABLE IF NOT EXISTS sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users (id),
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at TIMESTAMPTZ
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id UUID NOT NULL REFERENCES sessions (id),
   role VARCHAR(16) NOT NULL,
@@ -20,9 +33,9 @@ CREATE TABLE messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_messages_session_id ON messages (session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id);
 
-CREATE TABLE memories (
+CREATE TABLE IF NOT EXISTS memories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users (id),
   key VARCHAR(128) NOT NULL,
@@ -34,9 +47,9 @@ CREATE TABLE memories (
   CONSTRAINT memories_user_id_key_unique UNIQUE (user_id, key)
 );
 
-CREATE INDEX idx_memories_user_id ON memories (user_id);
+CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories (user_id);
 
-CREATE TABLE episodes (
+CREATE TABLE IF NOT EXISTS episodes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users (id),
   title TEXT NOT NULL,
@@ -56,6 +69,6 @@ CREATE TABLE episodes (
   status TEXT NOT NULL DEFAULT 'active'
 );
 
-CREATE INDEX idx_episodes_user_id ON episodes (user_id);
-CREATE INDEX idx_episodes_user_status_updated
+CREATE INDEX IF NOT EXISTS idx_episodes_user_id ON episodes (user_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_user_status_updated
   ON episodes (user_id, status, last_seen_at DESC);

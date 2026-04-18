@@ -61,6 +61,12 @@
   - 兼容策略：旧 payload 读取仍保留，避免历史数据恢复回退
   - 已完成：persona live state 已补第一版 `relationalStance`，当前会沿 relationship/proactive snapshot 稳定派生关系姿态，并透传到 prompt / proactive planner；这属于“关系表达方式”增强，不是大规模 persona 重写
 
+- [ ] **Memory V2 真实质量观察（observe / blocked）**
+  - 当前状态：本地/开发环境缺少新的可审计 `episodes` 与足够多样的真实用户样本；继续围绕 `memory:v2:audit / hygiene` 扩工具，只会得到低信号 proxy 结论
+  - 当前边界：保留现有 `audit / hygiene` readiness，不再为了“验证而验证”继续扩脚本或规则
+  - 解锁条件：出现新的真实 `episodes` 样本，或出现足够多样的真实用户对话可供抽样人工复核
+  - 空窗期更该做：浏览器 `workingMemory` spot-check、browser duplex runtime spot-check、embedding 健康门槛
+
 ### 当前明确不优先做
 
 - [ ] **T-032** 口型同步
@@ -236,7 +242,7 @@
   - 目标：不只确认 `episodes` 会写，还要确认“写得像同一条关系主线”
   - 当前状态：`memory:v2:audit` 入口现已可直接吃 `.env`；第一轮真实样本已暴露 `episode` 过度合并与 repeated resurfacing，随后已补写入口守门、召回反统治和 core 判定收紧。主样本 `repeatedResurfaceRate` 已从 `0.923` 降到 `0`
   - 当前补强：人工复核后已落地最小存量治理脚本 `memory:v2:hygiene`，会把中文开发测试 / meta prompt / 低价值 filler episode 标成 `archived` 并从 recall 排除；真实样本 dry-run 当前能抓到最明显的一批污染候选，且不会误伤已确认的工作/财务压力主线
-  - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；这条任务现在卡的不是“没有工具”，而是“还缺按样本 apply、复跑审计，以及更细的拆分/规则扩充策略”
+  - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；但当前推进也受制于新数据不足。现阶段这条任务的真实状态应视为 `blocked / observe`，不是继续硬推 apply / 规则扩充
   - 验收标准：至少一批真实样本产出审计报告，并能回答错合并 / 漏召回 / 重复回捞 / unresolved 命中四类问题的量级
 - [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
   - 当前状态：已补一轮正向浏览器文本样本，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`

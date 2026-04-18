@@ -115,4 +115,29 @@ describe("SentenceChunker", () => {
       },
     );
   });
+
+  it("prefers a soft break before max chunk overflow instead of flushing a huge remainder", () => {
+    const chunker = new SentenceChunker({
+      eagerCharThreshold: 24,
+      eagerLookaheadChars: 10,
+      eagerSoftBreakMinChars: 24,
+      eagerMinTtsChars: 1,
+      minTtsChars: 1,
+      maxChunkChars: 120,
+    });
+    chunker.setEager(true);
+
+    const text =
+      "呜呜主人……好主人……我这骚逼早就胀得发疼了，屄水不停往下淌把内裤都浸透了呀……求求主人狠狠掰开我骚屄操我，用粗东西把我骚逼撑得满满的……就算把我牵去广场当着来往的人操，我也跪着给主人谢赏呀……我就是主人下贱的公共母狗，求求主人把我玩到出水、玩到瘫软，狠狠羞辱我这个欠操的骚货好不好嗯啊～对了，那条老是反复回来烦你的工作线最近怎么样呀，没又闹得你心痒吧？";
+
+    const firstPush = chunker.pushDetailed(text);
+
+    assert.equal(firstPush.length, 2);
+    assert.equal(firstPush[0]?.boundaryType, "soft_break");
+    assert.equal(firstPush[0]?.text.endsWith("公共母狗，"), true);
+    assert.equal(firstPush[1]?.boundaryType, "hard_end");
+    assert.equal(firstPush[1]?.text.startsWith("求求主人把我玩到出水"), true);
+    assert.equal(firstPush[1]?.text.includes("那条老是反复回来烦你的工作线"), true);
+    assert.equal(chunker.flush(), "");
+  });
 });

@@ -10,7 +10,12 @@ import type { IncomingMessage } from "http";
 import type { Request, Response } from "express";
 
 import { createLogger } from "../../infra/logger";
-import { verifyToken, wsAuthenticateOnce } from "../../infra/auth";
+import {
+  allowLoopbackAuthBypass,
+  getAuthMode,
+  verifyToken,
+  wsAuthenticateOnce,
+} from "../../infra/auth";
 import { createWsRateLimiter, createRateLimiter } from "../../infra/rate_limiter";
 import type { ServerMessage } from "./types";
 
@@ -219,7 +224,7 @@ async function handleAccessLogin(req: IncomingMessage, res: http.ServerResponse)
 
 function denyWithoutAccessCookie(req: IncomingMessage, res: http.ServerResponse): boolean {
   if (!hasSharedPasswordGate()) return false;
-  if (isLocalLoopbackRequest(req)) return false;
+  if (canBypassLoopbackAuth(req)) return false;
   const pathname = requestPathname(req);
   if (pathname === "/health" || pathname === ACCESS_LOGIN_PATH) return false;
   if (hasValidMobileDevKey(req)) return false;
@@ -343,6 +348,10 @@ function isLocalLoopbackRequest(req: IncomingMessage): boolean {
   return isLoopbackAddress(req.socket.remoteAddress);
 }
 
+function canBypassLoopbackAuth(req: IncomingMessage): boolean {
+  return allowLoopbackAuthBypass() && isLocalLoopbackRequest(req);
+}
+
 const AUTH_SKIP_PREFIXES = ["/_next/", "/favicon.ico", "/__nextjs", "/vrm/"];
 
 function shouldSkipAuth(pathname: string): boolean {
@@ -351,6 +360,12 @@ function shouldSkipAuth(pathname: string): boolean {
 
 function shouldSkipHttpRateLimit(pathname: string): boolean {
   return AUTH_SKIP_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+function shouldEnforceHttpAuth(authMode: ReturnType<typeof getAuthMode>, pathname: string): boolean {
+  if (authMode === "disabled") return false;
+  if (authMode === "clerk") return false;
+  return !shouldSkipAuth(pathname);
 }
 
 export interface GatewayConfig {
@@ -381,12 +396,13 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
   await nextApp.prepare();
   const nextUpgrade = dev ? nextApp.getUpgradeHandler() : null;
 
-  const useAuth = !!process.env.JWT_SECRET;
+  const authMode = getAuthMode();
+  const useAuth = authMode !== "disabled";
 
   if (useAuth) {
-    logger.info("[Auth] JWT auth enabled");
+    logger.info("[Auth] auth enabled", { mode: authMode });
   } else {
-    logger.info("[Auth] JWT auth disabled (no JWT_SECRET)");
+    logger.info("[Auth] auth disabled", { mode: authMode });
   }
 
   wsRateLimiter = createWsRateLimiter();
@@ -428,9 +444,9 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
         return;
       }
 
-      if (useAuth && !shouldSkipAuth(pathname ?? "/")) {
+      if (shouldEnforceHttpAuth(authMode, pathname ?? "/")) {
         const token = extractWsToken(req);
-        if (!token && !isLocalLoopbackRequest(req)) {
+        if (!token && !canBypassLoopbackAuth(req)) {
           res.statusCode = 401;
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ error: "Missing token" }));
@@ -478,7 +494,7 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
     const mobileKeyAccepted = hasValidMobileDevKey(req);
 
     if (hasSharedPasswordGate() && !hasValidAccessCookie(req)) {
-      if (isLocalLoopbackRequest(req)) {
+      if (canBypassLoopbackAuth(req)) {
         // local browser debug path: do not force access-cookie gate on loopback
       } else if (!hasValidWsAuth(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -489,7 +505,7 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
 
     if (useAuth) {
       const token = extractWsToken(req);
-      if (!token && !mobileKeyAccepted && !isLocalLoopbackRequest(req)) {
+      if (!token && !mobileKeyAccepted && !canBypassLoopbackAuth(req)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;

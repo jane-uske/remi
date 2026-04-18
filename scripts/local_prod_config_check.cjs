@@ -18,6 +18,16 @@ function isNonEmpty(value) {
   return typeof value === "string" && value.trim() !== "";
 }
 
+function parseDatabaseUrlPassword(value) {
+  if (!isNonEmpty(value)) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.password || null;
+  } catch {
+    return null;
+  }
+}
+
 function inferAuthMode(env) {
   const explicit = env.REMI_AUTH_MODE?.trim().toLowerCase();
   if (explicit === "disabled" || explicit === "legacy_jwt" || explicit === "clerk") {
@@ -44,7 +54,22 @@ function evaluateLocalProdConfig(env) {
   }
 
   if (env.POSTGRES_PASSWORD?.trim() === "rem_password") {
-    messages.push("MISS env: POSTGRES_PASSWORD is still default 'rem_password'");
+    messages.push(
+      "WARN env: POSTGRES_PASSWORD is the local default 'rem_password'; acceptable for isolated local-prod only",
+    );
+  }
+
+  const dbUrlPassword = parseDatabaseUrlPassword(env.DATABASE_URL);
+  if (isNonEmpty(env.DATABASE_URL) && dbUrlPassword == null) {
+    messages.push("WARN env: DATABASE_URL is set but could not parse its password");
+  } else if (
+    dbUrlPassword != null &&
+    isNonEmpty(env.POSTGRES_PASSWORD) &&
+    dbUrlPassword !== env.POSTGRES_PASSWORD.trim()
+  ) {
+    messages.push(
+      "MISS env: DATABASE_URL password does not match POSTGRES_PASSWORD; local-prod app/db credentials will drift",
+    );
     hasError = true;
   }
 
@@ -104,6 +129,28 @@ function evaluateLocalProdConfig(env) {
 
     if (isNonEmpty(env.REMI_ACCESS_PASSWORD)) {
       messages.push("WARN gate: REMI_ACCESS_PASSWORD is set; main Clerk domain should not stack the shared-password gate");
+    }
+  }
+
+  const sttProvider = env.stt_provider?.trim().toLowerCase() || "openai";
+  if (sttProvider === "whisper-cpp") {
+    const useServerRaw = (env.whisper_use_server ?? "1").trim().toLowerCase();
+    const useServer = useServerRaw !== "0" && useServerRaw !== "false";
+    const autostartRaw = (env.whisper_server_autostart ?? "1").trim().toLowerCase();
+    const autostart = autostartRaw !== "0" && autostartRaw !== "false";
+    const serverUrl = env.whisper_server_url?.trim() || "";
+    const modelPath = env.whisper_model?.trim() || "";
+
+    if (useServer && !autostart && !serverUrl) {
+      messages.push(
+        "MISS env: whisper_server_url is required when whisper-cpp local-prod disables autostart",
+      );
+      hasError = true;
+    }
+
+    if (useServer && autostart && !modelPath) {
+      messages.push("MISS env: whisper_model is required when whisper-cpp local-prod autostarts the server");
+      hasError = true;
     }
   }
 

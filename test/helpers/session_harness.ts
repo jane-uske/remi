@@ -121,10 +121,17 @@ function loadSessionHarness(options: HarnessOptions = {}) {
     __dirname,
     "../../server/session/voice_submit.ts",
   );
+  const messageRouterPath = path.resolve(
+    __dirname,
+    "../../server/session/message_router.ts",
+  );
+  const developerPath = path.resolve(__dirname, "../../server/session/developer.ts");
   delete require.cache[require.resolve(pipelineIndexPath)];
   delete require.cache[require.resolve(sessionPath)];
   delete require.cache[require.resolve(textChatPath)];
   delete require.cache[require.resolve(voiceSubmitPath)];
+  delete require.cache[require.resolve(messageRouterPath)];
+  delete require.cache[require.resolve(developerPath)];
   const { createSession } = require(sessionPath);
 
   const ws = new FakeWebSocket();

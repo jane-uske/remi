@@ -5,6 +5,10 @@ const {
   planVolcExpression,
   resolveVolcTtsConfig,
 } = require("../../voice/tts_volc");
+const {
+  clearSessionTtsRuntimeOverride,
+  setSessionVolcVoiceTypeOverride,
+} = require("../../voice/tts_runtime_overrides");
 
 function withEnv(overrides, fn) {
   const restore = Object.entries(overrides).map(([key, value]) => {
@@ -31,6 +35,10 @@ function withEnv(overrides, fn) {
 }
 
 describe("tts_volc", () => {
+  afterEach(() => {
+    clearSessionTtsRuntimeOverride("conn-test-voice");
+  });
+
   it("reads volc config from dedicated env vars", () => {
     withEnv(
       {
@@ -47,6 +55,26 @@ describe("tts_volc", () => {
         assert.equal(config.voiceType, "zh_female_lingling_uranus_bigtts");
         assert.equal(config.sampleRate, 32000);
         assert.equal(config.speechRate, 15);
+      },
+    );
+  });
+
+  it("prefers the current session runtime voice override over env", () => {
+    withEnv(
+      {
+        VOLC_TTS_API_KEY: "volc-key",
+        VOLC_TTS_RESOURCE_ID: "seed-tts-2.0",
+        VOLC_TTS_VOICE_TYPE: "zh_female_lingling_uranus_bigtts",
+      },
+      () => {
+        setSessionVolcVoiceTypeOverride(
+          "conn-test-voice",
+          "zh_female_custom_runtime_bigtts",
+        );
+        const config = resolveVolcTtsConfig(undefined, undefined, {
+          connId: "conn-test-voice",
+        });
+        assert.equal(config.voiceType, "zh_female_custom_runtime_bigtts");
       },
     );
   });
