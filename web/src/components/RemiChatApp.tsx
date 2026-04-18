@@ -119,6 +119,8 @@ export function RemiChatApp() {
     loadMoreHistory,
     applyDevPreset,
     resetDevState,
+    devStatus,
+    devCommandPending,
     toggleMic,
   } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
@@ -175,6 +177,8 @@ export function RemiChatApp() {
               connected={connected}
               onApply={applyDevPreset}
               onReset={resetDevState}
+              devStatus={devStatus}
+              busy={devCommandPending}
             />
           ) : null}
           <ChatWindow

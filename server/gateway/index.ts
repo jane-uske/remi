@@ -349,6 +349,10 @@ function shouldSkipAuth(pathname: string): boolean {
   return AUTH_SKIP_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
+function shouldSkipHttpRateLimit(pathname: string): boolean {
+  return AUTH_SKIP_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 export interface GatewayConfig {
   onConnection: (ws: WebSocket, req: IncomingMessage) => void;
 }
@@ -389,20 +393,22 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
 
   const server = http.createServer(async (req, res) => {
     try {
+      const { pathname } = parseRequestUrl(req);
+
       if (await handleAccessLogin(req, res)) {
         return;
       }
 
-      // Use Express rate limiter
-      // @ts-ignore - Using Express middleware with Node.js http server
-      httpRateLimiter(req, res, () => {});
+      if (!shouldSkipHttpRateLimit(pathname ?? "/")) {
+        // Use Express rate limiter
+        // @ts-ignore - Using Express middleware with Node.js http server
+        httpRateLimiter(req, res, () => {});
+      }
 
       // If rate limiter already sent a 429 response, don't proceed
       if (res.headersSent) {
         return;
       }
-
-      const { pathname } = parseRequestUrl(req);
 
       if (pathname === "/health") {
         res.statusCode = 200;

@@ -169,4 +169,166 @@ describe("turn interpreter", () => {
       restoreEnv();
     }
   });
+
+  it("treats dominant explicit commands as scene-ack sexual invites with visual progression guidance", async () => {
+    const restoreEnv = applyEnv({
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      REMI_ADULT_MODE: "1",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "为什么站着，你个骚货给我跪着含住",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.adultIntent, "sexual_invite");
+      assert.equal(result.interpretation.adultSceneBeat, "entry");
+      assert.equal(result.interpretation.adultSceneIntensity, "charged");
+      assert.equal(result.policy.openingMove, "scene_ack");
+      const contract = buildResponseShapeContract(result);
+      assert.ok(contract.includes("先直接承接用户刚给出的动作或命令"));
+      assert.ok(contract.includes("动作、姿势、距离、身体反应"));
+      assert.ok(contract.includes("情绪要一拍一拍往上推"));
+      assert.ok(contract.includes("不要先说“好，我现在就按你说的做”"));
+      assert.ok(contract.includes("不要跳到插入、入口或顶入"));
+      const toneContract = buildPolicyToneContract(result, {
+        relationshipStage: "亲密",
+        familiarity: 0.72,
+        emotionalBond: 0.68,
+        userMessage: "为什么站着，你个骚货给我跪着含住",
+      });
+      assert.ok(toneContract.includes("短句不等于只回一句"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("treats explicit wording corrections as scene repair and forbids repeating rejected metaphors", async () => {
+    const restoreEnv = applyEnv({
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      REMI_ADULT_MODE: "1",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "别吞进世界了，吞精液就行",
+        history: [
+          { role: "user", content: "别停，继续。我要你边含龟头边抬头看我，说你现在到底有多想要。" },
+          { role: "assistant", content: "我含住你的下唇，“现在是想把整个世界都吞下去。”" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+        adultSceneState: {
+          mode: "explicit",
+          allowedExplicit: true,
+          initiatedByUser: true,
+          turnsSinceLastExplicitCue: 0,
+          cooldownOrBoundaryHit: false,
+          explicitCueStreak: 2,
+          beat: "sustain",
+          intensity: "explicit",
+        },
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.adultIntent, "scene_repair");
+      assert.equal(result.interpretation.userAct, "scene_continue");
+      assert.equal(result.policy.openingMove, "scene_ack");
+      const contract = buildResponseShapeContract(result);
+      assert.ok(contract.includes("用户在纠正你上一句的写法"));
+      assert.ok(contract.includes("不要复读刚被用户否掉的比喻或措辞"));
+      assert.ok(contract.includes("吞精液"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("treats explicit imperative follow-ups as dominant commands with execute-first guidance", async () => {
+    const restoreEnv = applyEnv({
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      REMI_ADULT_MODE: "1",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "那你先跪下来给我舔干净",
+        history: [
+          { role: "user", content: "为什么站着，你个骚货给我跪着含住。" },
+          { role: "assistant", content: "我慢慢跪下来，抬头看着你。" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+        adultSceneState: {
+          mode: "explicit",
+          allowedExplicit: true,
+          initiatedByUser: true,
+          turnsSinceLastExplicitCue: 0,
+          cooldownOrBoundaryHit: false,
+          explicitCueStreak: 2,
+          beat: "sustain",
+          intensity: "explicit",
+        },
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.adultIntent, "dominant_command");
+      assert.equal(result.interpretation.userAct, "scene_continue");
+      const contract = buildResponseShapeContract(result);
+      assert.ok(contract.includes("先执行用户命令的第一步动作"));
+      assert.ok(contract.includes("禁止反问、确认、拖延、谈条件"));
+      assert.ok(contract.includes("不要说“你确定吗”"));
+      assert.ok(contract.includes("不要用括号舞台说明"));
+      assert.ok(contract.includes("不好意思慢"));
+      assert.ok(contract.includes("不要先解释用户意图"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("keeps dominant lick-clean follow-ups out of meta preambles and insertion drift", async () => {
+    const restoreEnv = applyEnv({
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      REMI_ADULT_MODE: "1",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "那你先跪下来给我舔干净",
+        history: [
+          { role: "user", content: "为什么站着，你个骚货给我跪着含住。" },
+          { role: "assistant", content: "我慢慢跪下来，抬头看着你。" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+        adultSceneState: {
+          mode: "explicit",
+          allowedExplicit: true,
+          initiatedByUser: true,
+          turnsSinceLastExplicitCue: 0,
+          cooldownOrBoundaryHit: false,
+          explicitCueStreak: 2,
+          beat: "sustain",
+          intensity: "explicit",
+        },
+      });
+
+      const contract = buildResponseShapeContract(result);
+      assert.ok(contract.includes("不要先说“好，我现在就按你说的做”"));
+      assert.ok(contract.includes("不要跳到插入、入口或顶入"));
+    } finally {
+      restoreEnv();
+    }
+  });
 });

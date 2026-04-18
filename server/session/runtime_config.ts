@@ -59,7 +59,12 @@ export type PredictionBudgetConfig = {
 };
 
 export function predictionBudgetConfig(): PredictionBudgetConfig {
-  const enabled = parseBooleanFlag(process.env.STT_PARTIAL_PREDICTION_ENABLED, false);
+  const localLlmEnabled = parseBooleanFlag(
+    process.env.REMI_LOCAL_LLM_ENABLED ?? process.env.REM_LOCAL_LLM_ENABLED,
+    true,
+  );
+  const enabled =
+    localLlmEnabled && parseBooleanFlag(process.env.STT_PARTIAL_PREDICTION_ENABLED, false);
   const pushRequested = parseBooleanFlag(process.env.STT_PREDICTION_PUSH_ENABLED, false);
   return {
     enabled,

@@ -149,6 +149,28 @@ describe("prompt builder emotion speech style", () => {
     assert.equal(system.includes("【优先参考（请自然融入对话，不要逐条复述）】\n【语气合同】"), false);
   });
 
+  it("keeps the tail of long explicit reply contracts so multi-beat guidance survives prompt assembly", () => {
+    const persona = createDefaultPersona();
+    const longContract =
+      "【本轮回复合同】当前已进入 explicit scene。".concat(
+        "动作承接、姿势距离、身体反应、强度递进、命令回应、少写抒情 filler，".repeat(10),
+        "尾部关键要求：不要把整轮压成一句；至少写出动作承接、当下反应和下一拍推进。",
+      );
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "继续",
+      priorityContext: longContract,
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("尾部关键要求"));
+    assert.ok(system.includes("下一拍推进"));
+  });
+
   it("keeps backward compatibility when priority context has no structured relationship blocks", () => {
     const persona = createDefaultPersona();
 

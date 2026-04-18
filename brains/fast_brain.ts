@@ -1,4 +1,9 @@
-import { complete, streamTokens } from "../llm/qwen_client";
+import {
+  completeWithOptions,
+  hasLlmConfig,
+  localLlmEnabled,
+  streamTokens,
+} from "../llm/qwen_client";
 import { buildPrompt, type PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { Memory } from "../memory/memory_store";
@@ -37,6 +42,15 @@ function getFastBrainReasoningEffort(): string | undefined {
   return undefined;
 }
 
+function getFastBrainModel(): string | undefined {
+  const model = (
+    process.env.REMI_FAST_BRAIN_MODEL ??
+    process.env.REM_FAST_BRAIN_MODEL ??
+    process.env.model
+  )?.trim();
+  return model || undefined;
+}
+
 function isAbortLikeError(err: unknown): boolean {
   const error = err as { name?: string; message?: string };
   const name = error?.name ?? "";
@@ -59,11 +73,15 @@ function llmFailureFallback(err: unknown): string {
   const message = (error?.message ?? "").toLowerCase();
 
   if (
+    !localLlmEnabled() ||
     status === 401 ||
     code === "AuthenticationError" ||
     message.includes("api key") ||
     message.includes("authentication")
   ) {
+    if (!localLlmEnabled()) {
+      return "我这边的本地大脑现在被关掉了，先把 REMI_LOCAL_LLM_ENABLED 打开再试。";
+    }
     return "我这边的大脑连接凭据不对，暂时没法回复。把 LLM 的 key 配好后再试一次。";
   }
 
@@ -95,6 +113,7 @@ export async function* fastBrainStream(
   input: FastBrainInput,
 ): AsyncGenerator<string> {
   const reasoningEffort = getFastBrainReasoningEffort();
+  const model = getFastBrainModel();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
   );
@@ -139,10 +158,10 @@ export async function* fastBrainStream(
     currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
     reasoningEffort: reasoningEffort ?? "provider_default",
+    model: model ?? "unconfigured",
   });
 
-  const configured =
-    process.env.key && process.env.base_url && process.env.model;
+  const configured = hasLlmConfig(model);
 
   if (!configured) {
     yield `嗯…我听到了「${input.userMessage.trim()}」，不过我现在还没连上大脑…等一下就好。`;
@@ -163,7 +182,10 @@ export async function* fastBrainStream(
             onFirstVisibleContent: input.onFirstLlmVisibleContent,
           }
         : undefined,
-      reasoningEffort ? { reasoningEffort } : undefined,
+      {
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(model ? { model } : {}),
+      },
     )) {
       hasContent = true;
       yield token;
@@ -174,7 +196,11 @@ export async function* fastBrainStream(
         return;
       }
       logger.warn("LLM 返回内容为空（thinking 已过滤）");
-      const fallback = await complete(messages, 256, input.signal).catch((err) => {
+      const fallback = await completeWithOptions(messages, {
+        maxTokens: 256,
+        signal: input.signal,
+        ...(model ? { model } : {}),
+      }).catch((err) => {
         logger.warn("LLM 空流 fallback 失败", { error: (err as Error).message });
         return "";
       });
@@ -206,6 +232,7 @@ export async function fastBrainPredictOnly(
   input: FastBrainInput,
 ): Promise<string> {
   const reasoningEffort = getFastBrainReasoningEffort();
+  const model = getFastBrainModel();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
   );
@@ -250,10 +277,10 @@ export async function fastBrainPredictOnly(
     currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
     reasoningEffort: reasoningEffort ?? "provider_default",
+    model: model ?? "unconfigured",
   });
 
-  const configured =
-    process.env.key && process.env.base_url && process.env.model;
+  const configured = hasLlmConfig(model);
 
   if (!configured) {
     return `嗯…我听到了「${input.userMessage.trim()}」，不过我现在还没连上大脑…等一下就好。`;
@@ -273,7 +300,10 @@ export async function fastBrainPredictOnly(
             onFirstVisibleContent: input.onFirstLlmVisibleContent,
           }
         : undefined,
-      reasoningEffort ? { reasoningEffort } : undefined,
+      {
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(model ? { model } : {}),
+      },
     )) {
       fullReply += token;
     }

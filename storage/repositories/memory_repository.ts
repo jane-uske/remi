@@ -159,3 +159,13 @@ export async function deleteMemory(id: string): Promise<void> {
     throw e;
   }
 }
+
+export async function deleteMemoriesByUser(userId: string): Promise<number> {
+  try {
+    const res = await query(`DELETE FROM memories WHERE user_id = $1`, [userId]);
+    return res.rowCount ?? 0;
+  } catch (e) {
+    console.log('[Storage] deleteMemoriesByUser failed:', e);
+    throw e;
+  }
+}

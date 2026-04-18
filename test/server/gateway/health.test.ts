@@ -20,4 +20,14 @@ describe("/health", () => {
     this.timeout(20000);
     assert.doesNotThrow(() => runGatewayCase("health"));
   });
+
+  it("returns 429 instead of crashing when http rate limit is exceeded", async function () {
+    this.timeout(20000);
+    assert.doesNotThrow(() => runGatewayCase("rate-limit"));
+  });
+
+  it("does not rate-limit Next dev bootstrap assets after the generic bucket is full", async function () {
+    this.timeout(20000);
+    assert.doesNotThrow(() => runGatewayCase("rate-limit-skips-dev-assets"));
+  });
 });

@@ -75,6 +75,13 @@ type HistoryCursor = {
 };
 
 type HistoryListMutation = "idle" | "replace" | "prepend" | "append";
+type DevCommandKind = "apply" | "reset";
+type DevStatusTone = "idle" | "pending" | "success" | "error";
+
+type DevStatus = {
+  tone: DevStatusTone;
+  message: string;
+};
 
 export function useRemiChat() {
   const [emotion, setEmotion] = useState("neutral");
@@ -92,6 +99,10 @@ export function useRemiChat() {
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [historyMutationNonce, setHistoryMutationNonce] = useState(0);
   const [historyMutation, setHistoryMutation] = useState<HistoryListMutation>("idle");
+  const [devStatus, setDevStatus] = useState<DevStatus>({
+    tone: "idle",
+    message: "",
+  });
   const [streamingText, setStreamingText] = useState("");
   const [sttPartialText, setSttPartialText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -178,6 +189,19 @@ export function useRemiChat() {
   const historyCursorRef = useRef<HistoryCursor | null>(null);
   const historyLoadingMoreRef = useRef(false);
   const historySourceRef = useRef<"fallback" | "server">("fallback");
+  const pendingDevCommandRef = useRef<{
+    kind: DevCommandKind;
+    scope?: "session" | "relationship" | "all";
+  } | null>(null);
+
+  const describeResetScope = useCallback(
+    (scope: "session" | "relationship" | "all" = "session") => {
+      if (scope === "relationship") return "重置关系层";
+      if (scope === "all") return "全部清空";
+      return "只清本轮会话";
+    },
+    [],
+  );
 
   const commitTurnState = useCallback(
     (
@@ -1290,6 +1314,14 @@ export function useRemiChat() {
         }
 
         case "error": {
+          const pendingDevCommand = pendingDevCommandRef.current;
+          if (pendingDevCommand) {
+            pendingDevCommandRef.current = null;
+            setDevStatus({
+              tone: "error",
+              message: String(data.content ?? "开发操作失败"),
+            });
+          }
           historyLoadingMoreRef.current = false;
           setHistoryLoadingMore(false);
           clearPendingChatEnd();
@@ -1313,6 +1345,36 @@ export function useRemiChat() {
 
         case "dev_preset_applied":
         case "dev_state_reset": {
+          pendingDevCommandRef.current = null;
+          if (data.type === "dev_preset_applied") {
+            const personaPreset =
+              typeof data.personaPreset === "string" && data.personaPreset.trim()
+                ? data.personaPreset.trim()
+                : "";
+            const relationshipPreset =
+              typeof data.relationshipPreset === "string" &&
+              data.relationshipPreset.trim()
+                ? data.relationshipPreset.trim()
+                : "";
+            const parts = [
+              personaPreset ? `人格：${personaPreset}` : "",
+              relationshipPreset ? `关系：${relationshipPreset}` : "",
+            ].filter(Boolean);
+            setDevStatus({
+              tone: "success",
+              message:
+                parts.length > 0 ? `预设已应用 (${parts.join(" / ")})` : "预设已应用",
+            });
+          } else {
+            const scope =
+              data.scope === "all" || data.scope === "relationship" || data.scope === "session"
+                ? data.scope
+                : "session";
+            setDevStatus({
+              tone: "success",
+              message: `${describeResetScope(scope)}已完成`,
+            });
+          }
           clearPendingChatEnd();
           clearUserSpeakingEndTimer();
           userSpeakingRef.current = false;
@@ -1357,6 +1419,13 @@ export function useRemiChat() {
     ws.onclose = () => {
       window.clearTimeout(connectTimer);
       if (!mountedRef.current) return;
+      if (pendingDevCommandRef.current) {
+        pendingDevCommandRef.current = null;
+        setDevStatus({
+          tone: "error",
+          message: "连接已断开，未确认刚才的开发操作是否成功",
+        });
+      }
       const shouldResumeDuplex = recordingRef.current || duplexRef.current;
       stopVoiceSession({ preserveAutoResume: shouldResumeDuplex });
 
@@ -1557,16 +1626,19 @@ export function useRemiChat() {
     (options: {
       personaPreset?: string;
       relationshipPreset?: string;
-      resetScope?: "session" | "relationship" | "all";
     }) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      pendingDevCommandRef.current = { kind: "apply" };
+      setDevStatus({
+        tone: "pending",
+        message: "正在应用当前人格 / 关系预设…",
+      });
       ws.send(
         JSON.stringify({
           type: "dev_apply_preset",
           personaPreset: options.personaPreset,
           relationshipPreset: options.relationshipPreset,
-          resetScope: options.resetScope ?? "session",
         }),
       );
     },
@@ -1577,9 +1649,14 @@ export function useRemiChat() {
     (scope: "session" | "relationship" | "all" = "session") => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      pendingDevCommandRef.current = { kind: "reset", scope };
+      setDevStatus({
+        tone: "pending",
+        message: `正在执行${describeResetScope(scope)}…`,
+      });
       ws.send(JSON.stringify({ type: "dev_reset_state", scope }));
     },
-    [],
+    [describeResetScope],
   );
 
   return {
@@ -1623,6 +1700,8 @@ export function useRemiChat() {
     loadMoreHistory,
     applyDevPreset,
     resetDevState,
+    devStatus,
+    devCommandPending: devStatus.tone === "pending",
     toggleMic,
     /** 显式结束语音会话（与再点麦克风等效） */
     stopVoice: stopVoiceSession,

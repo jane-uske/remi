@@ -12,6 +12,9 @@ import {
   RELATIONSHIP_STATE_KEY,
   relationshipStateEnabled,
 } from "../../memory/relationship_state";
+import { deleteEpisodesByUser } from "../../storage/repositories/episode_repository";
+import { deleteMemoriesByUser } from "../../storage/repositories/memory_repository";
+import { deleteMessagesByUser } from "../../storage/repositories/message_repository";
 import { send } from "../gateway";
 
 const logger = createLogger("session");
@@ -38,6 +41,30 @@ export async function clearPersistentRelationshipState(
     brain.memory.getPersistentBackend();
   if (!repo) return;
   await repo.delete(RELATIONSHIP_STATE_KEY);
+}
+
+export async function clearPersistentEpisodeState(
+  brain: RemiSessionContext,
+): Promise<void> {
+  const userId = brain.userId.trim();
+  if (!userId) return;
+  await deleteEpisodesByUser(userId);
+}
+
+export async function clearPersistentMessageHistory(
+  brain: RemiSessionContext,
+): Promise<void> {
+  const userId = brain.userId.trim();
+  if (!userId) return;
+  await deleteMessagesByUser(userId);
+}
+
+export async function clearPersistentFactMemory(
+  brain: RemiSessionContext,
+): Promise<void> {
+  const userId = brain.userId.trim();
+  if (!userId) return;
+  await deleteMemoriesByUser(userId);
 }
 
 interface SessionDeveloperRuntime {
@@ -91,12 +118,6 @@ export async function applyDeveloperPreset(
     typeof data.relationshipPreset === "string"
       ? data.relationshipPreset.trim()
       : "";
-  const resetScope =
-    data.resetScope === "all" ||
-    data.resetScope === "relationship" ||
-    data.resetScope === "session"
-      ? data.resetScope
-      : "session";
 
   if (personaPreset && !isPersonaPresetId(personaPreset)) {
     send(runtime.ws, {
@@ -116,15 +137,6 @@ export async function applyDeveloperPreset(
 
   runtime.resetDeveloperLiveState();
 
-  if (resetScope === "all") {
-    await runtime.brain.memory.clearLocal();
-    await clearPersistentRelationshipState(runtime.brain);
-    runtime.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-  } else if (resetScope === "relationship") {
-    await clearPersistentRelationshipState(runtime.brain);
-    runtime.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
-  }
-
   if (personaPreset) {
     runtime.brain.applyPersonaPreset(personaPreset);
   }
@@ -141,7 +153,7 @@ export async function applyDeveloperPreset(
     type: "dev_preset_applied",
     personaPreset: personaPreset || null,
     relationshipPreset: relationshipPreset || null,
-    resetScope,
+    resetScope: "session",
   });
 }
 
@@ -158,10 +170,14 @@ export async function resetDeveloperState(
 
   if (scope === "all") {
     await runtime.brain.memory.clearLocal();
-    await clearPersistentRelationshipState(runtime.brain);
+    await clearPersistentMessageHistory(runtime.brain);
+    await clearPersistentEpisodeState(runtime.brain);
+    await clearPersistentFactMemory(runtime.brain);
     runtime.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
   } else if (scope === "relationship") {
+    await clearPersistentMessageHistory(runtime.brain);
     await clearPersistentRelationshipState(runtime.brain);
+    await clearPersistentEpisodeState(runtime.brain);
     runtime.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
   }
 

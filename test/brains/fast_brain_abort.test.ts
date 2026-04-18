@@ -11,7 +11,11 @@ function withMockedQwenClient(mockExports, run) {
     id: qwenPath,
     filename: qwenPath,
     loaded: true,
-    exports: mockExports,
+    exports: {
+      hasLlmConfig: () => true,
+      localLlmEnabled: () => true,
+      ...mockExports,
+    },
   };
   delete require.cache[fastBrainPath];
 
@@ -37,6 +41,8 @@ describe("fast_brain abort handling", () => {
     key: process.env.key,
     base_url: process.env.base_url,
     model: process.env.model,
+    REMI_LOCAL_LLM_ENABLED: process.env.REMI_LOCAL_LLM_ENABLED,
+    REMI_FAST_BRAIN_MODEL: process.env.REMI_FAST_BRAIN_MODEL,
     REMI_FAST_BRAIN_REASONING_EFFORT: process.env.REMI_FAST_BRAIN_REASONING_EFFORT,
   };
 
@@ -44,6 +50,8 @@ describe("fast_brain abort handling", () => {
     process.env.key = "test-key";
     process.env.base_url = "http://localhost:11434/v1";
     process.env.model = "test-model";
+    delete process.env.REMI_LOCAL_LLM_ENABLED;
+    delete process.env.REMI_FAST_BRAIN_MODEL;
   });
 
   afterEach(() => {
@@ -55,6 +63,18 @@ describe("fast_brain abort handling", () => {
 
     if (originalEnv.model === undefined) delete process.env.model;
     else process.env.model = originalEnv.model;
+
+    if (originalEnv.REMI_LOCAL_LLM_ENABLED === undefined) {
+      delete process.env.REMI_LOCAL_LLM_ENABLED;
+    } else {
+      process.env.REMI_LOCAL_LLM_ENABLED = originalEnv.REMI_LOCAL_LLM_ENABLED;
+    }
+
+    if (originalEnv.REMI_FAST_BRAIN_MODEL === undefined) {
+      delete process.env.REMI_FAST_BRAIN_MODEL;
+    } else {
+      process.env.REMI_FAST_BRAIN_MODEL = originalEnv.REMI_FAST_BRAIN_MODEL;
+    }
 
     if (originalEnv.REMI_FAST_BRAIN_REASONING_EFFORT === undefined) {
       delete process.env.REMI_FAST_BRAIN_REASONING_EFFORT;
@@ -73,6 +93,9 @@ describe("fast_brain abort handling", () => {
           throw err;
         },
         async complete() {
+          return "ignored";
+        },
+        async completeWithOptions() {
           return "ignored";
         },
       },
@@ -98,6 +121,9 @@ describe("fast_brain abort handling", () => {
           throw new Error("provider down");
         },
         async complete() {
+          return "";
+        },
+        async completeWithOptions() {
           return "";
         },
       },
@@ -126,6 +152,9 @@ describe("fast_brain abort handling", () => {
           throw err;
         },
         async complete() {
+          return "";
+        },
+        async completeWithOptions() {
           return "";
         },
       },
@@ -160,6 +189,9 @@ describe("fast_brain abort handling", () => {
           yield "</think>真实回答";
         },
         async complete() {
+          return "";
+        },
+        async completeWithOptions() {
           return "";
         },
       },
@@ -202,6 +234,9 @@ describe("fast_brain abort handling", () => {
         async complete() {
           return "";
         },
+        async completeWithOptions() {
+          return "";
+        },
       },
       async ({ fastBrainStream }) => {
         const chunks = [];
@@ -216,6 +251,69 @@ describe("fast_brain abort handling", () => {
         assert.deepEqual(chunks, ["ok"]);
       },
     );
-    assert.deepEqual(seenOptions, { reasoningEffort: "minimal" });
+    assert.deepEqual(seenOptions, { reasoningEffort: "minimal", model: "test-model" });
+  });
+
+  it("prefers REMI_FAST_BRAIN_MODEL over the shared model", async () => {
+    process.env.REMI_FAST_BRAIN_MODEL = "fast-model";
+    let seenOptions = null;
+    await withMockedQwenClient(
+      {
+        async *streamTokens(_, __, ___, options) {
+          seenOptions = options;
+          yield "ok";
+        },
+        async complete() {
+          return "";
+        },
+        async completeWithOptions() {
+          return "";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你好",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+        })) {
+          chunks.push(token);
+        }
+        assert.deepEqual(chunks, ["ok"]);
+      },
+    );
+    assert.deepEqual(seenOptions, { model: "fast-model" });
+  });
+
+  it("falls back immediately when local llm is disabled", async () => {
+    process.env.REMI_LOCAL_LLM_ENABLED = "0";
+    await withMockedQwenClient(
+      {
+        hasLlmConfig: () => false,
+        localLlmEnabled: () => false,
+        async *streamTokens() {
+          throw new Error("should not be called");
+        },
+        async complete() {
+          return "";
+        },
+        async completeWithOptions() {
+          return "";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你好",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+        })) {
+          chunks.push(token);
+        }
+        assert.deepEqual(chunks, ["嗯…我听到了「你好」，不过我现在还没连上大脑…等一下就好。"]);
+      },
+    );
   });
 });

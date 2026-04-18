@@ -173,6 +173,13 @@ npm run test --prefix web
 | `VOLC_TTS_API_KEY` | 火山引擎豆包语音新版控制台 API Key（`tts_provider=volc` 时） |
 | `VOLC_TTS_RESOURCE_ID` | 火山 TTS 资源 ID（如 `seed-tts-2.0`） |
 | `VOLC_TTS_VOICE_TYPE` | 火山 TTS 音色 ID（如 `zh_female_lingling_uranus_bigtts`） |
+| `VOLC_TTS_ENABLE_DYNAMIC_STYLE` | 是否启用基于 `emotion + reply text` 的动态表达控制，默认 `1` |
+| `VOLC_TTS_SPEECH_RATE` | 固定覆盖火山 `audio_params.speech_rate`；未设置时 Remi 会用略快一点的动态默认语速 |
+| `VOLC_TTS_CONTEXT_TEXT` | 固定覆盖火山 `context_texts[0]`，用于手动锁定语气指令 |
+| `VOLC_TTS_EMOTION` | 固定覆盖火山 `audio_params.emotion`，仅建议在确认音色支持时使用 |
+| `VOLC_TTS_EMOTION_SCALE` | 固定覆盖火山 `audio_params.emotion_scale`，范围 `1-5` |
+| `VOLC_TTS_SILENCE_DURATION` | 句尾额外静音时长（毫秒），用于控制尾音停顿，范围 `0-30000` |
+| `VOLC_TTS_POST_PROCESS_PITCH` | 后处理音调微调，范围 `-12` 到 `12` |
 | `TTS_EAGER_THRESHOLD` | 首句 eager 断句开始尝试软断点的长度阈值（默认 `24`）。 |
 | `TTS_EAGER_LOOKAHEAD_CHARS` | 首句 eager 在阈值后额外观察多少字符来等一个更自然的软断点（默认 `10`）。 |
 | `TTS_EAGER_SOFT_BREAK_MIN_CHARS` | 首句只有累计到这么长，才允许按 `，、；：~～…` 这类软断点提前送 TTS（默认 `24`）。 |
@@ -192,6 +199,7 @@ npm run test --prefix web
 | `PORT` | 服务端口（默认 `3000`） |
 | `REMI_SILENCE_NUDGE_MS` | 用户无消息后多久由 Remi 主动搭话（毫秒）；`0` 或不设为关闭 |
 | `REMI_SILENCE_NUDGE_MIN_TURNS` | 至少聊过几轮才允许沉默搭话（默认 `2`） |
+| `REMI_LOCAL_LLM_ENABLED` | 本地 OpenAI 兼容 LLM 总开关；设为 `0`/`false` 时，主回复、slow brain、prediction 都不再调用本地 LLM。 |
 | `REMI_SLOW_BRAIN_ENABLED` | 是否启用 slow brain 后台分析（默认 `1`）。设为 `0`/`false` 可关闭后台提炼，避免与 fast path 抢同一模型预算。 |
 | `REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED` | 是否让沉默搭话主路径优先走 V2 proactive planner（默认 `1`）。关闭时回退到 legacy nudge plan。 |
 | `REMI_EPISODE_STORE_PROMPT_ENABLED` | 是否让 prompt recall 优先走 V2 `episodeStore.findRelevant()`（默认 `1`）。关闭时回退 snapshot/V1 recall。 |
@@ -203,7 +211,9 @@ npm run test --prefix web
 | `STT_PARTIAL_PREDICTION_ENABLED` | 是否启用 partial transcript 预判（默认关闭）。设为 `1`/`true` 后才会触发额外 prediction 调用。 |
 | `STT_PREDICTION_PUSH_ENABLED` | 是否把 prediction 结果以 `stt_prediction` 推到前端（默认关闭）。只有 `STT_PARTIAL_PREDICTION_ENABLED` 已开启时才生效。 |
 | `STT_PREDICTION_DEBOUNCE_MS` | partial prediction 的防抖毫秒数（默认 `300`）。 |
+| `REMI_FAST_BRAIN_MODEL` | fast brain / prediction 单独使用的模型；不设则复用 `model`。适合只给实时链路切轻模型。 |
 | `REMI_FAST_BRAIN_REASONING_EFFORT` | fast brain / prediction 调用的 reasoning 强度覆盖；本地默认可切 `minimal` 以压首个可见正文。 |
+| `REMI_ADULT_MODE` | 是否启用测试用成人 persona / adult guard（默认 `0`；设为 `1` 才注入成人化 character rules），同时会放宽 Volc TTS 的亲密/挑逗表达强度。 |
 | `TURN_PROSODY_ENABLED` | 是否启用 prosody 辅助 turn-taking（当前默认 `1`）。关闭时退回无韵律旁路的规则判断。 |
 | `NEXT_PUBLIC_VRM_URL` | （前端）自定义 VRM 路径；不设则使用 `web/public/vrm/` 下默认模型。根目录 `npm run dev:web:standalone` 时 `next.config` 会读取**仓库根** `.env`。 |
 | `NEXT_PUBLIC_WS_URL` | WebSocket 地址，须含 `ws://` 或 `wss://`（勿写 `localhost:3000/ws` 无前缀）。 |

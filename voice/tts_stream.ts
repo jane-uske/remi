@@ -1,10 +1,12 @@
 import type { Emotion } from "./tts_emotion";
+import type { TtsRequestContext } from "./tts_request_context";
 
 type TtsModule = {
   textToSpeech: (
     sentence: string,
     signal?: AbortSignal,
     emotion?: Emotion,
+    context?: TtsRequestContext,
   ) => Promise<Buffer>;
   isTtsEnabled: () => boolean;
 };
@@ -37,7 +39,8 @@ export async function synthesize(
   sentence: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  context?: TtsRequestContext,
 ): Promise<Buffer> {
   if (signal?.aborted) throw new DOMException("TTS aborted", "AbortError");
-  return loadTtsModule().textToSpeech(sentence, signal, emotion);
+  return loadTtsModule().textToSpeech(sentence, signal, emotion, context);
 }

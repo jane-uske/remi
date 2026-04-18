@@ -1822,7 +1822,14 @@ export class ConnectionSession {
       text,
       generationId,
     });
-    void synthesize(text, undefined, this.brain.emotion.getEmotion() as any)
+    void synthesize(text, undefined, this.brain.emotion.getEmotion() as any, {
+      connId: this.connId,
+      generationId,
+      usage: "backchannel",
+      adultSceneState: this.brain.persona.liveState.adultSceneState,
+      relationalStance: this.brain.persona.liveState.relationalStance,
+      responsePolicy: this.brain.lastResponsePolicy ?? null,
+    })
       .then((buf) => {
         send(this.ws, {
           type: "voice",

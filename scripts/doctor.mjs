@@ -86,6 +86,13 @@ if (ttsProvider === "piper") {
       "(missing)"
     }`,
   );
+  ttsLines.push(
+    `volc dynamic style: ${
+      (process.env.VOLC_TTS_ENABLE_DYNAMIC_STYLE ?? process.env.volc_tts_enable_dynamic_style) !== "0"
+        ? "on"
+        : "off"
+    }`,
+  );
 } else {
   ttsLines.push(`edge voice: ${process.env.tts_voice || "zh-CN-XiaoyiNeural"}`);
 }

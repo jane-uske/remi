@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import { analyzeTurn } from "../../brain/turn_interpreter";
+import { advanceAdultSceneState } from "../../brain/adult_mode";
 import { fastBrainPredictOnly } from "../../brains/fast_brain";
 import { trimHistoryToTokenBudget } from "../../brains/history_budget";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
@@ -82,6 +83,7 @@ export async function computeSessionPrediction(
     history: predictionHistory,
     slowBrainSnapshot,
     inputSource: "voice",
+    adultSceneState: brain.persona.liveState.adultSceneState,
     signal,
   }).finally(() => {
     if (latencyTracer && input.traceId) {
@@ -110,6 +112,20 @@ export async function computeSessionPrediction(
       })
     : null;
   const currentContext = brain.slowBrain.buildWorkingMemoryPromptBlock(workingMemoryDraft);
+  const predictedAdultSceneState = advanceAdultSceneState(
+    brain.persona.liveState.adultSceneState,
+    {
+      userMessage: text,
+      analysis: analysis?.used ? analysis : null,
+    },
+  ).nextState;
+  const predictionPersona = {
+    ...brain.persona,
+    liveState: {
+      ...brain.persona.liveState,
+      adultSceneState: predictedAdultSceneState,
+    },
+  };
   const reply = await fastBrainPredictOnly({
     userMessage: text,
     emotion: brain.emotion.getEmotion(),
@@ -127,7 +143,7 @@ export async function computeSessionPrediction(
       .join("\n\n"),
     slowBrainContext,
     signal,
-    persona: brain.persona,
+    persona: predictionPersona,
   });
 
   if (!signal.aborted && input.pushPrediction && reply) {
