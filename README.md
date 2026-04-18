@@ -111,7 +111,7 @@ npm run dev:infra
 # 配置环境变量
 cp .env.example .env   # 然后编辑 .env 填入 API Key 等
 
-# 启动应用（同一进程内托管后端 + Next 前端，端口 3000）
+# 启动应用（同一进程内托管后端 + Next 前端，开发默认端口 3001）
 npm run dev
 
 # 仅在需要单独调 Next 前端时，再开独立前端进程
@@ -129,7 +129,7 @@ npm run typecheck
 
 ```bash
 # 后端健康检查
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3001/health
 
 # 冒烟：主页 + /health + WebSocket chat
 node scripts/smoke.mjs
@@ -145,9 +145,14 @@ npm run test --prefix web
 
 ### 访问与用户隔离（关键）
 
+- `REMI_AUTH_MODE` 现在支持 `disabled / legacy_jwt / clerk` 三种模式；其中 `clerk` 用于 Web 正式登录闭环，`legacy_jwt` 继续兼容现有 token 客户端，`disabled` 保留开发态直连。
 - 开启 `JWT_SECRET` 后，远程访问（如 `https://app-rem.remi.run`）必须带 token（query 或 `Authorization: Bearer`）。
-- 本机回环访问（`localhost` / `127.0.0.1`）允许无 token 进入，保留开发态调试入口。
-- 若同时配置了 `REMI_ACCESS_PASSWORD` 与 `JWT_SECRET`：有效 JWT token 可直通访问，不再强依赖 access cookie 登录页。
+- 本机回环访问是否允许无 token 进入，现由 `REMI_AUTH_ALLOW_LOOPBACK_BYPASS` 控制；默认开发开、生产关。
+- 若同时配置了 `REMI_ACCESS_PASSWORD` 与正式 auth：有效 token 可直通访问，不再强依赖 access cookie 登录页。
+- 但如果主域名已经切成 Clerk 正式入口，不建议再叠 `REMI_ACCESS_PASSWORD`；共享密码门禁只适合单独的开发/预发入口。
+- Web 在 `NEXT_PUBLIC_REMI_AUTH_MODE=clerk` 且配置 `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` 时，正式域名会先走 Clerk 登录，再把 session token 透传给 WebSocket。
+- `localhost` / `127.0.0.1` 若注入的是 Clerk `pk_live_...` production key，前端会自动退回本地开发口径，不再在 loopback 下强行启用 Clerk。也就是说：本地调开发功能，正式域名调真实登录。
+- 启动脚本现已支持环境拆分：开发默认优先读 `.env.localhost`，并默认监听 `3001`；local-prod 默认优先读 `.env.local-prod`，并继续监听 `3000`。找不到时才回退 `.env`。可参考 [.env.localhost.example](/Users/rare/Desktop/remi-ai/.env.localhost.example) 和 [.env.local-prod.example](/Users/rare/Desktop/remi-ai/.env.local-prod.example)。
 - WebSocket 会自动复用页面 URL 中的 `token` 参数，降低“页面可开但 WS 401 断连”风险。
 - 前端聊天本地缓存按用户隔离：无 token 走默认缓存；带 token 时按 token 的 `id` 分桶，避免 `user_001` / `user_002` 共享同一份本地聊天历史。
 - 3D 模型静态资源路径 `/vrm/*` 已加入鉴权放行，避免 VRM 请求被 `401` 拦截。
@@ -192,11 +197,17 @@ npm run test --prefix web
 | `REMI_STT_FINAL_DISAMBIG_LOG_DIFF` | 命中纠偏时是否记录 `raw -> corrected` diff 日志（默认 `1`） |
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `REDIS_URL` | Redis 连接串 |
+| `REMI_AUTH_MODE` | 认证模式：`disabled` / `legacy_jwt` / `clerk` |
 | `JWT_SECRET` | JWT 签名密钥 |
+| `REMI_AUTH_ALLOW_LOOPBACK_BYPASS` | 本机回环是否允许绕过正式登录（默认开发 `1`，生产 `0`） |
+| `CLERK_JWT_KEY` | Clerk session token 公钥（服务端验签） |
+| `CLERK_SECRET_KEY` | Clerk 服务端密钥（Web/服务端集成时需要） |
+| `NEXT_PUBLIC_REMI_AUTH_MODE` | 前端认证模式；设为 `clerk` 时启用 Web 登录入口 |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk 前端 publishable key |
 | `REMI_MOBILE_DEV_ENABLED` | 是否允许移动端开发 key 鉴权（默认 `0`）。用于 iOS/TestFlight 内测兜底，不建议生产开启。 |
 | `REMI_MOBILE_DEV_KEY` | 移动端开发 key（配合 `X-Remi-Mobile-Key` 请求头使用）。 |
 | `LOG_LEVEL` | 日志级别（默认 `info`） |
-| `PORT` | 服务端口（默认 `3000`） |
+| `PORT` | 服务端口。`npm run dev` 默认 `3001`，`npm run prod:local:start` 默认 `3000`。 |
 | `REMI_SILENCE_NUDGE_MS` | 用户无消息后多久由 Remi 主动搭话（毫秒）；`0` 或不设为关闭 |
 | `REMI_SILENCE_NUDGE_MIN_TURNS` | 至少聊过几轮才允许沉默搭话（默认 `2`） |
 | `REMI_LOCAL_LLM_ENABLED` | 本地 OpenAI 兼容 LLM 总开关；设为 `0`/`false` 时，主回复、slow brain、prediction 都不再调用本地 LLM。 |
@@ -223,6 +234,11 @@ npm run test --prefix web
 | `REMI_NEXT_HOSTNAME` | 传给 Next 的主机名（勿含端口）；见 `.env.example`。 |
 
 前端排障与实现细节见 **`web/docs/FRONTEND_PITFALLS.md`**。
+
+补充说明：
+- default-user 的开发面板现在支持**当前 websocket 会话级**的 Volc 音色切换。
+- 这只会覆盖当前连接里的 `VOLC_TTS_VOICE_TYPE`，不改 `.env`，也不需要重启服务。
+- 断开连接后会自动回到环境默认音色，不会持久写进数据库或用户设置。
 独立 3D 验收页见 **`/demo`**。
 
 ## 项目目录

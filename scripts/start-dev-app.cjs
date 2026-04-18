@@ -3,10 +3,13 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
+const { resolveDevEnvFile, resolveDevPort } = require("./env_files.cjs");
+
+const envFile = resolveDevEnvFile();
 
 try {
   require("dotenv").config({
-    path: path.resolve(process.cwd(), ".env"),
+    path: envFile,
     quiet: true,
   });
 } catch {
@@ -14,11 +17,7 @@ try {
 }
 
 const repoRoot = process.cwd();
-const portValue = Number(process.env.PORT);
-const port =
-  Number.isFinite(portValue) && portValue > 0 && portValue < 65536
-    ? Math.floor(portValue)
-    : 3000;
+const port = resolveDevPort(process.env);
 const skipAutoKill =
   process.env.REMI_DEV_KILL_OLD === "0" ||
   process.env.REMI_DEV_SKIP_AUTO_KILL === "1";
@@ -177,6 +176,12 @@ if (!fs.existsSync(nodemonBinary)) {
 
 const child = spawn(nodemonBinary, [], {
   cwd: repoRoot,
+  env: {
+    ...process.env,
+    PORT: String(port),
+    DOTENV_CONFIG_PATH: envFile,
+    REMI_ACTIVE_ENV_FILE: envFile,
+  },
   stdio: "inherit",
 });
 

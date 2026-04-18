@@ -4,12 +4,15 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
+ENV_FILE=$(node ./scripts/env_files.cjs dev)
+DEV_PORT=$(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveDevPort } = require('./scripts/env_files.cjs'); process.stdout.write(String(resolveDevPort(process.env)));" "$ENV_FILE")
+
 echo "Checking local prerequisites..."
 
-if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "OK   app:    localhost:3000 is listening"
+if lsof -nP -iTCP:"$DEV_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "OK   app:    localhost:$DEV_PORT is listening"
 else
-  echo "MISS app:    localhost:3000 is not listening"
+  echo "MISS app:    localhost:$DEV_PORT is not listening"
 fi
 
 if lsof -nP -iTCP:5432 -sTCP:LISTEN >/dev/null 2>&1; then

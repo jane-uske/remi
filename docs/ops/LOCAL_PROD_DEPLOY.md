@@ -6,7 +6,7 @@
 
 ## 1. What this mode solves
 
-- 独立用户身份（JWT）
+- 独立用户身份（`legacy_jwt` 或 `clerk`）
 - 用户级持久化（Postgres）
 - 对话链路常驻（app + redis + postgres）
 - 可被 Tunnel/反代安全暴露（默认只监听 127.0.0.1）
@@ -19,8 +19,17 @@
   - `key`
   - `base_url`
   - `model`
-  - `JWT_SECRET`
   - `POSTGRES_PASSWORD`
+
+认证配置必须二选一：
+- `REMI_AUTH_MODE=legacy_jwt` + `JWT_SECRET`
+- `REMI_AUTH_MODE=clerk` + `CLERK_JWT_KEY` + `NEXT_PUBLIC_REMI_AUTH_MODE=clerk` + `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+
+补充说明：
+- 当前 local-prod 运行时验签只依赖 `CLERK_JWT_KEY`
+- `CLERK_SECRET_KEY` 仍建议配置，但它属于“未来服务端 Clerk API / 管理接口”准备项，不再作为 local-prod 自检的硬前置
+
+`REMI_AUTH_MODE=disabled` 不应作为这套“本机生产化”基线使用；它只适合本机开发直连。
 
 ## 3. Start / stop
 
@@ -36,6 +45,10 @@ npm run prod:local:stop
 ```
 
 服务编排文件：`docker-compose.local-prod.yml`
+
+端口职责：
+- `localhost:3000`：local-prod / tunnel 入口
+- `localhost:3001`：本地开发入口（`npm run dev`）
 
 ## 4. Persistence boundary (must keep)
 
@@ -64,8 +77,10 @@ npm run prod:local:stop
 - 不要直接暴露 `5432/6379`
 - `app` 默认仅绑定 `127.0.0.1:${PORT}`
 - 通过 Cloudflare Tunnel 或反向代理暴露 HTTPS
-- 必须启用 `JWT_SECRET`，否则用户身份会退化成开发态
-- 建议设置 `REMI_ACCESS_PASSWORD` 作为额外门禁（即使已有 Access）
+- 必须启用正式 auth（`legacy_jwt` 或 `clerk`），否则用户身份会退化成开发态
+- 若主域名要作为正式 Web 入口并走 Clerk，不要再叠 `REMI_ACCESS_PASSWORD`
+- `REMI_ACCESS_PASSWORD` 只建议留给单独的开发/预发入口，而不是正式登录域名
+- 若仍保留 shared-password gate，至少要清楚它和正式用户登录不是同一层身份体系
 
 ## 7. Not solved yet
 

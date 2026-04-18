@@ -70,6 +70,18 @@
 - [ ] 新的插件 / capability 系统实现
 - [ ] 与主线程无关的单点 VAD 阈值微调
 - [ ] 只为展示效果服务的前端扩展
+- [ ] 在当前阶段扩成自建邮箱密码 / 找回密码 / RBAC / 账号设置中心
+
+### 并行支线（不抢主线程）
+
+- [x] **A-011** Web 登录底座（Clerk, Web First）
+  - 已完成：服务端认证模式收口到 `disabled / legacy_jwt / clerk`，并保留 legacy JWT 兼容
+  - 已完成：新增 `user_auth_identities`，正式身份会先映射到内部 UUID，再继续落 `sessions/messages/memories/episodes`
+  - 已完成：Web 主入口已接入 Clerk Provider / sign-in 页面 / client gate；聊天 WS 会优先带 Clerk session token 建连
+  - 已完成：前端本地缓存已支持按 Clerk user id 分桶；legacy query token 仍保留兜底
+  - 已完成：本地开发与 local-prod 入口已在脚本层拆开：`npm run dev` 默认 `3001` 且走 `.env.localhost`，`npm run prod:local:start` 固定 `3000` 且走 `.env.local-prod`，避免域名 tunnel 与本地开发继续抢同一端口
+  - 未完成：真实邮箱双账号 smoke、iOS 正式登录迁移、账号管理页
+  - 结论边界：这只是“正式身份闭环第一版”，不是完整账号系统，更不是多端连续性验收
 
 ### 当前禁止并行修改的热点文件
 
@@ -206,8 +218,9 @@
 
 ### 运行链路约束（后续 agent 必看）
 
-- 本机开发入口 `http://localhost:3000/` 视为“开发主入口”，默认无 token，必须保留历史连续性。
-- 远程入口（如 `https://app-rem.remi.run`）视为“分用户入口”，必须带 token，并保证用户隔离。
+- 本机开发入口 `http://localhost:3001/` 视为“开发主入口”，默认无 token，必须保留历史连续性。
+- 本机 production-like 入口 `http://localhost:3000/` 视为 local-prod / tunnel 目标，默认保持 Clerk 或正式 auth 口径，不要再让 dev 进程抢占它。
+- 远程入口（如 `https://app-rem.remi.run`）视为“分用户入口”，当前默认应落到本机 `3000` 上的 local-prod 进程，并保证用户隔离。
 - `user_001` / `user_002` 等 token 用户的聊天缓存与持久化必须隔离，禁止出现前端本地缓存串号。
 - 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；此时只能走原生 `npm run dev` / `npm run dev:app:once`，并显式标注“DB/Redis 未连接”风险。
 

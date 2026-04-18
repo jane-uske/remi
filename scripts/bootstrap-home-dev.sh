@@ -27,13 +27,24 @@ if [ ! -f .env ]; then
   echo "Created .env from .env.example. Fill in API keys before exposing preview URLs."
 fi
 
+if [ ! -f .env.localhost ]; then
+  cp .env .env.localhost
+  echo "Created .env.localhost from current .env for local development."
+fi
+
+if [ ! -f .env.local-prod ]; then
+  cp .env .env.local-prod
+  echo "Created .env.local-prod from current .env for local production."
+fi
+
 mkdir -p .cloudflared
 
 echo "Environment checks passed."
 echo
 echo "Suggested next steps:"
-echo "  1. Edit .env and set at least key/base_url/model/JWT_SECRET."
+echo "  1. Edit .env.localhost and .env.local-prod as needed."
 echo "  2. Start storage only:  npm run dev:infra"
 echo "  3. Install deps once:   npm install && npm install --prefix web"
 echo "  4. Run app natively:    npm run dev"
-echo "  5. Optional browser IDE: npm run dev:infra:ide"
+echo "  5. Start local prod:    npm run prod:local:start"
+echo "  6. Optional browser IDE: npm run dev:infra:ide"

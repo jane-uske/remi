@@ -5,10 +5,10 @@ services:
     working_dir: /workspace/remi-ai
     command: sh -lc "npm run dev"
     env_file:
-      - .env
+      - ${REMI_ENV_FILE:-.env}
     environment:
       NODE_ENV: development
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3001}
       DATABASE_URL: ${DATABASE_URL:-postgresql://rem:rem_password@postgres:5432/rem_ai}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
@@ -16,7 +16,7 @@ services:
       - rem_root_node_modules:/workspace/remi-ai/node_modules
       - rem_web_node_modules:/workspace/remi-ai/web/node_modules
     ports:
-      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
+      - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy

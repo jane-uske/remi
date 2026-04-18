@@ -43,6 +43,8 @@ Memory V2 验收收尾与观察期
 - ✅ embedding 依赖已补运行时健康快照与降级观测：配置缺失 / endpoint 不可达 / 维度异常时，slow brain 写路径与 prompt recall 回退都会打结构化告警；这解决的是“静默退化看不见”，不等于已经建立生产级 embedding 健康治理
 - ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
 - ✅ `REMI_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
+- ✅ Web 身份底座已补第一版 Clerk 接入口：服务端认证模式现支持 `disabled / legacy_jwt / clerk`，Web 主入口已可走 Clerk magic-link 登录并把 session token 透传到 WS；同时保留 legacy query token / mobile dev key 兼容。这推进的是“同一用户跨端进入时能落到同一内部 UUID”，不是 Memory V2 主线程本身，也不等于多端连续性已经产品级验收
+- ✅ Web / 本地运行口径已补一层真正隔离：`npm run dev` 现在默认监听 `localhost:3001` 并优先吃 `.env.localhost`，`npm run prod:local:start` 继续监听 `localhost:3000` 并优先吃 `.env.local-prod`；Cloudflare Tunnel 目标不再和本地开发抢同一个端口。这解决的是“开发环境和正式登录验收互相污染”，不是更高级的部署形态
 - ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
 - ✅ iOS v0（文本）内测基线已建立：`ios/RemiChatLite` 具备 WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离
 - ⏳ iOS 语音链路仍未验收通过：此前真机反馈是“无转文字、无回复反应”；本轮已把 iOS 前端语音入口拆成独立 `按住说话` 与实验性 `duplex` 按钮，并让 `duplex` 进入独立 full-screen voice demo scene，作为后续 3D Rem / voice mode 的壳；录音/TTS 也已收口到共享 `AVAudioSession`，前端本地不再天然把录音和播报互相打死。最新又沿关键路径补了两层收口：一是 iOS 端 stop/drain 时序修复，PCM 改为串行发送队列，`duplex_stop` 会短暂等待尾包发送，避免 stop 抢在末尾音频之前把服务端输入直接截断；二是服务端开始区分 `push_to_talk` 与开放式 `duplex`，对 `push_to_talk` 放宽弱语音/no-preview/no-VAD fallback 抑制，避免把显式按住说话的低能量 iPhone 输入整段吞掉。现阶段这只能说明代码级主怀疑点已继续收口，不代表真机上的回声消除、转写稳定性和打断体验已经成立。除该点外，iOS 文本/连接/鉴权/缓存主链路已基本打通。现阶段不要把 iOS 端语音输入误判为稳定可用能力
@@ -73,6 +75,7 @@ Memory V2 验收收尾与观察期
 1. **Memory V2 真实质量观察**：先用 `memory:v2:audit` 对真实用户样本做抽样，重点看 `episode` 错合并、漏召回、重复回捞、`unresolved` 命中；这一步比继续改 persona 文案更接近北极星
    当前重点已经从“有没有工具”切到“怎么用工具做存量治理”：最小归档/排除 recall 脚本已经有了，下一步应继续抽样人工复核 `duplicateLineRate` 高的用户，并决定先做按样本 apply + 复跑审计，还是继续扩充规则包 / 拆分策略
 2. **浏览器 spot-check**：再补一轮显式打开 `workingMemory` 的前端对话，确认 `【当前上下文】` 注入、V2 recall feedback、history/local cache 与文本主链路没有交互回退
+   对 Web Auth 这条支线，下一步不是继续堆账号功能，而是做真实邮箱双账号 smoke：确认不同 Clerk 用户会落到不同 `user_auth_identities -> users -> sessions/messages/episodes`，且 legacy token 兜底没被回归打坏
 3. **embedding 健康门槛**：基于新告警补最低可运行门槛与 dashboard/日志口径，否则人格连续性仍会在环境缺失时直接掉级
 4. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
 5. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）

@@ -1,6 +1,6 @@
 # Remi Web（Next.js 15）
 
-与仓库根目录 **一体启动** 时，由 `server/gateway` 托管本应用（默认 `http://localhost:3000`）。仅前端开发时在仓库根目录执行：
+与仓库根目录 **一体启动** 时，由 `server/gateway` 托管本应用。`npm run dev` 默认监听 `http://localhost:3001`，`npm run prod:local:start` 默认监听 `http://localhost:3000`。仅前端开发时在仓库根目录执行：
 
 ```bash
 npm run dev:web:standalone
@@ -11,6 +11,15 @@ npm run dev:web:standalone
 根目录 `.env` 中的 `NEXT_PUBLIC_*` 会被 `next.config.ts` 的 `loadEnvConfig` 加载，不必复制到 `web/.env`。
 
 如果页面要从其他设备访问，不要把 `NEXT_PUBLIC_WS_URL` 写成 `ws://localhost:3000/ws` 或 `ws://127.0.0.1:3000/ws`。这会让远端浏览器去连“它自己的本机”，表现为页面能打开，但一直停在“正在连接服务器…”。
+
+## Web 登录（Clerk）
+
+- 认证模式由 `NEXT_PUBLIC_REMI_AUTH_MODE` 控制；设为 `clerk` 且同时提供 `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` 时，正式域名会先走 Clerk 登录，再进入聊天页。
+- 若当前页面跑在 `localhost` / `127.0.0.1`，但注入的是 Clerk `pk_live_...` production key，前端会自动退回本地开发口径，不再在 loopback 下硬启 Clerk。这是为了避免 `origin_invalid`，不是 Clerk 本地登录验收路径。
+- 浏览器 WebSocket 仍通过 query `token` 带 session token，因为原生 WebSocket 不能自定义 `Authorization` header。
+- 这轮只做 Web First：iOS 仍保留 legacy token / dev-key 兼容路径，不共享 Clerk UI。
+- 本地开发建议：`localhost` 走 `disabled` / `legacy_jwt`，`app-rem.remi.run` 走 `clerk`。不要把 `localhost` 当 production Clerk 验收环境。
+- 启动脚本会优先读取 `.env.localhost`；若不存在，才回退到根 `.env`。本地开发默认跑在 `3001`，local-prod compose 则优先读取 `.env.local-prod` 并继续占用 `3000`。示例见 [.env.localhost.example](/Users/rare/Desktop/remi-ai/.env.localhost.example) 与 [.env.local-prod.example](/Users/rare/Desktop/remi-ai/.env.local-prod.example)。
 
 ## 文档
 
