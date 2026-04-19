@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToObjectUrl } from "@/lib/audioBase64";
-import type { LipSignal } from "@/types/avatar";
+import type { LipSignal, TtsLipSyncPatch } from "@/types/avatar";
+import {
+  applyTtsLipSyncPatch as mergeTtsLipSyncPatch,
+  clearTtsLipSyncState,
+  resolveActiveTtsLipViseme,
+  type TtsLipSyncTimelineState,
+} from "@/lib/audio/ttsLipSyncTimeline";
 
 /**
  * Queue server TTS audio. Supports:
@@ -57,6 +63,10 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     active: false,
     viseme: null,
   });
+  const lipTimelineByGenerationRef = useRef<Map<number, TtsLipSyncTimelineState>>(new Map());
+  const activeLipTimelineRef = useRef<TtsLipSyncTimelineState | null>(null);
+  const activeLipGenerationRef = useRef<number | null>(null);
+  const lipPlaybackStartAtMsRef = useRef(0);
   const onPlaybackStartRef = useRef(options?.onPlaybackStart);
   const onPlaybackEndRef = useRef(options?.onPlaybackEnd);
 
@@ -107,6 +117,18 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     });
   }, [updateLipSignal]);
 
+  const activateLipTimeline = useCallback(
+    (generationId: number | null, playbackStartAtMs: number) => {
+      activeLipGenerationRef.current = generationId;
+      activeLipTimelineRef.current =
+        generationId == null
+          ? null
+          : lipTimelineByGenerationRef.current.get(generationId) ?? null;
+      lipPlaybackStartAtMsRef.current = playbackStartAtMs;
+    },
+    [],
+  );
+
   const notifyPlaybackEnd = useCallback(() => {
     const generationId = activeServerGenerationRef.current;
     if (!playbackNotifiedRef.current && generationId == null) return;
@@ -117,10 +139,9 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
 
   const runEnvelopeLoop = useCallback(() => {
     const analyser = analyserRef.current;
-    if (!analyser) return;
-    const buf = new Float32Array(analyser.fftSize);
+    const buf = analyser ? new Float32Array(analyser.fftSize) : null;
     const tick = () => {
-      if (!analyserRef.current || !playingRef.current) {
+      if (!playingRef.current) {
         updateLipSignal({
           envelope: 0,
           active: false,
@@ -128,18 +149,29 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         });
         return;
       }
-      analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = buf[i];
-        sum += v * v;
+      let level = 0;
+      if (analyserRef.current && buf) {
+        analyserRef.current.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = buf[i];
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        level = Math.min(1, Math.pow(rms * 7.2, 0.82));
       }
-      const rms = Math.sqrt(sum / buf.length);
-      // Boost speech RMS into a visible mouth range; clamp
-      const level = Math.min(1, Math.pow(rms * 7.2, 0.82));
+      const elapsedMs =
+        lipPlaybackStartAtMsRef.current > 0
+          ? performance.now() - lipPlaybackStartAtMsRef.current
+          : 0;
+      const activeViseme = resolveActiveTtsLipViseme(
+        activeLipTimelineRef.current,
+        elapsedMs,
+      );
       updateLipSignal({
         envelope: level,
         active: true,
+        viseme: activeViseme,
       });
       envelopeRafRef.current = requestAnimationFrame(tick);
     };
@@ -282,6 +314,10 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
 
       if (!playingRef.current) {
         playingRef.current = true;
+        activateLipTimeline(
+          serverGenerationId,
+          performance.now() + Math.max(0, (startAt - now) * 1000),
+        );
         updateLipSignal({
           active: true,
         });
@@ -297,6 +333,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       scheduleIdleCheck();
     },
     [
+      activateLipTimeline,
       ensureAudioGraph,
       runEnvelopeLoop,
       scheduleIdleCheck,
@@ -484,7 +521,10 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
 
           audio.onplaying = () => {
             playingRef.current = true;
+            activateLipTimeline(serverGenerationId, performance.now());
             updateLipSignal({ active: true });
+            stopEnvelopeLoop();
+            runEnvelopeLoop();
             armFinishTimer();
             sync();
             if (!playbackNotifiedRef.current) {
@@ -504,7 +544,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         });
       })();
     },
-    [stopEnvelopeLoop, sync, updateLipSignal],
+    [activateLipTimeline, runEnvelopeLoop, stopEnvelopeLoop, sync, updateLipSignal],
   );
 
   const enqueueBase64 = useCallback(
@@ -568,12 +608,26 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     }
     fallbackSourceRef.current = null;
     nextStartTimeRef.current = 0;
+    lipTimelineByGenerationRef.current.clear();
+    activeLipTimelineRef.current = clearTtsLipSyncState(activeLipTimelineRef.current);
+    activeLipGenerationRef.current = null;
+    lipPlaybackStartAtMsRef.current = 0;
     notifyPlaybackEnd();
 
     stopEnvelopeLoop();
     playingRef.current = false;
     sync();
   }, [clearPendingPcm, notifyPlaybackEnd, stopEnvelopeLoop, sync]);
+
+  const applyTtsLipSyncPatch = useCallback((patch: TtsLipSyncPatch) => {
+    const previous =
+      lipTimelineByGenerationRef.current.get(patch.generationId) ?? null;
+    const next = mergeTtsLipSyncPatch(previous, patch);
+    lipTimelineByGenerationRef.current.set(patch.generationId, next);
+    if (activeLipGenerationRef.current === patch.generationId) {
+      activeLipTimelineRef.current = next;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -591,6 +645,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     voiceActive: playing,
     lipEnvelopeRef,
     lipSignalRef,
+    applyTtsLipSyncPatch,
   };
 }
 

@@ -9,8 +9,12 @@ import {
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { decayEmotion } from "../../emotion/decay_emotion";
 import { updateEmotion } from "../../emotion/emotion_engine";
-import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
-import { canStreamTextToSpeech, streamTextToSpeech } from "../../voice/tts";
+import { synthesize, synthesizeResult, isTtsEnabled } from "../../voice/tts_stream";
+import {
+  canStreamTextToSpeech,
+  streamTextToSpeech,
+  type TtsLipSyncChunk,
+} from "../../voice/tts";
 import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
@@ -44,6 +48,21 @@ function avatarIntentEnabled(): boolean {
 
 function ttsSegmentPreview(text: string): string {
   return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+function sendTtsLipSync(
+  ws: WebSocket,
+  generationId: number,
+  chunk: TtsLipSyncChunk,
+): void {
+  send(ws, {
+    type: "tts_lip_sync",
+    generationId,
+    source: chunk.source,
+    mode: chunk.mode,
+    complete: chunk.complete,
+    cues: chunk.cues,
+  });
 }
 
 async function waitForAbortable<T>(
@@ -507,6 +526,7 @@ async function ttsSend(
       ttsTransport !== "buffered_voice" && canStreamTextToSpeech();
     if (allowStreamingTransport) {
       let firstChunkSent = false;
+      let streamedLipSource: TtsLipSyncChunk["source"] = "provider_word_boundary_derived";
       try {
         await streamTextToSpeech(
           sentence,
@@ -529,7 +549,22 @@ async function ttsSend(
           },
           signal,
           emotion as any,
+          (chunk) => {
+            if (signal?.aborted) return;
+            streamedLipSource = chunk.source;
+            if (chunk.cues.length > 0 || chunk.complete) {
+              sendTtsLipSync(ws, generationId, chunk);
+            }
+          },
         );
+        if (!signal?.aborted) {
+          sendTtsLipSync(ws, generationId, {
+            source: streamedLipSource,
+            mode: "append",
+            complete: true,
+            cues: [],
+          });
+        }
         return;
       } catch (err) {
         if ((err as Error).name === "AbortError") throw err;
@@ -543,14 +578,31 @@ async function ttsSend(
       }
     }
 
-    const audio = await synthesize(sentence, signal, emotion as any, {
-      connId: ctx.connId,
-      generationId,
-      usage: "reply",
-      adultSceneState: ctx.persona.liveState.adultSceneState,
-      relationalStance: ctx.persona.liveState.relationalStance,
-      responsePolicy: ctx.lastResponsePolicy ?? null,
-    });
+    const result =
+      typeof synthesizeResult === "function"
+        ? await synthesizeResult(sentence, signal, emotion as any, {
+            connId: ctx.connId,
+            generationId,
+            usage: "reply",
+            adultSceneState: ctx.persona.liveState.adultSceneState,
+            relationalStance: ctx.persona.liveState.relationalStance,
+            responsePolicy: ctx.lastResponsePolicy ?? null,
+          })
+        : {
+            audio: await synthesize(sentence, signal, emotion as any, {
+              connId: ctx.connId,
+              generationId,
+              usage: "reply",
+              adultSceneState: ctx.persona.liveState.adultSceneState,
+              relationalStance: ctx.persona.liveState.relationalStance,
+              responsePolicy: ctx.lastResponsePolicy ?? null,
+            }),
+            lipSync: null,
+          };
+    const audio = result.audio;
+    if (result.lipSync) {
+      sendTtsLipSync(ws, generationId, result.lipSync);
+    }
     if (signal?.aborted) return;
     if (!audio || audio.length === 0) return;
     if (isFirstSentence && latencyTracer) {

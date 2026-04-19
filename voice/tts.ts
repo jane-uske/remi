@@ -16,6 +16,15 @@ import { resolveVolcTtsConfig, speakWithVolc } from "./tts_volc";
 import type { TtsRequestContext } from "./tts_request_context";
 import { createLogger } from "../infra/logger";
 import { withRetry } from "../utils/retry";
+import {
+  deriveCanonicalLipCuesFromWordBoundaries,
+  parseEdgeAudioMetadataMessage,
+} from "./tts_lip_sync";
+import type {
+  TtsLipCue,
+  TtsLipSyncMode,
+  TtsLipSyncSource,
+} from "../avatar/types";
 
 const logger = createLogger("tts");
 
@@ -65,6 +74,18 @@ export interface TtsPcmChunk {
   channels: 1;
   bitsPerSample: 16;
 }
+
+export type TtsLipSyncChunk = {
+  source: TtsLipSyncSource;
+  mode: TtsLipSyncMode;
+  complete: boolean;
+  cues: TtsLipCue[];
+};
+
+export type TtsSynthesisResult = {
+  audio: Buffer;
+  lipSync?: TtsLipSyncChunk | null;
+};
 
 /** 短句 TTS 内存缓存（S10）：同 provider + 情绪 + 正文命中则跳过合成 */
 const TTS_CACHE_MAX_CHARS = Number(process.env.tts_cache_max_chars ?? 24);
@@ -343,6 +364,29 @@ function escapeXml(s: string): string {
   });
 }
 
+function buildEdgeSpeechConfig(outputFormat: string): string {
+  return (
+    `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
+    `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"true","wordBoundaryEnabled":"true"},"outputFormat":"${outputFormat}"}}}}`
+  );
+}
+
+function buildEdgeLipSyncChunk(
+  message: string,
+  text: string,
+  mode: TtsLipSyncMode,
+  complete: boolean,
+): TtsLipSyncChunk | null {
+  const boundaries = parseEdgeAudioMetadataMessage(message, text);
+  if (boundaries.length === 0 && !complete) return null;
+  return {
+    source: "provider_word_boundary_derived",
+    mode,
+    complete,
+    cues: deriveCanonicalLipCuesFromWordBoundaries(boundaries),
+  };
+}
+
 /* ── Edge TTS 连接池（M7）：同 voice/lang/rate/pitch/fmt 复用一条 WebSocket ── */
 
 const EDGE_POOL_OFF = process.env.edge_tts_pool === "0";
@@ -439,9 +483,11 @@ function edgeCollectOneTurn(
   ws: WebSocket,
   send: () => void,
   signal: AbortSignal | undefined,
-): Promise<Buffer> {
+  text: string,
+): Promise<TtsSynthesisResult> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    const lipCues: TtsLipCue[] = [];
     let done = false;
 
     const finish = (err?: Error) => {
@@ -453,7 +499,20 @@ function edgeCollectOneTurn(
       ws.off("error", onError);
       ws.off("close", onClose);
       if (err) reject(err);
-      else resolve(Buffer.concat(chunks));
+      else {
+        resolve({
+          audio: Buffer.concat(chunks),
+          lipSync:
+            lipCues.length > 0
+              ? {
+                  source: "provider_word_boundary_derived",
+                  mode: "replace",
+                  complete: true,
+                  cues: lipCues,
+                }
+              : null,
+        });
+      }
     };
 
     const timer = setTimeout(() => {
@@ -469,8 +528,16 @@ function edgeCollectOneTurn(
         const sep = "Path:audio\r\n";
         const idx = data.indexOf(sep);
         if (idx >= 0) chunks.push(data.subarray(idx + sep.length));
-      } else if (data.toString().includes("Path:turn.end")) {
-        finish();
+      } else {
+        const message = data.toString();
+        if (message.includes("Path:audio.metadata")) {
+          const lipSync = buildEdgeLipSyncChunk(message, text, "append", false);
+          if (lipSync) {
+            lipCues.push(...lipSync.cues);
+          }
+        } else if (message.includes("Path:turn.end")) {
+          finish();
+        }
       }
     };
 
@@ -499,7 +566,7 @@ function edgeTtsBuffer(
   pitch: string,
   outputFormat: string,
   signal?: AbortSignal,
-): Promise<Buffer> {
+): Promise<TtsSynthesisResult> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new DOMException("TTS aborted", "AbortError"));
@@ -522,6 +589,7 @@ function edgeTtsBuffer(
     );
 
     const chunks: Buffer[] = [];
+    const lipCues: TtsLipCue[] = [];
     let done = false;
 
     const finish = (err?: Error) => {
@@ -531,7 +599,20 @@ function edgeTtsBuffer(
       if (signal) signal.removeEventListener("abort", abortHandler);
       try { ws.close(); } catch {}
       if (err) reject(err);
-      else resolve(Buffer.concat(chunks));
+      else {
+        resolve({
+          audio: Buffer.concat(chunks),
+          lipSync:
+            lipCues.length > 0
+              ? {
+                  source: "provider_word_boundary_derived",
+                  mode: "replace",
+                  complete: true,
+                  cues: lipCues,
+                }
+              : null,
+        });
+      }
     };
 
     const timer = setTimeout(() => {
@@ -542,10 +623,7 @@ function edgeTtsBuffer(
     if (signal) signal.addEventListener("abort", abortHandler, { once: true });
 
     ws.on("open", () => {
-      ws.send(
-        `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-        `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"${outputFormat}"}}}}`,
-      );
+      ws.send(buildEdgeSpeechConfig(outputFormat));
       const reqId = randomBytes(16).toString("hex");
       ws.send(
         `X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n` +
@@ -561,7 +639,15 @@ function edgeTtsBuffer(
         const idx = data.indexOf(sep);
         if (idx >= 0) chunks.push(data.subarray(idx + sep.length));
       } else {
-        if (data.toString().includes("Path:turn.end")) finish();
+        const message = data.toString();
+        if (message.includes("Path:audio.metadata")) {
+          const lipSync = buildEdgeLipSyncChunk(message, text, "append", false);
+          if (lipSync) {
+            lipCues.push(...lipSync.cues);
+          }
+        } else if (message.includes("Path:turn.end")) {
+          finish();
+        }
       }
     });
 
@@ -581,7 +667,7 @@ function edgeTtsFirstOpenKeepAlive(
   pitch: string,
   outputFormat: string,
   signal?: AbortSignal,
-): Promise<{ buf: Buffer; ws: WebSocket }> {
+): Promise<{ result: TtsSynthesisResult; ws: WebSocket }> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new DOMException("TTS aborted", "AbortError"));
@@ -604,6 +690,7 @@ function edgeTtsFirstOpenKeepAlive(
     );
 
     const chunks: Buffer[] = [];
+    const lipCues: TtsLipCue[] = [];
     let done = false;
 
     const finish = (err?: Error) => {
@@ -619,7 +706,21 @@ function edgeTtsFirstOpenKeepAlive(
         }
         reject(err);
       } else {
-        resolve({ buf: Buffer.concat(chunks), ws });
+        resolve({
+          result: {
+            audio: Buffer.concat(chunks),
+            lipSync:
+              lipCues.length > 0
+                ? {
+                    source: "provider_word_boundary_derived",
+                    mode: "replace",
+                    complete: true,
+                    cues: lipCues,
+                  }
+                : null,
+          },
+          ws,
+        });
       }
     };
 
@@ -631,10 +732,7 @@ function edgeTtsFirstOpenKeepAlive(
     if (signal) signal.addEventListener("abort", abortHandler, { once: true });
 
     ws.on("open", () => {
-      ws.send(
-        `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-          `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"${outputFormat}"}}}}`,
-      );
+      ws.send(buildEdgeSpeechConfig(outputFormat));
       ws.send(buildEdgeSsml(text, voice, lang, rate, pitch));
     });
 
@@ -644,8 +742,16 @@ function edgeTtsFirstOpenKeepAlive(
         const sep = "Path:audio\r\n";
         const idx = data.indexOf(sep);
         if (idx >= 0) chunks.push(data.subarray(idx + sep.length));
-      } else if (data.toString().includes("Path:turn.end")) {
-        finish();
+      } else {
+        const message = data.toString();
+        if (message.includes("Path:audio.metadata")) {
+          const lipSync = buildEdgeLipSyncChunk(message, text, "append", false);
+          if (lipSync) {
+            lipCues.push(...lipSync.cues);
+          }
+        } else if (message.includes("Path:turn.end")) {
+          finish();
+        }
       }
     });
 
@@ -656,11 +762,11 @@ function edgeTtsFirstOpenKeepAlive(
   });
 }
 
-async function speakWithEdge(
+async function speakWithEdgeResult(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
-): Promise<Buffer> {
+): Promise<TtsSynthesisResult> {
   throwIfAborted(signal);
   const t0 = Date.now();
 
@@ -683,12 +789,12 @@ async function speakWithEdge(
   const poolKey = edgeConnKey(voice, lang, rate, pitch, fmt);
 
   if (EDGE_POOL_OFF) {
-    const buf = await edgeTtsBuffer(text, voice, lang, rate, pitch, fmt, signal);
+    const result = await edgeTtsBuffer(text, voice, lang, rate, pitch, fmt, signal);
     logger.info("edge 合成完成", { duration: Date.now() - t0, text: text.slice(0, 30) });
-    return buf;
+    return result;
   }
 
-  const buf = await runEdgePooled(poolKey, async () => {
+  const result = await runEdgePooled(poolKey, async () => {
     const slot = edgePoolSlots.get(poolKey);
     if (slot?.ws.readyState === WebSocket.OPEN) {
       try {
@@ -698,6 +804,7 @@ async function speakWithEdge(
             slot.ws.send(buildEdgeSsml(text, voice, lang, rate, pitch));
           },
           signal,
+          text,
         );
         slot.lastUsed = Date.now();
         scheduleEdgePoolIdleClose(poolKey, slot);
@@ -716,13 +823,12 @@ async function speakWithEdge(
         maxSize: EDGE_POOL_MAX_SIZE,
       });
       // 已达上限时使用缓冲模式，不使用连接池
-      const buf = await edgeTtsBuffer(text, voice, lang, rate, pitch, fmt, signal);
-      return buf;
+      return await edgeTtsBuffer(text, voice, lang, rate, pitch, fmt, signal);
     }
 
     totalActiveConnections++;
     try {
-      const { buf: firstBuf, ws } = await edgeTtsFirstOpenKeepAlive(
+      const { result: firstResult, ws } = await edgeTtsFirstOpenKeepAlive(
         text,
         voice,
         lang,
@@ -746,7 +852,7 @@ async function speakWithEdge(
         activeCount: totalActiveConnections,
         poolKey,
       });
-      return firstBuf;
+      return firstResult;
     } catch (err) {
       totalActiveConnections--;
       logger.warn("TTS 连接创建失败", {
@@ -758,7 +864,98 @@ async function speakWithEdge(
   });
 
   logger.info("edge 合成完成", { duration: Date.now() - t0, text: text.slice(0, 30) });
-  return buf;
+  return result;
+}
+
+async function speakWithEdge(
+  text: string,
+  signal?: AbortSignal,
+  emotion?: Emotion,
+): Promise<Buffer> {
+  const result = await speakWithEdgeResult(text, signal, emotion);
+  return result.audio;
+}
+
+async function speakWithProviderResult(
+  provider: TtsProvider,
+  text: string,
+  signal?: AbortSignal,
+  emotion?: Emotion,
+  context?: TtsRequestContext,
+): Promise<TtsSynthesisResult> {
+  if (provider === "edge") return speakWithEdgeResult(text, signal, emotion);
+  return {
+    audio: await speakWithProvider(provider, text, signal, emotion, context),
+    lipSync: null,
+  };
+}
+
+export async function textToSpeechWithMetadata(
+  text: string,
+  signal?: AbortSignal,
+  emotion?: Emotion,
+  context?: TtsRequestContext,
+): Promise<TtsSynthesisResult> {
+  throwIfAborted(signal);
+  const ttsText = normalizeTtsText(text);
+  if (!ttsText) return { audio: Buffer.alloc(0), lipSync: null };
+  const provider = getProvider();
+  if (!isTtsEnabled()) {
+    warnTtsDisabledOnce(provider);
+    throw new Error("TTS_DISABLED");
+  }
+
+  const shortKey =
+    ttsText.length > 0 && ttsText.length <= TTS_CACHE_MAX_CHARS
+      ? buildTtsShortCacheKey(provider, ttsText, emotion, getTtsCacheVariant(provider, emotion, context))
+      : null;
+  if (shortKey) {
+    const hit = getTtsShortCache(shortKey);
+    if (hit) {
+      throwIfAborted(signal);
+      return { audio: hit, lipSync: null };
+    }
+  }
+
+  let actualProvider = provider;
+  let result: TtsSynthesisResult;
+  try {
+    result = await withRetry(
+      () => speakWithProviderResult(provider, ttsText, signal, emotion, context),
+      { retries: 1, label: `textToSpeech(${provider})` },
+    );
+  } catch (err) {
+    throwIfAborted(signal);
+    const fallback = getFallbackProvider(provider);
+    if (!fallback) throw err;
+    actualProvider = fallback;
+    logger.warn("主 TTS 失败，回退到备用 provider", {
+      provider,
+      fallback,
+      error: (err as Error).message,
+    });
+    result = await withRetry(
+      () => speakWithProviderResult(fallback, ttsText, signal, emotion, context),
+      { retries: 0, label: `textToSpeech(${fallback})` },
+    );
+  }
+
+  if (shortKey) {
+    setTtsShortCache(shortKey, result.audio);
+    if (actualProvider !== provider) {
+      setTtsShortCache(
+        buildTtsShortCacheKey(
+          actualProvider,
+          ttsText,
+          emotion,
+          getTtsCacheVariant(actualProvider, emotion, context),
+        ),
+        result.audio,
+      );
+    }
+  }
+
+  return result;
 }
 
 async function speakWithProvider(
@@ -781,6 +978,7 @@ function streamEdgePcm(
   signal: AbortSignal | undefined,
   emotion: Emotion | undefined,
   onChunk: EdgeStreamChunkHandler,
+  onLipSyncChunk?: (chunk: TtsLipSyncChunk) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -932,10 +1130,7 @@ function streamEdgePcm(
     });
 
     ws.on("open", () => {
-      ws.send(
-        `Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
-          `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"${EDGE_MP3_FORMAT}"}}}}`,
-      );
+      ws.send(buildEdgeSpeechConfig(EDGE_MP3_FORMAT));
       ws.send(buildEdgeSsml(text, voice, lang, rate, pitch));
     });
 
@@ -950,10 +1145,18 @@ function streamEdgePcm(
           return;
         }
         decoder.stdin.write(payload);
-      } else if (data.toString().includes("Path:turn.end")) {
-        turnEnded = true;
-        if (!decoder.stdin.destroyed && !decoder.stdin.writableEnded) {
-          decoder.stdin.end();
+      } else {
+        const message = data.toString();
+        if (message.includes("Path:audio.metadata")) {
+          const lipSync = buildEdgeLipSyncChunk(message, text, "append", false);
+          if (lipSync) {
+            onLipSyncChunk?.(lipSync);
+          }
+        } else if (message.includes("Path:turn.end")) {
+          turnEnded = true;
+          if (!decoder.stdin.destroyed && !decoder.stdin.writableEnded) {
+            decoder.stdin.end();
+          }
         }
       }
     });
@@ -981,65 +1184,8 @@ export async function textToSpeech(
   emotion?: Emotion,
   context?: TtsRequestContext,
 ): Promise<Buffer> {
-  throwIfAborted(signal);
-  const ttsText = normalizeTtsText(text);
-  if (!ttsText) return Buffer.alloc(0);
-  const provider = getProvider();
-  if (!isTtsEnabled()) {
-    warnTtsDisabledOnce(provider);
-    throw new Error("TTS_DISABLED");
-  }
-
-  const shortKey =
-    ttsText.length > 0 && ttsText.length <= TTS_CACHE_MAX_CHARS
-      ? buildTtsShortCacheKey(provider, ttsText, emotion, getTtsCacheVariant(provider, emotion, context))
-      : null;
-  if (shortKey) {
-    const hit = getTtsShortCache(shortKey);
-    if (hit) {
-      throwIfAborted(signal);
-      return hit;
-    }
-  }
-
-  let actualProvider = provider;
-  let buf: Buffer;
-  try {
-    buf = await withRetry(
-      () => speakWithProvider(provider, ttsText, signal, emotion, context),
-      { retries: 1, label: `textToSpeech(${provider})` },
-    );
-  } catch (err) {
-    throwIfAborted(signal);
-    const fallback = getFallbackProvider(provider);
-    if (!fallback) throw err;
-    actualProvider = fallback;
-    logger.warn("主 TTS 失败，回退到备用 provider", {
-      provider,
-      fallback,
-      error: (err as Error).message,
-    });
-    buf = await withRetry(
-      () => speakWithProvider(fallback, ttsText, signal, emotion, context),
-      { retries: 0, label: `textToSpeech(${fallback})` },
-    );
-  }
-
-  if (shortKey) {
-    setTtsShortCache(shortKey, buf);
-    if (actualProvider !== provider) {
-      setTtsShortCache(
-        buildTtsShortCacheKey(
-          actualProvider,
-          ttsText,
-          emotion,
-          getTtsCacheVariant(actualProvider, emotion, context),
-        ),
-        buf,
-      );
-    }
-  }
-  return buf;
+  const result = await textToSpeechWithMetadata(text, signal, emotion, context);
+  return result.audio;
 }
 
 export function canStreamTextToSpeech(): boolean {
@@ -1104,6 +1250,7 @@ export async function streamTextToSpeech(
   onChunk: EdgeStreamChunkHandler,
   signal?: AbortSignal,
   emotion?: Emotion,
+  onLipSyncChunk?: (chunk: TtsLipSyncChunk) => void,
 ): Promise<void> {
   throwIfAborted(signal);
   const ttsText = normalizeTtsText(text);
@@ -1122,7 +1269,7 @@ export async function streamTextToSpeech(
 
   try {
     await withRetry(
-      () => streamEdgePcm(ttsText, signal, emotion, onChunk),
+      () => streamEdgePcm(ttsText, signal, emotion, onChunk, onLipSyncChunk),
       { retries: 1, label: "streamTextToSpeech(edge)" },
     );
     markEdgeStreamHealthy();

@@ -40,6 +40,19 @@ export interface LipSyncFrame {
   weight: number;
 }
 
+export type TtsLipSyncSource = "provider_viseme" | "provider_word_boundary_derived";
+export type TtsLipSyncMode = "replace" | "append";
+
+export interface TtsLipCue {
+  offsetMs: number;
+  durationMs: number;
+  viseme: Viseme;
+  weight: number;
+  charStart?: number;
+  charEnd?: number;
+  token?: string;
+}
+
 export interface ActionCommand {
   action: string;
   intensity: number;
@@ -183,6 +196,14 @@ export type RemiServerMessage =
       channels: 1;
       bitsPerSample: 16;
       generationId: number;
+    }
+  | {
+      type: "tts_lip_sync";
+      generationId: number;
+      source: TtsLipSyncSource;
+      mode: TtsLipSyncMode;
+      complete: boolean;
+      cues: TtsLipCue[];
     }
   | {
       type: "interrupt";

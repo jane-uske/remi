@@ -1,5 +1,6 @@
 import type { Emotion } from "./tts_emotion";
 import type { TtsRequestContext } from "./tts_request_context";
+import type { TtsLipCue, TtsLipSyncMode, TtsLipSyncSource } from "../avatar/types";
 
 type TtsModule = {
   textToSpeech: (
@@ -8,6 +9,20 @@ type TtsModule = {
     emotion?: Emotion,
     context?: TtsRequestContext,
   ) => Promise<Buffer>;
+  textToSpeechWithMetadata?: (
+    sentence: string,
+    signal?: AbortSignal,
+    emotion?: Emotion,
+    context?: TtsRequestContext,
+  ) => Promise<{
+    audio: Buffer;
+    lipSync?: {
+      source: TtsLipSyncSource;
+      mode: TtsLipSyncMode;
+      complete: boolean;
+      cues: TtsLipCue[];
+    } | null;
+  }>;
   isTtsEnabled: () => boolean;
 };
 
@@ -43,4 +58,29 @@ export async function synthesize(
 ): Promise<Buffer> {
   if (signal?.aborted) throw new DOMException("TTS aborted", "AbortError");
   return loadTtsModule().textToSpeech(sentence, signal, emotion, context);
+}
+
+export async function synthesizeResult(
+  sentence: string,
+  signal?: AbortSignal,
+  emotion?: Emotion,
+  context?: TtsRequestContext,
+): Promise<{
+  audio: Buffer;
+  lipSync?: {
+    source: TtsLipSyncSource;
+    mode: TtsLipSyncMode;
+    complete: boolean;
+    cues: TtsLipCue[];
+  } | null;
+}> {
+  if (signal?.aborted) throw new DOMException("TTS aborted", "AbortError");
+  const ttsModule = loadTtsModule();
+  if (ttsModule.textToSpeechWithMetadata) {
+    return ttsModule.textToSpeechWithMetadata(sentence, signal, emotion, context);
+  }
+  return {
+    audio: await ttsModule.textToSpeech(sentence, signal, emotion, context),
+    lipSync: null,
+  };
 }
