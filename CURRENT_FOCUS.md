@@ -44,14 +44,18 @@ Memory V2 验收收尾与观察期（当前真实质量观察因样本不足处�
 - ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
 - ✅ `REMI_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
 - ✅ Web 身份底座已补第一版 Clerk 接入口：服务端认证模式现支持 `disabled / legacy_jwt / clerk`，Web 主入口已可走 Clerk magic-link 登录并把 session token 透传到 WS；同时保留 legacy query token / mobile dev key 兼容。这推进的是“同一用户跨端进入时能落到同一内部 UUID”，不是 Memory V2 主线程本身，也不等于多端连续性已经产品级验收
+- ✅ iOS 正式登录第一版已接上：`ios/RemiChatLite` 现已接 Clerk iOS SDK / `AuthView` 登录 gate，聊天 WS 会优先带 Clerk session token 建连，本地缓存也已优先按 Clerk user id 分桶；同时仍保留 legacy JWT / mobile dev key 作为内测与本地兜底。这推进的是“iOS 不再停留在临时 token 方案”，不是多端连续性或账号系统已经完整验收
 - ✅ Web / 本地运行口径已补一层真正隔离：`npm run dev` 现在默认监听 `localhost:3001` 并优先吃 `.env.localhost`，`npm run prod:local:start` 继续监听 `localhost:3000` 并优先吃 `.env.local-prod`；Cloudflare Tunnel 目标不再和本地开发抢同一个端口。这解决的是“开发环境和正式登录验收互相污染”，不是更高级的部署形态
+- ✅ local-prod 脚本语义已收口：`prod:local:start` 现在只启动已有镜像，`prod:local:build` / `prod:local:rebuild` 负责显式重建；同时补了 `.dockerignore`，避免每次 local-prod 启动继续把 `node_modules / web/.next / .git` 这类本地大目录无意义打进 Docker context。它解决的是“本地 production-like 验证被默认 rebuild 和超大 context 拖慢”，不是已经做成更成熟的部署系统
+- ✅ 本地 Memory V2 验证口径已进一步收口：`npm run dev` 在检测到 `DATABASE_URL` / `REDIS_URL` 时会先自动拉起 `postgres` / `redis`，避免继续把“DB 根本没连上”的降级态误当成主线程 runtime；如果 Docker 不可用，可显式设 `REMI_DEV_AUTO_STORAGE=0` 退回无存储模式，但那时必须明确标注“不是完整 Memory V2 运行口径”
+- ✅ 本地 dev / local-prod 默认 TTS 已切回 `edge`；`volc` 配置仅保留注释入口，不再作为默认声线链路。它解决的是“额度耗尽时每轮都先 403 再 fallback，把语音体验和首音频延迟一起拖坏”，不是最终长期声线方案
 - ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
-- ✅ iOS v0（文本）内测基线已建立：`ios/RemiChatLite` 具备 WS 文本流式、自动重连、JWT 优先鉴权、dev-key 兜底，以及按 JWT user-id 本地缓存隔离
+- ✅ iOS v0（文本）内测基线已建立：`ios/RemiChatLite` 具备 WS 文本流式、自动重连、Clerk session token 优先鉴权、legacy JWT / dev-key 兜底，以及按 Clerk/JWT user-id 本地缓存隔离
 - ⏳ iOS 语音链路仍未验收通过：此前真机反馈是“无转文字、无回复反应”；本轮已把 iOS 前端语音入口拆成独立 `按住说话` 与实验性 `duplex` 按钮，并让 `duplex` 进入独立 full-screen voice demo scene，作为后续 3D Rem / voice mode 的壳；录音/TTS 也已收口到共享 `AVAudioSession`，前端本地不再天然把录音和播报互相打死。最新又沿关键路径补了两层收口：一是 iOS 端 stop/drain 时序修复，PCM 改为串行发送队列，`duplex_stop` 会短暂等待尾包发送，避免 stop 抢在末尾音频之前把服务端输入直接截断；二是服务端开始区分 `push_to_talk` 与开放式 `duplex`，对 `push_to_talk` 放宽弱语音/no-preview/no-VAD fallback 抑制，避免把显式按住说话的低能量 iPhone 输入整段吞掉。现阶段这只能说明代码级主怀疑点已继续收口，不代表真机上的回声消除、转写稳定性和打断体验已经成立。除该点外，iOS 文本/连接/鉴权/缓存主链路已基本打通。现阶段不要把 iOS 端语音输入误判为稳定可用能力
 - ✅ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
 - ✅ 真实 WS 文本会话验收已通过：`episodes` 在真实连接上稳定写入并合并，同主题 `recurrence_count` 持续增长；本轮未再出现 `dev-user` UUID 查询报错或 `192 -> 768` embedding 降级
-- ⏳ 浏览器/UI 层已补一轮正向文本 spot-check：决策更新、话题切换、边界尊重、轻松话题切换、刷新后接续都没看到明显回退，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`；但这还不是完整前端手工回归
-- ⏳ 这轮 browser text spot-check 里 `currentContextChars` 仍为 `0`，说明新 `workingMemory` prompt 注入还没在真实浏览器样本里被验收
+- ✅ 浏览器/UI 层 workingMemory text spot-check 已补第二轮：在正确的本地 `3001` 进程并显式打开 `REMI_WORKING_MEMORY_ENABLED` 后，真实浏览器文本样本已观察到 `currentContextChars = 109 / 116 / 113`，覆盖“决策题 -> 现实约束更新 -> reload/reconnect 后继续追问”三段，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-19.md`
+- ⚠️ 上面这条只能证明 Web 默认文本链路里的 `【当前上下文】` 注入和 reconnect 承接成立；它不是 full browser 回归，更不是语音 / duplex 验收
 - ✅ V1 旧 episode 派生主路径已收口：`buildEpisodes` / `buildTopicThreads` 已移出主派生链；旧 `PersistentEpisode` JSON 已停写，仅保留向后兼容读取；`memory_agent` / `RemiSessionContext` / `slow_brain_store` 主要读取侧已转向直接消费 `sharedMoments`
 - ✅ 文本链路已补第一版语气稳定性基础设施：`tone contract` 进入 prompt 主链路，文本回复新增轻量 `assistanty` review，且已有初始 eval fixture
 - ✅ 已接入第一版结构化回合解释层：`TurnInterpretation -> ResponsePolicy` 进入文本主链路与语音预判/最终转写候选点；当前规则层开始从“决定回复方向”降级为 fallback / guard，而不是继续堆主解释逻辑
@@ -75,15 +79,13 @@ Memory V2 验收收尾与观察期（当前真实质量观察因样本不足处�
 ### 下一步
 1. **Memory V2 真实质量观察（暂缓 / blocked）**：当前缺少新的可审计 `episodes` 和足够多样的真实用户样本；继续硬推只会产生低信号 proxy 结论，而不是新的真实产品判断
    现在该做的是保留 `memory:v2:audit / hygiene` readiness，不再继续为“验证而验证”扩工具；等有新的真实 `episodes` / 多用户样本后，再恢复抽样人工复核、按样本 apply 和复跑审计
-2. **浏览器 spot-check**：再补一轮显式打开 `workingMemory` 的前端对话，确认 `【当前上下文】` 注入、V2 recall feedback、history/local cache 与文本主链路没有交互回退
-   对 Web Auth 这条支线，下一步不是继续堆账号功能，而是做真实邮箱双账号 smoke：确认不同 Clerk 用户会落到不同 `user_auth_identities -> users -> sessions/messages/episodes`，且 legacy token 兜底没被回归打坏
-3. **浏览器 duplex 实采 / runtime spot-check**：当前 `p50/p95 + 误判样本` 只把口径和聚合链路做完了，仍缺真实浏览器 duplex trace 与人工复核；在拿到真实样本前，不要把 turn-taking 说成“已基本稳定”
-4. **embedding 健康门槛**：基于新告警补最低可运行门槛与 dashboard/日志口径，否则人格连续性仍会在环境缺失时直接掉级
-5. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
-6. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
-7. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
-8. **语气/理解观察期**：继续收集“回答优先级、现实约束更新、场景承接、边界尊重”真实 bad cases；本轮已补 `不要一直问我` / `你又不会帮我做` 一类样本，但还不代表整条线稳定
-9. **STT 热词词表观察**：先用真实语音对话收集 10-20 个最痛热词错例，验证轻量词表纠偏的收益；在出现明确开放域 bad case 之前，不建议把它扩成上下文推断或 LLM 纠错
+2. **embedding 健康门槛**：基于现有健康快照与降级告警，补最低可运行门槛和更稳定的日志/观察口径，否则人格连续性仍会在环境缺失时静默掉级；这比继续围绕已通过的 browser text spot-check 打转更值得做
+3. **浏览器 duplex 实采 / runtime spot-check**：当前 `p50/p95 + 误判样本` 主要还是工具链和回归口径，仍缺更多真实浏览器 duplex trace 与人工复核；在拿到更新鲜的 noisy 样本前，不要把 turn-taking 说成“已基本稳定”
+4. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
+5. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
+6. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
+7. **语气/理解观察期**：继续收集“回答优先级、现实约束更新、场景承接、边界尊重”真实 bad cases；本轮已补 `不要一直问我` / `你又不会帮我做` 一类样本，但还不代表整条线稳定
+8. **STT 热词词表观察**：先用真实语音对话收集 10-20 个最痛热词错例，验证轻量词表纠偏的收益；在出现明确开放域 bad case 之前，不建议把它扩成上下文推断或 LLM 纠错
 
 ## 自动推进规则
 
