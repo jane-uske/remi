@@ -31,6 +31,11 @@ function checkPort(port, host = "127.0.0.1") {
 }
 
 const sttProvider = (process.env.stt_provider || "openai").toLowerCase();
+const incrementalSttProvider = (
+  process.env.stt_incremental_provider ||
+  process.env.STT_INCREMENTAL_PROVIDER ||
+  ""
+).toLowerCase();
 const ttsProvider = (process.env.tts_provider || "edge").toLowerCase();
 const llmConfigured = Boolean(
   process.env.key?.trim() &&
@@ -44,6 +49,7 @@ print("Runtime", [
   `platform: ${os.platform()} ${os.release()}`,
   `llm configured: ${llmConfigured ? "yes" : "no"}`,
   `stt provider: ${sttProvider}`,
+  `incremental stt provider: ${incrementalSttProvider || "(disabled)"}`,
   `tts provider: ${ttsProvider}`,
 ]);
 
@@ -67,6 +73,18 @@ if (sttProvider === "whisper-cpp") {
 } else {
   sttLines.push(`stt_key set: ${process.env.stt_key?.trim() ? "yes" : "no"}`);
   sttLines.push(`stt_base_url set: ${process.env.stt_base_url?.trim() ? "yes" : "no"}`);
+}
+if (incrementalSttProvider === "openai-realtime") {
+  sttLines.push(`streaming flag on: ${["0", "false"].includes((process.env.REMI_STREAMING_STT_ENABLED ?? "").toLowerCase()) ? "no" : "yes"}`);
+  sttLines.push(`realtime stt_key set: ${process.env.stt_key?.trim() ? "yes" : "no"}`);
+}
+if (incrementalSttProvider === "sherpa-onnx") {
+  const sherpaModelDir = process.env.STT_SHERPA_MODEL_DIR || path.join(process.cwd(), "models", "sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16");
+  sttLines.push(`streaming flag on: ${["0", "false"].includes((process.env.REMI_STREAMING_STT_ENABLED ?? "").toLowerCase()) ? "no" : "yes"}`);
+  sttLines.push(`sherpa model dir: ${sherpaModelDir}`);
+  sttLines.push(`sherpa tokens exists: ${exists(path.join(sherpaModelDir, "tokens.txt")) ? "yes" : "no"}`);
+  sttLines.push(`sherpa encoder exists: ${exists(path.join(sherpaModelDir, "encoder-epoch-99-avg-1.int8.onnx")) || exists(path.join(sherpaModelDir, "encoder-epoch-99-avg-1.onnx")) ? "yes" : "no"}`);
+  sttLines.push(`sherpa joiner exists: ${exists(path.join(sherpaModelDir, "joiner-epoch-99-avg-1.int8.onnx")) || exists(path.join(sherpaModelDir, "joiner-epoch-99-avg-1.onnx")) ? "yes" : "no"}`);
 }
 print("STT", sttLines);
 

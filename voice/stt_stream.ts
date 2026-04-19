@@ -5,6 +5,15 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+import {
+  realtimeSttRuntime,
+} from "./stt_realtime_runtime";
+import { sherpaSttRuntime } from "./stt_sherpa_runtime";
+import type {
+  ActiveStreamingSttSession,
+  StreamingTranscriptFinal,
+  StreamingTranscriptPartial,
+} from "./stt_incremental_types";
 import { whisperServerRuntime } from "./stt_whisper_runtime";
 import type {
   WhisperTranscribeFallbackReason,
@@ -26,10 +35,22 @@ export type SttTranscribeOptions = {
 };
 
 type SttProvider = "openai" | "whisper-cpp";
+type IncrementalSttProvider = "openai-realtime" | "sherpa-onnx";
 
 function getProvider(): SttProvider {
   const p = (process.env.stt_provider || "openai").toLowerCase();
   return p === "whisper-cpp" ? "whisper-cpp" : "openai";
+}
+
+function getIncrementalProvider(): IncrementalSttProvider | null {
+  const p = (
+    process.env.stt_incremental_provider ??
+    process.env.STT_INCREMENTAL_PROVIDER ??
+    process.env.stt_provider ??
+    "openai"
+  ).toLowerCase();
+  if (p === "openai-realtime" || p === "sherpa-onnx") return p;
+  return null;
 }
 
 export async function warmWhisperServer(): Promise<boolean> {
@@ -62,6 +83,9 @@ export class SttStream extends EventEmitter {
   private pcmBytes = 0;
   private sampleRate = 16000;
   private previewAbort: AbortController | null = null;
+  private streamingSession: ActiveStreamingSttSession | null = null;
+  private streamingSessionPromise: Promise<ActiveStreamingSttSession | null> | null = null;
+  private streamingSessionEpoch = 0;
   private lastTranscribeMeta: SttTranscribeMeta = {
     path: "skipped",
     fallbackReason: null,
@@ -185,6 +209,76 @@ export class SttStream extends EventEmitter {
   canPreviewPcm(): boolean {
     if (getProvider() !== "whisper-cpp") return false;
     return whisperServerRuntime.canPreview();
+  }
+
+  canStreamPartials(): boolean {
+    const provider = getIncrementalProvider();
+    if (provider === "openai-realtime") return realtimeSttRuntime.canUseRealtime();
+    if (provider === "sherpa-onnx") return sherpaSttRuntime.canUseSherpa();
+    return false;
+  }
+
+  startStreamingPcmSession(): void {
+    if (!this.canStreamPartials()) return;
+    if (this.streamingSession || this.streamingSessionPromise) return;
+    const epoch = this.streamingSessionEpoch;
+    const incrementalProvider = getIncrementalProvider();
+    const runtime =
+      incrementalProvider === "sherpa-onnx" ? sherpaSttRuntime : realtimeSttRuntime;
+    this.streamingSessionPromise = runtime
+      .createSession({
+        onPartial: (event: StreamingTranscriptPartial) => {
+          this.emit("streaming_partial", event);
+        },
+        onFinal: (event: StreamingTranscriptFinal) => {
+          this.emit("streaming_final", event);
+        },
+        onError: (error: Error) => {
+          this.emit("error", error);
+        },
+      })
+      .then((session) => {
+        if (epoch !== this.streamingSessionEpoch) {
+          void session.close().catch((error) => {
+            this.emit("error", error);
+          });
+          return null;
+        }
+        this.streamingSession = session;
+        return session;
+      })
+      .catch((error) => {
+        this.emit("error", error);
+        return null;
+      })
+      .finally(() => {
+        this.streamingSessionPromise = null;
+      });
+  }
+
+  feedStreamingPcm(chunk: Buffer, sampleRate: number): void {
+    if (!this.canStreamPartials() || chunk.length === 0) return;
+    this.startStreamingPcmSession();
+    if (this.streamingSession) {
+      this.streamingSession.appendPcm(chunk, sampleRate);
+      return;
+    }
+    if (this.streamingSessionPromise) {
+      void this.streamingSessionPromise.then((session) => {
+        session?.appendPcm(chunk, sampleRate);
+      });
+    }
+  }
+
+  stopStreamingPcmSession(): void {
+    this.streamingSessionEpoch += 1;
+    const activeSession = this.streamingSession;
+    this.streamingSession = null;
+    if (activeSession) {
+      void activeSession.close().catch((error) => {
+        this.emit("error", error);
+      });
+    }
   }
 
   /**
@@ -370,6 +464,7 @@ export class SttStream extends EventEmitter {
   }
 
   reset(): void {
+    this.stopStreamingPcmSession();
     this.cancelPreview();
     this.resetWebm();
     this.resetPcm();
