@@ -2,24 +2,96 @@
 
 ## 一句话
 
-Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本会话写路径验收都已完成；V1 旧 episode 派生主路径也已收口。当前阶段不再是“主链路未通”，而是“单路径已验证，进入观察与前端 spot-check”。
+Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本会话写路径验收都已完成；V1 旧 episode 派生主路径也已收口。  
+但当前最值得继续投入的，不是再把所有方向一起推进，而是把这些底层能力压缩成一个 **Web 默认入口里 10 分钟在场感体验**：让用户第一次明显觉得 Remi 不只是聊天框，而是一个可以回来的“她”。
 
-这条主线程服务的不是“再做一个记忆功能”，而是终极目标里最重要的一层之一：
-让 Remi 更像一个持续存在的人，而不是每轮都重置的聊天框。
+这条主线程仍然服务于终极目标里的“人格记忆层”，但当前执行重点已经从“Memory V2 继续扩”切到“把已接通的记忆、语气、承接、语音和表现层压成一个高光体验”。
 
-放进当前总纲里看，它属于三层路线图中的“人格记忆层”：
+放进当前总纲里看，它仍然属于三层路线图：
 - 实时交互层
 - 人格记忆层
 - 跨终端存在层
 
-当前先把第二层做扎实，后面的多端接续和持续在线存在感才有真正可靠的基础。
-未来的 plugin / capability 扩展，也必须建立在这个基础之上，而不是反过来污染核心链路。
+但当前实际执行策略是：
+- **先用 Web 单端证明‘我想回来见她’这件事成立**
+- 暂不让 iOS、新 persona 扩展、多端产品化闭环继续抢主线
 
 ## 当前最高优先级
 
-Memory V2 验收收尾与观察期（当前真实质量观察因样本不足处于 `observe / blocked`）
+**Web 端 10 分钟在场感体验（默认人格 + 严肃场景承接 + 语音/口型/状态统一）**
 
-## 当前进度
+一句更短的判断：
+- Memory V2 主链路：已接通，进入 observe
+- 当前主战场：**不是继续证明系统很复杂，而是证明体验开始像“她”**
+
+## 为什么当前主线不是继续广撒网
+
+最近真实对话和项目回顾已经证明两件事：
+
+1. **当前不是“什么都没做出来”**
+   - Memory V2、duplex runtime、Web auth、iOS lite、lip sync cue transport、mic pre-gate 都已经有真实代码，不是空话
+2. **当前最缺的也不是“再多几个能力点”**
+   - 真正缺的是：用户从轻松闲聊切到现实压力时，Remi 能不能稳住、不出戏、像同一个人一样接住
+
+如果继续按现在的方式同时推进：
+- memory
+- iOS
+- web stage
+- auth
+- persona presets
+- docs / ops / scripts
+- 语音 provider / 边角体验
+
+会得到一个典型坏结果：
+**每周都很忙，但每月都没有一个真正能证明 Remi 不是玩具的高光版本。**
+
+## 当前阶段判断
+
+### 已经确认成立的部分
+- ✅ `memory/memory_agent.ts::retrievePromptMemory()` 已优先走 `episodeStore.findRelevant()`；召回失败时安全回退到 snapshot episode
+- ✅ `server/session/index.ts::fireSilenceNudge()` 已优先走 `proactive_planner.planProactiveNudge()`；planner 失败时安全回退到 legacy nudge plan
+- ✅ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
+- ✅ 真实 WS 文本会话验收已通过：`episodes` 在真实连接上稳定写入并合并
+- ✅ 文本链路已补第一版语气稳定性基础设施：`tone contract` 进入 prompt 主链路，文本回复新增轻量 `assistanty` review
+- ✅ 已接入第一版结构化回合解释层：`TurnInterpretation -> ResponsePolicy` 进入文本主链路与语音候选点
+- ✅ 4.19 已落地 Web 端 `tts_lip_sync` 传输、lip timeline 解析与 `MicTxGate`，说明口型 cue / mic pre-gate 已经不是口号
+- ✅ Web / iOS 鉴权底座、缓存隔离和 session identity 已经有可运行骨架
+
+### 当前真正缺的部分
+1. **严肃场景承接**
+   - 轻松闲聊、睡前陪伴、故事感对话已有表层魅力
+   - 但用户一旦进入现实压力、财务压力、自责或委屈，系统仍可能轻飘、失焦或承接错位
+2. **默认人格稳定**
+   - 现在的问题不是 persona 不够多，而是同一个默认人格还不够稳
+3. **Web 在场感统一**
+   - 语音、口型、表情、播放态、idle 态已经有零件，但还没形成统一“她在”的感觉
+4. **10 分钟体验可靠性**
+   - 目前仍更像“会聊天的系统原型”，而不是“一个你愿意回来见的人”
+
+## 当前明确的执行取舍
+
+### 现在主线只做什么
+1. **默认人格稳定**
+   - 收口口气、追问方式、边界感、安慰方式
+   - 不再继续扩 persona presets 作为主价值
+2. **严肃场景承接**
+   - 优先修：事实承接错、情绪误判、场景切换失败、严肃时刻轻浮
+3. **Web 在场感**
+   - 说话态、停顿态、被打断态、口型和音频播放时间线统一
+4. **10 分钟体验压测**
+   - 睡前陪聊
+   - 日常碎聊
+   - 现实压力倾诉
+
+### 当前主动降级的方向
+- ⏸ iOS 新功能扩张（保底，不抢主线）
+- ⏸ 多端连续性产品化闭环
+- ⏸ 大而全 persona preset 扩展
+- ⏸ adult-mode / 边缘玩法扩展
+- ⏸ 与当前主线无关的大量 docs / ops / infra 美化
+- ⏸ “每条线都推进一点”的并行模式
+
+## 当前状态（保留的事实）
 
 ### Memory V2 基础设施（已完成）
 - ✅ `llm/embedding_client.ts`：OpenAI 兼容 embedding 客户端（nomic-embed-text, 768 维）
@@ -32,98 +104,77 @@ Memory V2 验收收尾与观察期（当前真实质量观察因样本不足处�
 - ✅ `brains/slow_brain_store.ts`：getSnapshot() 派生缓存 memoize
 - ✅ 22+ 单测全部通过
 
-### 当前状态
-- ✅ `memory/memory_agent.ts::retrievePromptMemory()` 已优先走 `episodeStore.findRelevant()`；召回失败时安全回退到 snapshot episode
-- ✅ `server/session/index.ts::fireSilenceNudge()` 已优先走 `proactive_planner.planProactiveNudge()`；planner 失败时安全回退到 legacy nudge plan
-- ✅ 观察期补强第一轮已落地：V2 recall / proactive 成功路径都会回写 `last_referenced_at`，prediction-only 保持只读；latency trace 也已能记录 `episodeRecallSource / episodeRecallIds / episodeReferenceApplied / episodeRecallFallback`
-- ✅ `episode` lifecycle 第一版已落地，并通过 `REMI_EPISODE_LIFECYCLE_ENABLED` 控制：`active / cooling / resolved` 与 `unresolved` 同步，开始解决“episode 只积累、不收口”的问题；默认仍关闭，这仍只是状态机接通，不等于真实多天关系质量已经验收
-- ✅ 短期显式 `workingMemory` 已接入文本主链路：作为独立 `【当前上下文】` prompt block 注入，并通过 relationship-state payload 做 reconnect 恢复；当前受 `REMI_WORKING_MEMORY_ENABLED` 控制，默认仍关闭。它解决的是“当前这几轮到底在处理什么”更稳定，不是 full cross-device continuity
-- ✅ 人格 live state 已补第一版 `relationalStance`：由 slow brain relationship / proactive state 派生 `boundary / soothingStyle / proactiveCadence / expressionDirectness`，并注入 persona prompt；这解决的是“同一个人怎么接”的稳定性，不是“更会写人设文案”。当前仍只是轻量姿态层，不是长期自我模型
-- ✅ `llm/embedding_client.ts` 已绕开 LM Studio / OpenAI SDK 兼容问题；直接请求本地 endpoint，并强校验 768 维
-- ✅ embedding 依赖已补运行时健康快照与降级观测：配置缺失 / endpoint 不可达 / 维度异常时，slow brain 写路径与 prompt recall 回退都会打结构化告警；这解决的是“静默退化看不见”，不等于已经建立生产级 embedding 健康治理
-- ✅ 访问链路已收口：远程域名要求 JWT token，本机回环地址允许无 token 调试
-- ✅ `REMI_ACCESS_PASSWORD` 与 JWT 共存时，持有效 token 的请求可直通，不再被 access-cookie 门禁误拦
-- ✅ Web 身份底座已补第一版 Clerk 接入口：服务端认证模式现支持 `disabled / legacy_jwt / clerk`，Web 主入口已可走 Clerk magic-link 登录并把 session token 透传到 WS；同时保留 legacy query token / mobile dev key 兼容。这推进的是“同一用户跨端进入时能落到同一内部 UUID”，不是 Memory V2 主线程本身，也不等于多端连续性已经产品级验收
-- ✅ iOS 正式登录第一版已接上：`ios/RemiChatLite` 现已接 Clerk iOS SDK / `AuthView` 登录 gate，聊天 WS 会优先带 Clerk session token 建连，本地缓存也已优先按 Clerk user id 分桶；同时仍保留 legacy JWT / mobile dev key 作为内测与本地兜底。这推进的是“iOS 不再停留在临时 token 方案”，不是多端连续性或账号系统已经完整验收
-- ✅ Web / 本地运行口径已补一层真正隔离：`npm run dev` 现在默认监听 `localhost:3001` 并优先吃 `.env.localhost`，`npm run prod:local:start` 继续监听 `localhost:3000` 并优先吃 `.env.local-prod`；Cloudflare Tunnel 目标不再和本地开发抢同一个端口。这解决的是“开发环境和正式登录验收互相污染”，不是更高级的部署形态
-- ✅ local-prod 脚本语义已收口：`prod:local:start` 现在只启动已有镜像，`prod:local:build` / `prod:local:rebuild` 负责显式重建；同时补了 `.dockerignore`，避免每次 local-prod 启动继续把 `node_modules / web/.next / .git` 这类本地大目录无意义打进 Docker context。它解决的是“本地 production-like 验证被默认 rebuild 和超大 context 拖慢”，不是已经做成更成熟的部署系统
-- ✅ 本地 Memory V2 验证口径已进一步收口：`npm run dev` 在检测到 `DATABASE_URL` / `REDIS_URL` 时会先自动拉起 `postgres` / `redis`，避免继续把“DB 根本没连上”的降级态误当成主线程 runtime；如果 Docker 不可用，可显式设 `REMI_DEV_AUTO_STORAGE=0` 退回无存储模式，但那时必须明确标注“不是完整 Memory V2 运行口径”
-- ✅ 本地 dev / local-prod 默认 TTS 已切回 `edge`；`volc` 配置仅保留注释入口，不再作为默认声线链路。它解决的是“额度耗尽时每轮都先 403 再 fallback，把语音体验和首音频延迟一起拖坏”，不是最终长期声线方案
-- ✅ 前端本地聊天缓存已按 token `id` 隔离；无 token 继续使用默认缓存（保留开发者本地历史）
-- ✅ iOS v0（文本）内测基线已建立：`ios/RemiChatLite` 具备 WS 文本流式、自动重连、Clerk session token 优先鉴权、legacy JWT / dev-key 兜底，以及按 Clerk/JWT user-id 本地缓存隔离
-- ⏳ iOS 语音链路仍未验收通过：此前真机反馈是“无转文字、无回复反应”；本轮已把 iOS 前端语音入口拆成独立 `按住说话` 与实验性 `duplex` 按钮，并让 `duplex` 进入独立 full-screen voice demo scene，作为后续 3D Rem / voice mode 的壳；录音/TTS 也已收口到共享 `AVAudioSession`，前端本地不再天然把录音和播报互相打死。最新又沿关键路径补了两层收口：一是 iOS 端 stop/drain 时序修复，PCM 改为串行发送队列，`duplex_stop` 会短暂等待尾包发送，避免 stop 抢在末尾音频之前把服务端输入直接截断；二是服务端开始区分 `push_to_talk` 与开放式 `duplex`，对 `push_to_talk` 放宽弱语音/no-preview/no-VAD fallback 抑制，避免把显式按住说话的低能量 iPhone 输入整段吞掉。现阶段这只能说明代码级主怀疑点已继续收口，不代表真机上的回声消除、转写稳定性和打断体验已经成立。除该点外，iOS 文本/连接/鉴权/缓存主链路已基本打通。现阶段不要把 iOS 端语音输入误判为稳定可用能力
-- ✅ 写路径后端已直连验证通过：`runSlowBrain -> episodeStore.ingest -> Postgres episodes` 能落表
-- ✅ 真实 WS 文本会话验收已通过：`episodes` 在真实连接上稳定写入并合并，同主题 `recurrence_count` 持续增长；本轮未再出现 `dev-user` UUID 查询报错或 `192 -> 768` embedding 降级
-- ✅ 浏览器/UI 层 workingMemory text spot-check 已补第二轮：在正确的本地 `3001` 进程并显式打开 `REMI_WORKING_MEMORY_ENABLED` 后，真实浏览器文本样本已观察到 `currentContextChars = 109 / 116 / 113`，覆盖“决策题 -> 现实约束更新 -> reload/reconnect 后继续追问”三段，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-19.md`
-- ⚠️ 上面这条只能证明 Web 默认文本链路里的 `【当前上下文】` 注入和 reconnect 承接成立；它不是 full browser 回归，更不是语音 / duplex 验收
-- ✅ V1 旧 episode 派生主路径已收口：`buildEpisodes` / `buildTopicThreads` 已移出主派生链；旧 `PersistentEpisode` JSON 已停写，仅保留向后兼容读取；`memory_agent` / `RemiSessionContext` / `slow_brain_store` 主要读取侧已转向直接消费 `sharedMoments`
-- ✅ 文本链路已补第一版语气稳定性基础设施：`tone contract` 进入 prompt 主链路，文本回复新增轻量 `assistanty` review，且已有初始 eval fixture
-- ✅ 已接入第一版结构化回合解释层：`TurnInterpretation -> ResponsePolicy` 进入文本主链路与语音预判/最终转写候选点；当前规则层开始从“决定回复方向”降级为 fallback / guard，而不是继续堆主解释逻辑
-- ✅ 文本/语音主链路已补分段延迟指标：`memory_recall_ms`、`structured_turn_analysis_ms`、`input_to_llm_request`、`input_to_llm_first_token` 已进入统一 latency trace；同时已收紧 prompt budget（history / priority context / prompt memory）
-- ✅ 已补 Memory V2 启发式审计工具：`npm run memory:v2:audit -- --user <user-id>` 可从真实 `episodes + messages` 生成 `mergeSuspectRate / duplicateLineRate / unresolvedHitRate / repeatedResurfaceRate` 报告。它的价值是把“只看落表”推进到“开始看质量”，但它仍只是观察工具，不构成体验验收证明
-- ✅ `2026-04-18` 观察期第二轮补强已落地：`episode_store` 已补“宽 episode 不再继续跨 topic 吞并”的守门，`findRelevant()` 已开始压制“宽 topic + 刚被提过 + 当前 query 没锚点”的统治型召回，`memory_agent` 也不再让低 rank core 回填 prompt，且低权重混合-topic active episode 不再被轻易抬成 `长期关系主线`
-- ✅ `2026-04-18` 存量治理最小工具已落地：`npm run memory:v2:hygiene -- --user <user-id> [--lang zh] [--apply]` 现可对历史 `episode` 做 dry-run / apply 级别的归档候选筛查；当前只内置中文规则包，但接口按 language pack 组织，后续可以增补多语言规则而不改 recall 主逻辑。第一版只做 `status='archived'` + `unresolved=false`，不删库；默认召回与相似 episode 搜索也已排除 archived，避免存量脏 episode 继续污染 prompt
-- ⚠️ 这不等于 Memory V2 质量已经验收：当前真实样本里 `repeatedResurfaceRate` 已从 `0.923` 降到 `0`，说明“同一脏 episode 反复霸榜”的问题明显收住；但 `duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在，当前只是“停止继续恶化 + 收窄 prompt 放大器”，不是“历史污染已清理”
-- ⚠️ 当前继续推进“Memory V2 真实质量观察”的前提暂时不足：本地/开发环境缺少新的可审计 `episodes` 与足够多样的真实用户样本；如果继续围绕 `audit / hygiene` 扩工具，只会得到低信号 proxy 结论，而不是新的真实产品判断。现阶段应把这项降级为 `observe / blocked`，保留工具 readiness，等新数据到位后再重启
-- ✅ latency / turn-taking 证据链已补到样本级：trace 现可携带 `scenarioKey`、`sessionId`、`releaseReason`、`releaseStableMs`、`prosodyApplied`、`usedNoVadFallback`、`previewText` / `finalTranscript` 摘要、关键 `turnState` 转移与 `interruptionType`；`duplex_soak_report` 也已新增浏览器 duplex 的 3 个验收场景、最小 trace 数门槛、`p50/p95` 对比、误判 taxonomy 与样本表
-- ✅ 已补一条窄时间问答能力：直接时间问题（`现在几点` / `今天几号` / `今天星期几`）会优先按客户端上报的用户时区直答；拿不到有效客户端时区时再回退服务器时区；但这仍不等于“完整时间概念”，当前没有相对时间推理和泛化时间感
-- ✅ 已补第一版按日期回顾聊天能力：显式问题（`今天/昨天/前天/4月14号我们聊了什么`）会优先按用户时区把日期解析成自然日范围，直接查原始 `messages` 做受控摘要，而不是让 memory / LLM 去猜；当前仍不支持 `上周/最近几天/整个月` 这类宽时间范围
-- ✅ `stt_final` 已补一层轻量热词级局部同音纠偏：固定词表驱动、默认关闭、词表失败时直接回退原始 transcript，并且命中纠偏时会关闭当轮 prediction reuse，避免 partial 错词继续污染 final transcript；但这仍只覆盖项目名 / 人名 / 术语等已知热词，不等于通用 STT 消歧能力
-- ⏳ turn-taking 已接入第一版实验性 prosody 旁路：`TURN_PROSODY_ENABLED` 当前默认开启，仅在边界处用 `pitch slope / voiced tail / tail energy drop` 修正 HOLD/LIKELY_END；当前已改为本地轻量 F0 检测实现，不再依赖外部 GPL pitch 库；单测与 duplex 回归已覆盖 rising tail / falling tail / no-VAD 观测，但还没有共享环境或真机上的长时间观察数据
-- ✅ 当前延迟判断已更清楚：普通文本回合预处理约 `157ms`，决策类文本回合预处理约 `188ms`（其中结构化解释约 `182ms`）；当前主瓶颈仍主要是主模型首 token，不再是“结构化解释把所有文本都拖住”
-- ✅ 普通文本 fast path 已做 `priorityContext` 分层：普通文本只保留最多 3 个高价值动态块；最新探针里普通文本 `priorityChars` 已降到 `320`、`slowBrainContextChars` 为 `0`，首 token 约 `3.89s`
-- ✅ 分析路径也已改成“精选动态块”而不是整段 `slowBrainContext` 灌入：决策类样本 `priorityChars` 已从约 `2694` 降到 `388`、`slowBrainContextChars` 为 `0`、`systemChars` 降到 `1103`，首 token 从约 `10.9s` 降到 `4.13s`
-- ⚠️ 常驻 `systemChars` 又收了一轮（最小样本约 `478 -> 449`），但真实 TTFT 没有稳定跟着下降；最新普通文本样本甚至飘到 `17.5s`，决策样本 25s 内没出首 token。结论是：继续死磕静态 prompt 已进入明显收益递减区，当前更大的现实问题是模型首 token 波动和运行时稳定性
-- ✅ 资源监控已改口径：内存告警不再看 `heapUsed / heapTotal` 这种误导指标，而是改看进程 `rss`、`heapUsed / heapLimit` 和告警节流；当前旧日志里的 “97%/98%” 不应再被当作“服务快 OOM”的证据
+### Runtime / voice / auth 当前状态
+- ✅ Web 身份底座已补第一版 Clerk 接入口
+- ✅ iOS 正式登录第一版已接上：`ios/RemiChatLite` 现已接 Clerk iOS SDK / `AuthView` 登录 gate
+- ✅ iOS v0（文本）内测基线已建立：WS 文本流式、自动重连、Clerk session token 优先鉴权、legacy JWT / dev-key 兜底，以及按 Clerk/JWT user-id 本地缓存隔离
+- ⏳ iOS 语音链路仍未验收通过；现阶段不要把 iOS 端语音输入误判为稳定可用能力
+- ✅ `stt_final` 已补一层轻量热词级局部同音纠偏
+- ⏳ turn-taking 已接入第一版实验性 prosody 旁路，但仍缺长时间真实 noisy 样本
+- ✅ 4.19 新增 `tts_lip_sync` 传输、Edge metadata 解析、Web lip timeline 与 `MicTxGate`
+- ⚠️ 这些说明“链路已写通”，不等于“体感已成熟”
 
-### 下一步
-1. **Memory V2 真实质量观察（暂缓 / blocked）**：当前缺少新的可审计 `episodes` 和足够多样的真实用户样本；继续硬推只会产生低信号 proxy 结论，而不是新的真实产品判断
-   现在该做的是保留 `memory:v2:audit / hygiene` readiness，不再继续为“验证而验证”扩工具；等有新的真实 `episodes` / 多用户样本后，再恢复抽样人工复核、按样本 apply 和复跑审计
-2. **embedding 健康门槛**：基于现有健康快照与降级告警，补最低可运行门槛和更稳定的日志/观察口径，否则人格连续性仍会在环境缺失时静默掉级；这比继续围绕已通过的 browser text spot-check 打转更值得做
-3. **浏览器 duplex 实采 / runtime spot-check**：当前 `p50/p95 + 误判样本` 主要还是工具链和回归口径，仍缺更多真实浏览器 duplex trace 与人工复核；在拿到更新鲜的 noisy 样本前，不要把 turn-taking 说成“已基本稳定”
-4. **iOS 内测验收**：按 `ios/RemiChatLite/checklists/IOS_V0_TESTFLIGHT_CHECKLIST.md` 完成 5 人 TestFlight 文本基础闭环；实验性 duplex voice 单独跟踪，不计入本轮 v0 done
-5. **T-040**：情绪推断 + 多维表情协议（可并行，不抢主线程）
-6. **延迟收口**：先别继续深挖静态 prompt 压缩；重点转向模型侧波动、本地模型预设和运行时稳定性（尤其是高内存与首 token 波动）
-7. **语气/理解观察期**：继续收集“回答优先级、现实约束更新、场景承接、边界尊重”真实 bad cases；本轮已补 `不要一直问我` / `你又不会帮我做` 一类样本，但还不代表整条线稳定
-8. **STT 热词词表观察**：先用真实语音对话收集 10-20 个最痛热词错例，验证轻量词表纠偏的收益；在出现明确开放域 bad case 之前，不建议把它扩成上下文推断或 LLM 纠错
+## 下一步
+
+1. **坏样本归类与默认人格承接修正**
+   - 从真实聊天中抽取最痛 bad cases
+   - 分类：事实承接错 / 情绪误判 / 场景切换失败 / 严肃时刻轻浮
+   - 先修默认人格的 response policy / tone contract / structured interpretation
+2. **Web 在场感收口**
+   - 角色 idle / speaking / listening 状态统一
+   - 音频、口型、表情、turn state 不互相打架
+3. **10 分钟体验压测**
+   - 睡前陪聊
+   - 日常碎聊
+   - 压力倾诉
+   - 目标不是“更强”，而是“更少出戏”
+4. **embedding 健康门槛**
+   - 避免环境缺失时人格连续性静默掉级
+5. **浏览器 duplex 实采 / runtime spot-check**
+   - 当前仍缺更多真实浏览器 duplex/noisy 样本
+6. **iOS 仅保底**
+   - 继续保持文本/鉴权/缓存链路可验收
+   - 不让新功能抢走 Web 主线资源
 
 ## 自动推进规则
 
-默认推进顺序：
-1. `R-V2.1-01` 验证写路径
-2. `R-V2.1-02` 切读路径
-3. `R-V2.1-03` 接 proactive planner
-4. `R-V2.1-04` 清理 V1 旧路径
+默认推进顺序改为：
+
+1. **Web 默认人格稳定**
+2. **Web 严肃场景承接**
+3. **Web 在场感统一**
+4. **10 分钟体验压测**
+5. **在主线稳定后，再恢复 iOS / 多端 / 额外 persona 扩展**
 
 推进规则：
 - 当前步骤未达到 Exit Criteria 前，不自动跳下一步
 - 当前步骤 `blocked` 时，先在 `TASKS.md` 标注阻塞原因，再转向并行任务
 - 每完成一步，必须同步更新 `TASKS.md` 的 `Current Execution Board`
-- 只有 `R-V2.1-01 ~ R-V2.1-04` 全部为 `done`，才允许切换主线程
+- 当前主线程下，不再让 iOS、多端闭环、persona 扩展抢走执行板顶部位置
 
 ## 这条主线程和终极目标的关系
 
-当前不是在单独优化“数据库里的记忆结构”。
-当前是在补 Remi 的“持续存在感”：
+当前不是放弃北极星。
+恰恰相反，当前是在回答一个更根本的问题：
 
-- 用户下次回来时，她还能像同一个人一样接上
-- 她记得的不只是事实，还包括关系主线、未完结话题、情绪轨迹
-- 这些连续性必须进入 prompt 和主动策略，但不能拖慢实时对话
+**为什么在人人都能直接找通用 AI 聊天的时代，用户还会回来找 Remi？**
+
+只有当 Web 单端里先出现下面这件事，北极星才有继续投入的价值：
+
+- 用户不是因为“她也挺聪明”回来
+- 而是因为“我想回来见她”回来
 
 所以判断当前任务价值时，优先问：
-
-- 这是不是让 Remi 更像同一个人持续活着？
-- 这会不会破坏她像真人一样即时接话？
+- 这是不是让用户更容易把 Remi 当成“她”，而不是“一个系统”？
+- 这是不是让她在严肃时刻更可靠？
+- 这是不是在增强固定人格、关系连续性和在场感？
 
 ## 当前非目标
-- 不先做前端口型同步（T-032）
-- 不先做前端 emoji 展示（T-035.5）
-- 不做 V1 episode 路径的强制删除（等读路径切完后自然清理）
-
-## 环境变量新增（Memory V2）
-- `REMI_EMBEDDING_BASE_URL` — embedding 服务地址（如 `http://localhost:11434/v1`）
-- `REMI_EMBEDDING_API_KEY` — API key（Ollama 可填任意值）
-- `REMI_EMBEDDING_MODEL` — 模型名（默认 `nomic-embed-text`）
+- 不把 iOS 新功能作为主线
+- 不把多端持续在线产品化闭环作为本阶段主线
+- 不继续扩 persona preset 数量
+- 不把 adult-mode / 边缘玩法当成当前产品突破口
+- 不因为底层已接通，就把体验直接宣布为成熟
 
 ## 执行规则
 - 当前主线程内的代码任务做完后，必须回写对应任务文档状态
