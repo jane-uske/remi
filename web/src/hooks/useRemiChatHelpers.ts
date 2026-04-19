@@ -43,12 +43,17 @@ export function buildClientContextPayload(): {
   type: "client_context";
   timeZone?: string;
   locale?: string;
+  ttsTransport: "pcm_stream_v1";
 } {
   const payload: {
     type: "client_context";
     timeZone?: string;
     locale?: string;
-  } = { type: "client_context" };
+    ttsTransport: "pcm_stream_v1";
+  } = {
+    type: "client_context",
+    ttsTransport: "pcm_stream_v1",
+  };
 
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
   if (timeZone) {

@@ -111,7 +111,9 @@ describe("web auth identity helpers", () => {
     };
 
     try {
-      expect(getRemWsUrl()).to.equal("ws://127.0.0.1:3001/ws");
+      expect(getRemWsUrl()).to.equal(
+        "ws://127.0.0.1:3001/ws?client=web&tts_transport=pcm_stream_v1",
+      );
     } finally {
       if (previousWindow === undefined) {
         delete global.window;

@@ -110,4 +110,37 @@ describe("session client context wiring", () => {
       restore();
     }
   });
+
+  it("accepts matching web transport from client_context without logging a mismatch", () => {
+    const logs = [];
+    const { ws, session, restore } = loadSessionHarness({
+      reqUrl: "/ws?client=web&tts_transport=pcm_stream_v1",
+      captureLogs: logs,
+    });
+    try {
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({
+            type: "client_context",
+            timeZone: "Asia/Shanghai",
+            locale: "zh-CN",
+            ttsTransport: "pcm_stream_v1",
+          }),
+        ),
+      );
+
+      assert.equal(session.getResolvedTtsTransport(), "pcm_stream_v1");
+      assert.equal(session.clientContextTtsTransport, "pcm_stream_v1");
+      assert.equal(
+        logs.some(
+          (entry) =>
+            entry.level === "warn" &&
+            entry.message === "[ClientContext] tts transport mismatch",
+        ),
+        false,
+      );
+    } finally {
+      restore();
+    }
+  });
 });

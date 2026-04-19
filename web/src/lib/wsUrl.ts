@@ -48,6 +48,21 @@ function rewriteLoopbackEnvWsUrl(rawUrl: string): string {
   }
 }
 
+function appendWebClientParamsToWsUrl(wsUrl: string): string {
+  try {
+    const url = new URL(wsUrl);
+    if (!url.searchParams.get("client")) {
+      url.searchParams.set("client", "web");
+    }
+    if (!url.searchParams.get("tts_transport")) {
+      url.searchParams.set("tts_transport", "pcm_stream_v1");
+    }
+    return url.toString();
+  } catch {
+    return wsUrl;
+  }
+}
+
 export function appendTokenToWsUrl(wsUrl: string, token?: string | null): string {
   if (typeof window === "undefined" && !token) return wsUrl;
   const resolvedToken =
@@ -71,11 +86,17 @@ export function getRemWsUrl(sessionToken?: string | null): string {
   const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
   if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
     const normalized = normalizeEnvWsUrl(fromEnv);
-    return appendTokenToWsUrl(rewriteLoopbackEnvWsUrl(normalized), sessionToken);
+    return appendTokenToWsUrl(
+      appendWebClientParamsToWsUrl(rewriteLoopbackEnvWsUrl(normalized)),
+      sessionToken,
+    );
   }
   if (typeof window === "undefined") return "";
 
   const protocol = browserWsProtocol();
 
-  return appendTokenToWsUrl(`${protocol}://${window.location.host}/ws`, sessionToken);
+  return appendTokenToWsUrl(
+    appendWebClientParamsToWsUrl(`${protocol}://${window.location.host}/ws`),
+    sessionToken,
+  );
 }
