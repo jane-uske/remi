@@ -1,0 +1,12 @@
+node_modules
+web/node_modules
+web/.next
+web/.next-dev
+.git
+artifacts
+dist
+coverage
+.cloudflared
+.DS_Store
+.env
+.env.local*

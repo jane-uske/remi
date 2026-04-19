@@ -37,8 +37,14 @@
 # 检查配置完整性
 npm run prod:local:check
 
-# 启动本机生产化栈
+# 首次构建 / 改了前后端代码后，重做当前 local-prod 镜像
+npm run prod:local:build
+
+# 启动已有 local-prod 镜像（不会自动重建）
 npm run prod:local:start
+
+# 改了业务代码、Dockerfile、依赖或 NEXT_PUBLIC_* 后，直接重建并启动
+npm run prod:local:rebuild
 
 # 停止
 npm run prod:local:stop
@@ -49,6 +55,12 @@ npm run prod:local:stop
 端口职责：
 - `localhost:3000`：local-prod / tunnel 入口
 - `localhost:3001`：本地开发入口（`npm run dev`）
+
+语义边界：
+- `prod:local:start` 只启动已有镜像；如果镜像不存在或你刚改过代码，它不会偷偷帮你重建
+- `prod:local:build` 用当前代码构建新的 local-prod app 镜像，但不启动容器
+- `prod:local:rebuild` 适合“我改了代码，现在要重新做一遍 production-like 验证”
+- 改后端代码、前端代码、依赖、`Dockerfile` 或 `NEXT_PUBLIC_*` 时，只重启不够，必须至少重新 `build`
 
 ## 4. Persistence boundary (must keep)
 

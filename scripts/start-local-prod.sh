@@ -15,9 +15,18 @@ fi
 
 node ./scripts/ensure_local_whisper_host.cjs "$ENV_FILE"
 
-./scripts/check-local-prod.sh
+if ! node ./scripts/local_prod_config_check.cjs "$ENV_FILE"; then
+  exit 1
+fi
 
-REMI_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f docker-compose.local-prod.yml up -d --build
+if ! REMI_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f docker-compose.local-prod.yml up -d --no-build; then
+  echo "Local production app image is missing or stale."
+  echo "Run: npm run prod:local:build"
+  echo "After code changes, use: npm run prod:local:rebuild"
+  exit 1
+fi
+
+./scripts/check-local-prod.sh
 
 echo "Local production stack started."
 echo "App: http://127.0.0.1:${PROD_PORT}"

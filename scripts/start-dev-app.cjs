@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
 const { resolveDevEnvFile, resolveDevPort } = require("./env_files.cjs");
+const { ensureDevStorage } = require("./dev_storage_bootstrap.cjs");
 
 const envFile = resolveDevEnvFile();
 
@@ -166,6 +167,24 @@ function stopExistingRepoServer() {
 
 if (!skipAutoKill) {
   stopExistingRepoServer();
+}
+
+try {
+  const plan = ensureDevStorage({
+    env: process.env,
+    envFile,
+    cwd: repoRoot,
+  });
+  if (plan.enabled) {
+    console.log(`[dev:app] storage ready: ${plan.services.join(", ")}`);
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[dev:app] failed to bootstrap storage dependencies: ${message}`);
+  console.error(
+    "[dev:app] If you intentionally want to run without Postgres/Redis, set REMI_DEV_AUTO_STORAGE=0.",
+  );
+  process.exit(1);
 }
 
 const nodemonBinary = path.resolve(repoRoot, "node_modules/.bin/nodemon");

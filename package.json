@@ -25,6 +25,8 @@
     "tunnel:start": "./scripts/start-cloudflare-tunnel.sh",
     "prod:local:start": "./scripts/start-local-prod.sh",
     "prod:local:stop": "./scripts/stop-local-prod.sh",
+    "prod:local:build": "./scripts/build-local-prod.sh",
+    "prod:local:rebuild": "./scripts/rebuild-local-prod.sh",
     "prod:local:check": "./scripts/check-local-prod.sh",
     "prod:local:reset-demo-users": "node scripts/reset-demo-users.mjs",
     "logs:data-entry": "node scripts/log_data_analysis_entry.cjs",
