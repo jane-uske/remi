@@ -2,7 +2,7 @@ import Foundation
 
 enum RemiChatConfig {
     // Set these in Xcode Scheme -> Run -> Environment Variables.
-    // REMI_IOS_WS_URL, REMI_IOS_JWT, REMI_IOS_MOBILE_DEV_KEY
+    // REMI_IOS_WS_URL, REMI_IOS_AUTH_MODE, REMI_IOS_CLERK_PUBLISHABLE_KEY, REMI_IOS_JWT, REMI_IOS_MOBILE_DEV_KEY
     private static var baseWsURLString: String {
         ProcessInfo.processInfo.environment["REMI_IOS_WS_URL"] ?? "ws://127.0.0.1:3000/ws"
     }
@@ -12,6 +12,13 @@ enum RemiChatConfig {
 
     static var wsURLString: String {
         resolvedWebSocketURL()?.absoluteString ?? baseWsURLString
+    }
+
+    static var authRuntimePolicy: RemiAuthRuntimePolicy {
+        RemiAuthRuntimePolicy.resolve(
+            authModeRaw: ProcessInfo.processInfo.environment["REMI_IOS_AUTH_MODE"],
+            clerkPublishableKeyRaw: ProcessInfo.processInfo.environment["REMI_IOS_CLERK_PUBLISHABLE_KEY"]
+        )
     }
 
     static var jwtToken: String? {
@@ -41,7 +48,7 @@ enum RemiChatConfig {
         var items = components.queryItems ?? []
         appendQueryItemIfMissing(name: "client", value: clientFamily, into: &items)
         appendQueryItemIfMissing(name: "tts_transport", value: declaredTtsTransport, into: &items)
-        if let jwtToken {
+        if shouldAppendLegacyJwtToQuery, let jwtToken {
             appendQueryItemIfMissing(name: "token", value: jwtToken, into: &items)
         }
         components.queryItems = items.isEmpty ? nil : items
@@ -88,5 +95,9 @@ enum RemiChatConfig {
             return
         }
         items.append(URLQueryItem(name: name, value: value))
+    }
+
+    private static var shouldAppendLegacyJwtToQuery: Bool {
+        !authRuntimePolicy.clerkEnabled
     }
 }

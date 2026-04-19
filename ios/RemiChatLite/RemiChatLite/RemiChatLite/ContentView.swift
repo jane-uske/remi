@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct ChatView: View {
-    @StateObject private var store = RemiChatStore()
+    @ObservedObject var store: RemiChatStore
+    let identityKey: String
+    let showSignOutButton: Bool
+    let onSignOut: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isInputFocused: Bool
     @State private var isPushToTalkPressing = false
@@ -44,6 +47,9 @@ struct ChatView: View {
             }
         }
         .onAppear { store.start() }
+        .onChange(of: identityKey) { _, _ in
+            store.restartForIdentityChangeIfNeeded()
+        }
         .onDisappear { store.stop() }
         .fullScreenCover(isPresented: $isShowingDuplexDemo, onDismiss: {
             store.exitDuplexMode()
@@ -124,12 +130,24 @@ struct ChatView: View {
 
             Spacer(minLength: 10)
 
-            Text(statusPillTitle)
-                .font(.system(size: 10, weight: .regular, design: .rounded))
-                .foregroundStyle(primaryTextColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(.white.opacity(colorScheme == .dark ? 0.07 : 0.30), in: Capsule())
+            HStack(spacing: 8) {
+                Text(statusPillTitle)
+                    .font(.system(size: 10, weight: .regular, design: .rounded))
+                    .foregroundStyle(primaryTextColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.white.opacity(colorScheme == .dark ? 0.07 : 0.30), in: Capsule())
+
+                if showSignOutButton, let onSignOut {
+                    Button("Sign Out", action: onSignOut)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(primaryTextColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.white.opacity(colorScheme == .dark ? 0.07 : 0.24), in: Capsule())
+                        .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -1079,5 +1097,10 @@ private struct DuplexVoiceDemoView: View {
 }
 
 #Preview {
-    ChatView()
+    ChatView(
+        store: RemiChatStore(authSource: RemiRuntimeAuthSource.shared),
+        identityKey: "preview-user",
+        showSignOutButton: false,
+        onSignOut: nil
+    )
 }

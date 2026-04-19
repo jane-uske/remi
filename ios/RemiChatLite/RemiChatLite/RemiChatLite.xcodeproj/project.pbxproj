@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		6C5D1A4A4F0E4012A9A0C101 /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6C5D1A4A4F0E4012A9A0C111 /* ClerkKit */; };
+		6C5D1A4A4F0E4012A9A0C102 /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6C5D1A4A4F0E4012A9A0C112 /* ClerkKitUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		579B01F92F8E75C500BD37C5 /* RemiChatLite.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemiChatLite.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6C5D1A4A4F0E4012A9A0C101 /* ClerkKit in Frameworks */,
+				6C5D1A4A4F0E4012A9A0C102 /* ClerkKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = RemiChatLite;
 			packageProductDependencies = (
+				6C5D1A4A4F0E4012A9A0C111 /* ClerkKit */,
+				6C5D1A4A4F0E4012A9A0C112 /* ClerkKitUI */,
 			);
 			productName = RemiChatLite;
 			productReference = 579B01F92F8E75C500BD37C5 /* RemiChatLite.app */;
@@ -94,6 +103,9 @@
 			);
 			mainGroup = 579B01F02F8E75C500BD37C5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6C5D1A4A4F0E4012A9A0C110 /* XCRemoteSwiftPackageReference "clerk-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 579B01FA2F8E75C500BD37C5 /* Products */;
 			projectDirPath = "";
@@ -123,6 +135,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6C5D1A4A4F0E4012A9A0C110 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.9;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6C5D1A4A4F0E4012A9A0C111 /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6C5D1A4A4F0E4012A9A0C110 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
+		6C5D1A4A4F0E4012A9A0C112 /* ClerkKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6C5D1A4A4F0E4012A9A0C110 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKitUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		579B02022F8E75C700BD37C5 /* Debug */ = {

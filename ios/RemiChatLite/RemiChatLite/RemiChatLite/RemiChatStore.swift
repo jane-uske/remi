@@ -37,6 +37,7 @@ final class RemiChatStore: ObservableObject {
 
     private var socket: URLSessionWebSocketTask?
     private var shouldReconnect = false
+    private var connectTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var voiceStartTask: Task<Void, Never>?
@@ -61,8 +62,11 @@ final class RemiChatStore: ObservableObject {
     private var audioDrainTask: Task<Void, Never>?
     private var audioDrainForceDeadlineNs: UInt64?
     private var duplexTxFrameCount = 0
+    private let authSource: RemiChatAuthSource
+    private var cachedMessageBucketKey = RemiChatIdentity.defaultCacheKey
 
-    init() {
+    init(authSource: RemiChatAuthSource) {
+        self.authSource = authSource
         voiceCapture = RemiVoiceCapture(audioSession: audioSession)
         voicePlayer = RemiVoicePlayer(audioSession: audioSession)
         voicePlayer.onPlaybackStart = { [weak self] generationId in
@@ -71,16 +75,18 @@ final class RemiChatStore: ObservableObject {
         voicePlayer.onPlaybackEnd = { [weak self] generationId in
             self?.sendPlaybackEnd(generationId: generationId)
         }
-        loadCachedMessages()
     }
 
     func start() {
         shouldReconnect = true
+        reloadCachedMessagesForCurrentIdentity()
         connect()
     }
 
     func stop() {
         shouldReconnect = false
+        connectTask?.cancel()
+        connectTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         keepAliveTask?.cancel()
@@ -382,7 +388,38 @@ final class RemiChatStore: ObservableObject {
         ])
     }
 
+    func appendSystemError(_ text: String) {
+        appendMessage(ChatMessage(role: .error, text: text))
+    }
+
+    func restartForIdentityChangeIfNeeded() {
+        let nextBucketKey = RemiChatIdentity.activeCacheKey(
+            currentUserId: authSource.currentUserId,
+            jwtToken: authSource.legacyJwtToken
+        )
+        guard nextBucketKey != cachedMessageBucketKey else { return }
+
+        let shouldResumeDuplex = duplexEnabled
+        stop()
+        if shouldResumeDuplex {
+            duplexEnabled = true
+            voiceStatusCaption = Self.duplexConnectingCaption
+        }
+        start()
+    }
+
     private func connect() {
+        if let connectTask, !connectTask.isCancelled {
+            return
+        }
+        connectTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performConnect()
+            self.connectTask = nil
+        }
+    }
+
+    private func performConnect() async {
         guard let url = RemiChatConfig.resolvedWebSocketURL() else {
             appendMessage(ChatMessage(role: .error, text: "Invalid WebSocket URL"))
             connectionPhase = .closed
@@ -399,14 +436,20 @@ final class RemiChatStore: ObservableObject {
 
         var request = URLRequest(url: url)
         let authMode: String
-        if let jwt = RemiChatConfig.jwtToken {
-            request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-            authMode = "jwt"
-        } else if let mobileKey = RemiChatConfig.mobileDevKey {
-            request.setValue(mobileKey, forHTTPHeaderField: "X-Remi-Mobile-Key")
-            authMode = "mobile_dev_key"
-        } else {
-            authMode = "none"
+        do {
+            if let bearerToken = try await authSource.bearerToken() {
+                request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+                authMode = authSource.authRuntimePolicy.clerkEnabled ? "clerk" : "jwt"
+            } else if let mobileKey = authSource.mobileDevKey {
+                request.setValue(mobileKey, forHTTPHeaderField: "X-Remi-Mobile-Key")
+                authMode = "mobile_dev_key"
+            } else {
+                authMode = "none"
+            }
+        } catch {
+            appendMessage(ChatMessage(role: .error, text: "Unable to fetch auth token: \(error.localizedDescription)"))
+            connectionPhase = .closed
+            return
         }
         log("ws connect url=\(redactedWebSocketURL(url)) auth=\(authMode)")
 
@@ -994,11 +1037,11 @@ final class RemiChatStore: ObservableObject {
 
     private func persistMessages() {
         guard let data = try? JSONEncoder().encode(messages) else { return }
-        UserDefaults.standard.set(data, forKey: RemiChatIdentity.activeCacheKey(jwtToken: RemiChatConfig.jwtToken))
+        UserDefaults.standard.set(data, forKey: cachedMessageBucketKey)
     }
 
     private func loadCachedMessages() {
-        guard let data = UserDefaults.standard.data(forKey: RemiChatIdentity.activeCacheKey(jwtToken: RemiChatConfig.jwtToken)),
+        guard let data = UserDefaults.standard.data(forKey: cachedMessageBucketKey),
               let cached = try? JSONDecoder().decode([ChatMessage].self, from: data) else {
             return
         }
@@ -1006,6 +1049,22 @@ final class RemiChatStore: ObservableObject {
         historyHasMore = false
         historySource = .cache
         isShowingCachedHistory = !messages.isEmpty
+    }
+
+    private func reloadCachedMessagesForCurrentIdentity() {
+        cachedMessageBucketKey = RemiChatIdentity.activeCacheKey(
+            currentUserId: authSource.currentUserId,
+            jwtToken: authSource.legacyJwtToken
+        )
+
+        messages = []
+        historyCursor = nil
+        historyHasMore = false
+        historyLoadingMore = false
+        historySource = .cache
+        isShowingCachedHistory = false
+
+        loadCachedMessages()
     }
 
     private func deduplicatedMessages(from messages: [ChatMessage]) -> [ChatMessage] {
