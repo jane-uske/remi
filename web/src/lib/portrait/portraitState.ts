@@ -4,7 +4,11 @@ import type {
   AvatarIntent,
   RemiTurnState,
 } from "@/types/avatar";
-import type { AvatarRenderModel } from "@/runtime/avatarRenderModel";
+import type {
+  AvatarRenderModel,
+  PortraitMotionPhase,
+} from "@/runtime/avatarRenderModel";
+import { samplePortraitMotionFrame } from "@/lib/portrait/motionModel";
 
 export type PortraitPresenceState =
   | "idle"
@@ -30,9 +34,11 @@ export type PortraitState = {
 export type PortraitDisplayModel = {
   emotion: Emotion;
   presenceState: PortraitPresenceState;
+  motionPhase: PortraitMotionPhase;
   presenceLabel: string;
   companionLine: string;
   mouthLevel: number;
+  mouthLevelFloor: number;
   gaze: { x: number; y: number };
   eyeScale: number;
   breathOffset: number;
@@ -127,10 +133,6 @@ function stageCopy(
   if (emotion === "sad") return "不想硬撑的话，也可以先跟我说。";
   if (emotion === "curious") return "今天发生了什么新鲜事？";
   return "我会一直在这里接着聊。";
-}
-
-function motionFromRenderModel(renderModel: AvatarRenderModel): string {
-  return `translate3d(${renderModel.posture.translateX}px, ${renderModel.posture.translateY}px, 0) scale(${renderModel.posture.scale}) rotate(${renderModel.posture.rotateDeg}deg)`;
 }
 
 function normalizeEmotion(value?: string | null): Emotion | null {
@@ -247,6 +249,21 @@ function resolveEmphasis(input: DerivePortraitStateInput): 0 | 1 | 2 | 3 {
   return 0;
 }
 
+function resolveFallbackMotionPhase(
+  presenceState: PortraitPresenceState,
+): PortraitMotionPhase {
+  switch (presenceState) {
+    case "listening":
+      return "listening";
+    case "thinking":
+      return "thinking";
+    case "speaking":
+      return "speaking_active";
+    default:
+      return "idle";
+  }
+}
+
 // TODO(phase-3): remove once all portrait callers pass runtime render input.
 export function derivePortraitState(
   input: DerivePortraitStateInput,
@@ -286,35 +303,43 @@ export function buildPortraitDisplayModel(
     const emotion =
       normalizeEmotion(input.renderModel.emotion) ?? resolveEmotion(input);
     const presenceState = resolvePresenceStateFromRenderModel(input.renderModel);
+    const motionFrame = samplePortraitMotionFrame(
+      input.renderModel,
+      input.nowMs ?? 0,
+    );
 
     return {
       emotion,
       presenceState,
+      motionPhase: motionFrame.motionPhase,
       presenceLabel: input.renderModel.presenceLabel,
       companionLine: input.renderModel.companionLine,
       mouthLevel:
-        presenceState === "speaking" ? clamp01(input.renderModel.mouthOpen) : 0,
-      gaze: {
-        x: input.renderModel.gazeX,
-        y: input.renderModel.gazeY,
-      },
-      eyeScale: Math.max(0.78, 1 - clamp01(input.renderModel.blink)),
-      breathOffset: Math.round(input.renderModel.breath * 8),
-      motion: motionFromRenderModel(input.renderModel),
+        motionFrame.motionPhase === "speaking_active"
+          ? clamp01(input.renderModel.mouthOpen)
+          : 0,
+      mouthLevelFloor: motionFrame.mouthLevelFloor,
+      gaze: motionFrame.gaze,
+      eyeScale: motionFrame.eyeScale,
+      breathOffset: motionFrame.breathOffset,
+      motion: motionFrame.rootTransform,
     };
   }
 
   const portraitState = derivePortraitState(input);
+  const motionPhase = resolveFallbackMotionPhase(portraitState.presenceState);
 
   return {
     emotion: portraitState.emotion,
     presenceState: portraitState.presenceState,
+    motionPhase,
     presenceLabel: PRESENCE_LABELS[portraitState.presenceState],
     companionLine: stageCopy(
       portraitState.presenceState,
       portraitState.emotion,
     ),
     mouthLevel: portraitState.mouthLevel,
+    mouthLevelFloor: 0,
     gaze: GAZE[portraitState.gazeMode],
     eyeScale: eyeScaleFor(portraitState.presenceState),
     breathOffset: BREATH[portraitState.presenceState],

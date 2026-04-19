@@ -47,6 +47,12 @@
   - 涉及位置：`memory/memory_agent.ts`、`brains/brain_router.ts`、`server/session/index.ts`
   - 证据：新增 `test/memory/prompt_memory_episode_store.test.ts`
 
+- [x] **Runtime defaults** 本地验证口径与 TTS 默认值收口
+  - 已完成：`npm run dev` 现在会在默认 Memory V2 配置下先自动拉起 `postgres` / `redis`；Docker 不可用时直接报错停掉，而不是继续让 `3001` 跑在“DB/Redis 断开”的假验证态
+  - 已完成：`.env.localhost` / `.env.local-prod` 默认 TTS 已收回 `edge`；`volc` 改成手动注释入口，避免额度耗尽时继续默认走 `403 -> fallback` 坏链路
+  - 已完成：local-prod 入口已拆成 `prod:local:start / build / rebuild`；`start` 不再默认重建镜像，`.dockerignore` 也已排除 `node_modules / web/.next / .git / artifacts / dist` 等大目录，减少 production-like 本地验证的伪等待
+  - 证据：新增 `test/scripts/dev_storage_bootstrap.test.ts`、`test/scripts/local_env_defaults.test.ts`、`test/scripts/local_prod_scripts.test.ts`
+
 - [x] **R-V2.1-03** 接通 proactive planner 到主路径
   - 已完成：`fireSilenceNudge()` 已优先走 `planProactiveNudge()`，并保留 legacy plan 回退
   - 已完成：planner 选中的 V2 `episode` 在搭话成功后会补 `markReferenced()`，避免 unresolved 线只会被反复捞起、不会产生引用反馈
@@ -65,7 +71,7 @@
   - 当前状态：本地/开发环境缺少新的可审计 `episodes` 与足够多样的真实用户样本；继续围绕 `memory:v2:audit / hygiene` 扩工具，只会得到低信号 proxy 结论
   - 当前边界：保留现有 `audit / hygiene` readiness，不再为了“验证而验证”继续扩脚本或规则
   - 解锁条件：出现新的真实 `episodes` 样本，或出现足够多样的真实用户对话可供抽样人工复核
-  - 空窗期更该做：浏览器 `workingMemory` spot-check、browser duplex runtime spot-check、embedding 健康门槛
+  - 空窗期更该做：embedding 健康门槛、browser duplex runtime spot-check、iOS 内测验收
 
 ### 当前明确不优先做
 
@@ -86,7 +92,8 @@
   - 已完成：Web 主入口已接入 Clerk Provider / sign-in 页面 / client gate；聊天 WS 会优先带 Clerk session token 建连
   - 已完成：前端本地缓存已支持按 Clerk user id 分桶；legacy query token 仍保留兜底
   - 已完成：本地开发与 local-prod 入口已在脚本层拆开：`npm run dev` 默认 `3001` 且走 `.env.localhost`，`npm run prod:local:start` 固定 `3000` 且走 `.env.local-prod`，避免域名 tunnel 与本地开发继续抢同一端口
-  - 未完成：真实邮箱双账号 smoke、iOS 正式登录迁移、账号管理页
+  - 已完成：`npm run prod:local:start` 不再偷偷重建镜像；要吃新前后端代码时，必须显式跑 `npm run prod:local:build` 或 `npm run prod:local:rebuild`
+  - 未完成：真实邮箱双账号 smoke、账号管理页
   - 结论边界：这只是“正式身份闭环第一版”，不是完整账号系统，更不是多端连续性验收
 
 ### 当前禁止并行修改的热点文件
@@ -189,6 +196,7 @@
 - [x] V2 recall / proactive 引用反馈已接通：prompt recall 与 silence nudge 成功路径都会更新 `last_referenced_at`
 - [x] `episode` lifecycle 第一版已落地：`active / cooling / resolved` 受 `REMI_EPISODE_LIFECYCLE_ENABLED` 控制，默认仍关闭，不再长期只靠 `unresolved` 布尔值漂移
 - [x] 短期显式 `workingMemory` 已接入文本主链路：仅用于 prompt 当前上下文与 reconnect 恢复，受 `REMI_WORKING_MEMORY_ENABLED` 控制，默认仍关闭；它不扩 prompt 预算，也不当作长期 episode 写入
+- [x] 浏览器 text `workingMemory` spot-check 已通过：在正确的本地 `3001` 进程并显式打开 `REMI_WORKING_MEMORY_ENABLED` 后，真实浏览器样本已观察到 `currentContextChars = 109 / 116 / 113`，覆盖决策题、现实约束更新和 reload / reconnect 后继续追问；记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-19.md`
 
 关键提交：
 - `e41543d` PR1 — embedding client + episodes 表 + repository
@@ -211,6 +219,12 @@
 - [x] 收口本地/远程访问语义：远程强制 JWT，本机回环可无 token 调试
 - [x] 修复 access gate 与 JWT 冲突：持 token 的 HTTP/WS 请求可直通，不再被 cookie 门禁误拦
 - [x] 前端聊天本地缓存改为按 token 用户分桶，避免不同用户共享同一份本地历史
+- [x] 用户可选 persona presets V1 的表达层链路已接通并完成定向回归：Web 端可读写并恢复 4 个规范化表达风格预设，session/bootstrap/prompt 会消费同一 preset 状态；当前实现边界仍是“共享同一套 memory / relationship state，只改表达风格”，这不等于所有 continuity 场景都已被充分验证；当前也不支持 free-form persona prompt authoring
+- [x] persona prompt 表现层已补 `灵魂底色 / 关系偏向 / 风格执行` 三层提示：开始把 preset 从“表达标签”推进到“关系偏向 + 风趣/浪漫执行规则”，并让 closeness / mood / relational stance 共同约束亲密度与风格力度；当前仍只是 prompt 控制增强，不等于真实聊天体感已经完成验收
+- [x] persona prompt 已补第一版“比喻型抱怨”执行规则：像 `像被谁偷偷拔了电源`、`像开了十个标签页`、`像工伤` 这类用户自带画面的抱怨，会在 prompt 里额外得到 `【比喻接梗执行】` 指令，要求先顺着原句画面接一句，再决定是否追问；这能减少直接掉回 `泛化安抚 + 盘问原因` 模板，但当前仍只是 prompt 级收口，不等于幽默风趣体感已经验收通过
+- [x] persona prompt 已补第一版“用户显式风格指令 override”：用户自然说 `有趣点 / 毒舌一点 / 别这么像助手 / 像熟一点的人一样说话 / 扮演更会撩更会贫的人` 这类话时，会在当前 session 内形成一个短期 style override，并通过 `【当前风格要求】` 进入后续几轮 prompt；它解决的是“用户一句话能不能立刻把说话风格掰过来”这个效果层问题，不涉及 memory 归属变更，也还不等于长期人格进化能力已经成立
+- [x] persona style override 已迁入 `turn_interpreter` 主链路的第一版 `styleIntent`：当前会优先由 LLM/heuristic structured analysis 识别“更有趣 / 少一点助手味 / 更像熟人 / 轻一点毒舌 / 更会撩 / 说话做事风格扮演”这类短期风格意图，再写入 session 级 `styleOverride`；旧 regex 已收缩成显式设置/清除 fallback。与此同时，slow brain 会把这些要求记成弱候选 `responseStyleNotes`，跨 session 仅作低优先级参考，不会自动恢复成 override；当前这仍属于效果层控制增强，不等于多轮聊天体感已经稳定验收
+- [x] OpenClaw `SOUL.md / IDENTITY.md / USER.md` 已完成一轮 A/B 提炼实验：原始注入能显著增强偏爱感，但会把 Remi 带偏成强角色人格；提炼后的 `Remi-safe soul overlay` 在保持风趣/偏爱增益的同时，明显更贴近 Remi 自身边界。记录见 `docs/evals/2026-04-19-remi-soul-overlay-ab.md`
 - [x] `/vrm/*` 资源加入鉴权放行，修复 3D VRM 401 导致的加载失败
 - [x] 语音 `stt_final` 已补一层轻量热词级局部同音纠偏：仅作用于 voice final transcript，固定词表驱动、默认关闭、词表失败时 fail-open；当前价值是压住项目名 / 人名 / 术语这类高频错词，避免继续污染 reply / memory / slow brain，但这还不是开放域 STT 消歧
 - [x] 已补一个真实 TTS 踩坑结论：本地 `Kokoro-ONNX` 在当前 M5 开发机上虽然能跑，但试听结果证明“语速偏慢、语调单调、情绪弱”，不适合作为 Remi 默认声线方向；现阶段不再继续投入本地重模型换声方案
@@ -228,7 +242,7 @@
 - 本机 production-like 入口 `http://localhost:3000/` 视为 local-prod / tunnel 目标，默认保持 Clerk 或正式 auth 口径，不要再让 dev 进程抢占它。
 - 远程入口（如 `https://app-rem.remi.run`）视为“分用户入口”，当前默认应落到本机 `3000` 上的 local-prod 进程，并保证用户隔离。
 - `user_001` / `user_002` 等 token 用户的聊天缓存与持久化必须隔离，禁止出现前端本地缓存串号。
-- 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；此时只能走原生 `npm run dev` / `npm run dev:app:once`，并显式标注“DB/Redis 未连接”风险。
+- 当 Docker daemon 不可用时，`prod:local:*` 脚本会失败；默认 `npm run dev` 也会因为拉不起 `postgres` / `redis` 而直接失败。只有显式设 `REMI_DEV_AUTO_STORAGE=0` 时，才允许退回原生无存储 dev，并明确标注“DB/Redis 未连接，不是完整 Memory V2 运行口径”。
 
 ---
 
@@ -244,10 +258,10 @@
   - 当前补强：人工复核后已落地最小存量治理脚本 `memory:v2:hygiene`，会把中文开发测试 / meta prompt / 低价值 filler episode 标成 `archived` 并从 recall 排除；真实样本 dry-run 当前能抓到最明显的一批污染候选，且不会误伤已确认的工作/财务压力主线
   - 当前剩余：`duplicateLineRate` 仍高（主样本 `6.214`），说明存量脏 episode / 碎片 episode 还在；但当前推进也受制于新数据不足。现阶段这条任务的真实状态应视为 `blocked / observe`，不是继续硬推 apply / 规则扩充
   - 验收标准：至少一批真实样本产出审计报告，并能回答错合并 / 漏召回 / 重复回捞 / unresolved 命中四类问题的量级
-- [ ] 浏览器/UI 层 spot-check（不再阻塞 Memory V2 主链路完成判断）
-  - 当前状态：已补一轮正向浏览器文本样本，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-17.md`
-  - 已确认：决策更新、话题切换、边界尊重、轻松话题切换、刷新后接续在真实浏览器文本里没有明显回退
-  - 剩余缺口：该样本里 `currentContextChars = 0`，还没真正覆盖新 `workingMemory` 注入；也不包含语音 / duplex
+- [ ] 浏览器/UI 层 duplex/runtime spot-check（不再阻塞 Memory V2 主链路完成判断）
+  - 当前状态：浏览器文本 workingMemory spot-check 已通过，记录见 `docs/MEMORY_V2_BROWSER_TEXT_SPOTCHECK_2026-04-19.md`；文本主链路里 `【当前上下文】` 注入与 reconnect 承接已不是当前缺口
+  - 已确认：决策更新、话题切换、边界尊重、轻松话题切换、刷新后接续都没有明显文本回退；`workingMemory` 注入也已在真实浏览器样本里成立
+  - 剩余缺口：仍缺更多真实浏览器 duplex/noisy runtime 样本；当前不能把 turn-taking 和 open-mic 体验直接说成稳定
 - [ ] embedding 运行时健康门槛
   - 目标：把“环境缺失时人格连续性静默掉级”变成可见、可判定、可追踪的问题
   - 当前状态：已补 health snapshot 与降级告警；还没有形成正式的运维阈值、报警策略或 dashboard 口径

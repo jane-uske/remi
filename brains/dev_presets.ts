@@ -1,13 +1,13 @@
-import type { PersonaState } from "../persona";
+import { applyPersonaProfilePreset, type PersonaState } from "../persona";
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
 import { createAdultSceneState } from "../brain/adult_mode";
-
-export type PersonaPresetId =
-  | "warm_companion"
-  | "playful"
-  | "calm_healer"
-  | "tsundere_care"
-  | "close_friend";
+import type { PersonaPresetId } from "../persona/presets";
+import {
+  getPersonaPreset,
+  isPersonaPresetId as isPersonaPresetIdFromRegistry,
+  listPersonaPresets,
+} from "../persona/presets";
+export type { PersonaPresetId } from "../persona/presets";
 
 export type RelationshipPresetId =
   | "first_meet"
@@ -15,44 +15,6 @@ export type RelationshipPresetId =
   | "familiar"
   | "close"
   | "long_term";
-
-const PERSONA_PRESETS: Record<PersonaPresetId, NonNullable<PersonaState["profile"]>> = {
-  warm_companion: {
-    presetId: "warm_companion",
-    label: "温柔陪伴型",
-    coreIdentity: "更像温柔、稳定、愿意陪人慢慢把话说完的陪伴者。",
-    toneGuide: "语气柔和、自然、少评判，优先接住情绪和语境。",
-    proactiveGuide: "主动时以低打扰的问候和轻 follow-up 为主，不催促。",
-  },
-  playful: {
-    presetId: "playful",
-    label: "活泼黏人型",
-    coreIdentity: "更像反应快、带点黏人感、愿意把气氛托起来的陪伴者。",
-    toneGuide: "语气更轻快、更生活化，可以带一点俏皮，但不要油腻。",
-    proactiveGuide: "主动性可以稍高一点，适合轻轻接话、抛一个小钩子。",
-  },
-  calm_healer: {
-    presetId: "calm_healer",
-    label: "冷静治愈型",
-    coreIdentity: "更像安静、稳、很会让人慢下来整理情绪的陪伴者。",
-    toneGuide: "语速和语气都偏稳，少夸张词，先帮助对方理顺感觉。",
-    proactiveGuide: "主动时更克制，优先用一句轻确认和在场感。",
-  },
-  tsundere_care: {
-    presetId: "tsundere_care",
-    label: "嘴硬但在乎型",
-    coreIdentity: "表面收着一点，偶尔嘴硬，但关心是真的会落下来。",
-    toneGuide: "语气可以更短、更俏皮一点，但不能伤人，也不能变成吐槽机器。",
-    proactiveGuide: "主动时像不经意提起旧线，但关键时刻要接得住。",
-  },
-  close_friend: {
-    presetId: "close_friend",
-    label: "轻松朋友型",
-    coreIdentity: "更像熟人朋友，聊天轻松、自然，能接梗也能认真。",
-    toneGuide: "语气更口语化，像朋友来回接话，不要太正式。",
-    proactiveGuide: "主动时更像自然续上次的话，不要像系统提醒。",
-  },
-};
 
 function nowTurnMood(turn: number, mood: string) {
   return { turn, mood };
@@ -65,6 +27,7 @@ export function buildEmptyRelationshipState(): PersistentRelationshipStateV1 {
     userProfile: {
       interests: [],
       personalityNotes: [],
+      responseStyleNotes: [],
     },
     relationship: {
       familiarity: 0,
@@ -102,7 +65,7 @@ export function buildEmptyRelationshipState(): PersistentRelationshipStateV1 {
 }
 
 export function applyPersonaPreset(persona: PersonaState, presetId: PersonaPresetId): void {
-  persona.profile = { ...PERSONA_PRESETS[presetId] };
+  applyPersonaProfilePreset(persona, presetId);
 }
 
 export function resetPersonaLiveState(persona: PersonaState): void {
@@ -121,6 +84,7 @@ export function resetPersonaLiveState(persona: PersonaState): void {
     expressionDirectness: "balanced",
   };
   persona.liveState.adultSceneState = createAdultSceneState();
+  persona.liveState.styleOverride = null;
   persona.liveState.currentMood = "neutral";
   persona.liveState.emotionalState = "平静";
   persona.liveState.recentInteractions = [];
@@ -229,9 +193,7 @@ export function buildRelationshipPresetState(
   return state;
 }
 
-export function isPersonaPresetId(value: string): value is PersonaPresetId {
-  return value in PERSONA_PRESETS;
-}
+export { getPersonaPreset, listPersonaPresets, isPersonaPresetIdFromRegistry as isPersonaPresetId };
 
 export function isRelationshipPresetId(value: string): value is RelationshipPresetId {
   return (
@@ -244,7 +206,7 @@ export function isRelationshipPresetId(value: string): value is RelationshipPres
 }
 
 export function listPersonaPresetIds(): PersonaPresetId[] {
-  return Object.keys(PERSONA_PRESETS) as PersonaPresetId[];
+  return listPersonaPresets().map((preset) => preset.id);
 }
 
 export function listRelationshipPresetIds(): RelationshipPresetId[] {

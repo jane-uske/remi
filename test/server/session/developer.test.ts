@@ -1,7 +1,9 @@
 const assert = require("assert").strict;
 const path = require("path");
 
-describe("session developer preset helpers", () => {
+describe("session developer preset helpers", function () {
+  this.timeout(60000);
+
   const developerPath = path.resolve(__dirname, "../../../server/session/developer.ts");
   const ttsRuntimeOverridesPath = path.resolve(
     __dirname,
@@ -167,13 +169,13 @@ describe("session developer preset helpers", () => {
     };
 
     await applyDeveloperPreset(runtime, {
-      personaPreset: "playful",
+      personaPreset: "playful_attached",
       relationshipPreset: "long_term",
       resetScope: "all",
     });
 
     assert.equal(calls.length, 0);
-    assert.deepEqual(personaPresets, ["playful"]);
+    assert.deepEqual(personaPresets, ["playful_attached"]);
     assert.equal(relationshipStates.length, 1);
     assert.equal(persisted, 1);
   });

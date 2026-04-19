@@ -60,17 +60,23 @@ npm run dev:infra
 npm run dev
 ```
 
+这里会同时托管网关、`/ws` 和 Next 开发页；开发态前端产物写到 `web/.next-dev`。
+
 如果需要单独前端开发模式，再开一个终端：
 
 ```bash
 npm run dev:web:standalone
 ```
 
+它默认使用 `3001` 端口；如果你本地另有占用，再显式覆盖 `PORT`。这个入口同样写 `web/.next-dev`，不会和 `npm run build --prefix web` 的 `web/.next` 互相踩。
+
 如果页面出现开发态缓存异常或浏览器拿到旧 HMR 状态，可先清掉 Next 缓存再重启：
 
 ```bash
 npm run dev:web:clean
 ```
+
+`npm run build --prefix web` 仍然写默认的 `web/.next`，所以它和正在运行的 `npm run dev` / `npm run dev:web:standalone` 现在是分开的。
 
 如果需要轻量浏览器终端（推荐用于 Codex / Claude Code / tmux）：
 
@@ -175,7 +181,7 @@ npm run dev:term:check
 
 - `https://app-rem.example.com` 能打开页面。
 - 浏览器控制台里 WebSocket 连接为 `wss://app-rem.example.com/ws` 或你显式配置的 `NEXT_PUBLIC_WS_URL`。
-- 在远程 IDE 改一个前端组件后，预览页能自动刷新或热更新。
+- 在远程 IDE 改一个前端组件后，预览页能自动刷新或热更新；如果同时做 `npm run build --prefix web` 验证，也不应再把 live dev 的 HMR 搅坏。
 - 重启容器后，Postgres 和 Redis 数据仍在。
 - 家里电脑只运行原生 app + 必需服务时，内存压力明显小于“全容器化开发”。
 

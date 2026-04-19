@@ -76,6 +76,19 @@ describe("turn interpreter", () => {
       true,
     );
   });
+
+  it("analyzes style-feedback turns so they can drive short-term style overrides", () => {
+    assert.equal(
+      shouldAnalyzeTurn({
+        userMessage: "你讲话像自己人一点，别这么像客服。",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      }),
+      true,
+    );
+  });
+
   it("marks decision-seeking turns as answer-first with zero question budget", async () => {
     const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
     try {
@@ -165,6 +178,64 @@ describe("turn interpreter", () => {
       assert.equal(result.interpretation.userAct, "scene_continue");
       assert.equal(result.policy.bans.includes("no_scene_reset"), true);
       assert.ok(buildResponseShapeContract(result).includes("共同场景"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("derives style intent from explicit humor and anti-assistant requests", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "你能不能有趣点，毒舌一点，但别伤人，别这么像助手。",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.ok(result.interpretation.styleIntent);
+      assert.equal(result.interpretation.styleIntent.humorBoost, true);
+      assert.equal(result.interpretation.styleIntent.teasingLevel, "light");
+      assert.equal(result.interpretation.styleIntent.assistantySuppression, true);
+      assert.equal(result.interpretation.styleIntent.confidence >= 0.7, true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("derives style intent from natural familiarity feedback without requiring exact preset words", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "你讲话像自己人一点，别这么端着。",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.ok(result.interpretation.styleIntent);
+      assert.equal(result.interpretation.styleIntent.familiarityBoost, true);
+      assert.equal(result.interpretation.styleIntent.assistantySuppression, true);
+      assert.equal(result.interpretation.styleIntent.confidence >= 0.7, true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("does not invent a style intent for ordinary high-value turns", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "我是不是该辞职",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.styleIntent, undefined);
     } finally {
       restoreEnv();
     }

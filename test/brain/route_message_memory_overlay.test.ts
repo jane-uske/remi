@@ -469,6 +469,141 @@ describe("routeMessage with session memory overlay", () => {
     }
   });
 
+  it("applies llm-first style intent into the live override and stores only weak cross-session notes", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-style-intent");
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        slowBrainContext: input.slowBrainContext,
+        styleOverride: input.persona.liveState.styleOverride,
+      });
+      yield "行，那我先别这么端着。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "你讲话像自己人一点，别这么像客服。", "neutral", undefined, {
+        inputSource: "text",
+        structuredAnalysis: {
+          interpretation: {
+            userAct: "emotional_share",
+            answerObligation: "followup_ok",
+            responseMode: "attune_then_answer",
+            emotionalState: {
+              valence: "mixed",
+              intensity: "low",
+              feltNeeds: ["validation"],
+            },
+            relationalPosture: "warm",
+            topicUpdate: {
+              kind: "none",
+            },
+            sceneState: "not_in_scene",
+            boundaryState: "none",
+            followupPermission: "none",
+            styleIntent: {
+              humorBoost: false,
+              teasingLevel: "off",
+              assistantySuppression: true,
+              familiarityBoost: true,
+              romanceBoost: false,
+              roleplayStyle: null,
+              confidence: 0.88,
+            },
+            confidence: 0.91,
+          },
+          policy: {
+            openingMove: "gentle_attunement",
+            directness: "medium",
+            warmth: "high",
+            questionBudget: 1,
+            shouldMirrorEmotion: true,
+            shouldGiveJudgment: false,
+            shouldUpdateDecisionContext: false,
+            bans: ["no_assistantese"],
+          },
+          source: "llm_structured",
+          latencyMs: 36,
+          timedOut: false,
+          mode: "on",
+          used: true,
+        },
+      })) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.ok(captured[0].styleOverride);
+      assert.equal(captured[0].styleOverride.assistantySuppression, true);
+      assert.equal(captured[0].styleOverride.familiarityBoost, true);
+      assert.equal(captured[0].styleOverride.remainingTurns, 6);
+      assert.equal(
+        Boolean(captured[0].slowBrainContext?.includes("【回复风格偏好（候选）】")),
+        false,
+      );
+
+      const snapshot = ctx.slowBrain.getSnapshot();
+      assert.deepEqual(snapshot.userProfile.responseStyleNotes, [
+        "最近用户更想让你少一点助手腔，像熟一点的人那样自然接话。",
+      ]);
+      assert.ok(ctx.persona.liveState.styleOverride);
+      assert.equal(ctx.persona.liveState.styleOverride.assistantySuppression, true);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
+  it("clears the live style override and weak response-style notes on explicit reset phrasing", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-style-clear");
+    ctx.persona.liveState.styleOverride = {
+      humorBoost: true,
+      teasingMode: "light",
+      assistantySuppression: true,
+      familiarityBoost: true,
+      romanceBoost: false,
+      roleplayStyle: null,
+      remainingTurns: 4,
+      sourceText: "你先毒舌一点，像自己人一点。",
+    };
+    ctx.slowBrain.addResponseStyleNote("最近用户更想让你少一点助手腔。");
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        slowBrainContext: input.slowBrainContext,
+        styleOverride: input.persona.liveState.styleOverride,
+      });
+      yield "好，那我先收回来。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "恢复正常，正常跟我说就行，不用演了。", "neutral", undefined, {
+        inputSource: "text",
+        structuredAnalysis: null,
+      })) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0].styleOverride, null);
+      assert.equal(
+        Boolean(captured[0].slowBrainContext?.includes("【回复风格偏好（候选）】")),
+        false,
+      );
+      assert.equal(ctx.persona.liveState.styleOverride, null);
+      assert.deepEqual(ctx.slowBrain.getSnapshot().userProfile.responseStyleNotes, []);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
   it("injects and commits working memory only after a successful handled reply", async () => {
     const restoreEnv = applyEnv({
       REMI_SLOW_BRAIN_ENABLED: "0",

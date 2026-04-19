@@ -135,6 +135,36 @@ export function mergeTranscriptTexts(prev: string, next: string): string | null 
   return null;
 }
 
+export function mergeSttPartialText(prev: string, next: string): string {
+  const partial = next.trim();
+  if (!partial) return prev;
+
+  if (isListeningFallbackText(partial)) {
+    return isListeningFallbackText(prev) ? "" : prev;
+  }
+
+  const current = prev.trim();
+  if (!current || isListeningFallbackText(current)) {
+    return partial;
+  }
+
+  const merged = mergeTranscriptTexts(current, partial);
+  if (merged) return merged;
+
+  const currentNormalized = normalizeTranscriptForMerge(current);
+  const partialNormalized = normalizeTranscriptForMerge(partial);
+  if (
+    currentNormalized &&
+    partialNormalized &&
+    currentNormalized.includes(partialNormalized) &&
+    partialNormalized.length < currentNormalized.length
+  ) {
+    return current;
+  }
+
+  return partial;
+}
+
 export function getQueryTokenFromWindow(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("token");

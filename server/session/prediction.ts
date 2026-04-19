@@ -67,7 +67,9 @@ export async function computeSessionPrediction(
     }
   });
 
-  const slowBrainContext = brain.slowBrain.synthesizeContext();
+  const slowBrainContext = brain.slowBrain.synthesizeContext({
+    suppressResponseStyleNotes: Boolean(brain.persona.liveState.styleOverride),
+  });
   const historyForPrompt = trimHistoryToTokenBudget(
     [...brain.history],
     options?.mode === "short" ? 1000 : 1200,

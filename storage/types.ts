@@ -13,6 +13,11 @@ export interface DbUserAuthIdentity {
   last_seen_at: Date;
 }
 
+export interface DbUserPersonaPreset {
+  user_id: string;
+  preset_id: string;
+}
+
 export interface DbSession {
   id: string;
   user_id: string;

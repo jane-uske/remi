@@ -65,8 +65,9 @@
 
 ## 5. 前端与一体部署要点
 
-- **一体启动**：仓库根目录 `npm run dev` → 网关同时托管 API 与 Next（默认端口见 `PORT`，常为 3000）。  
-- **仅前端**：`npm run dev:web:standalone`，WebSocket 常需 `NEXT_PUBLIC_WS_URL=ws://127.0.0.1:3000/ws` 或依赖 `wsUrl.ts` 对 3001/3002 的默认指向。  
+- **一体启动**：仓库根目录 `npm run dev` → 网关同时托管 API 与 Next（默认端口见 `PORT`，当前本地开发通常为 3001）；开发态产物写 `web/.next-dev`。  
+- **仅前端**：`npm run dev:web:standalone` 默认跑在 `3001`；WebSocket 常需 `NEXT_PUBLIC_WS_URL=ws://127.0.0.1:3001/ws`，或依赖 `wsUrl.ts` 对 3001/3002 的默认指向；它也写 `web/.next-dev`。  
+- **构建产物区分**：`npm run build --prefix web` 继续写 `web/.next`，不再和 live dev 的 `.next-dev` 共用同一目录。  
 - **环境变量**：根目录 `.env` 中 `NEXT_PUBLIC_`* 由 `web/next.config.ts` 的 `loadEnvConfig` 注入前端构建。  
 - **踩坑合集**：`**web/docs/FRONTEND_PITFALLS.md`**（畸形 URL、VRM 手臂与 node constraint、顶栏与画布等）。
 

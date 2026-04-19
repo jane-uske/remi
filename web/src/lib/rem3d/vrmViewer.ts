@@ -35,23 +35,8 @@ import {
   visemeSignalToExpressionWeights,
 } from "./faceToVrm";
 import { SpeechMotionController } from "./speechMotion";
-
+import { getDefaultVrmUrl } from "@/lib/avatar/modelUrls";
 export type VrmViewerState = "loading" | "ready" | "error";
-
-/**
- * 默认 `public/vrm/1497262518610234440.vrm`（可被 `NEXT_PUBLIC_VRM_URL` 覆盖）。
- * `.env` 里若写 `NEXT_PUBLIC_VRM_URL=`（空字符串），须视为未设置。
- */
-export function getDefaultVrmUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_VRM_URL;
-  if (typeof raw === "string" && raw.trim() !== "") {
-    const t = raw.trim();
-    // 无 scheme、无 leading / 的 `host:port/...` 会被当成相对路径，嵌进当前 URL
-    if (/^[\w.-]+:\d+\//i.test(t)) return `http://${t}`;
-    return t;
-  }
-  return "/vrm/1497262518610234440.vrm";
-}
 
 /**
  * Radians to rotate VRM around Y after load (camera at +Z, looks toward origin).

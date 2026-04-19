@@ -53,6 +53,7 @@ export interface UserProfile {
   facts: Map<string, string>;
   interests: string[];
   personalityNotes: string[];
+  responseStyleNotes: string[];
 }
 
 export interface RelationshipState {
@@ -236,6 +237,7 @@ export class SlowBrainStore {
     facts: new Map(),
     interests: [],
     personalityNotes: [],
+    responseStyleNotes: [],
   };
 
   private readonly relationship: RelationshipState = {
@@ -313,6 +315,29 @@ export class SlowBrainStore {
     if (changed) {
       this.invalidateDerivedCache();
     }
+  }
+
+  addResponseStyleNote(note: string): void {
+    const trimmed = note.trim();
+    if (!trimmed) return;
+    let changed = false;
+    if (this.profile.responseStyleNotes.length >= 5) {
+      this.profile.responseStyleNotes.shift();
+      changed = true;
+    }
+    if (!this.profile.responseStyleNotes.includes(trimmed)) {
+      this.profile.responseStyleNotes.push(trimmed);
+      changed = true;
+    }
+    if (changed) {
+      this.invalidateDerivedCache();
+    }
+  }
+
+  clearResponseStyleNotes(): void {
+    if (this.profile.responseStyleNotes.length === 0) return;
+    this.profile.responseStyleNotes.splice(0, this.profile.responseStyleNotes.length);
+    this.invalidateDerivedCache();
   }
 
   recordTurn(): void {
@@ -463,6 +488,7 @@ export class SlowBrainStore {
       userProfile: {
         interests: [...snap.userProfile.interests],
         personalityNotes: [...snap.userProfile.personalityNotes],
+        responseStyleNotes: [...snap.userProfile.responseStyleNotes],
         facts: Object.fromEntries(snap.userProfile.facts),
       },
       lastEmotion: this.lastEmotionValue,
@@ -500,6 +526,11 @@ export class SlowBrainStore {
       0,
       this.profile.personalityNotes.length,
       ...state.userProfile.personalityNotes,
+    );
+    this.profile.responseStyleNotes.splice(
+      0,
+      this.profile.responseStyleNotes.length,
+      ...(state.userProfile.responseStyleNotes ?? []),
     );
     this.profile.facts.clear();
     for (const [k, v] of Object.entries(state.userProfile.facts ?? {})) {
@@ -592,6 +623,7 @@ export class SlowBrainStore {
         facts: new Map(this.profile.facts),
         interests: [...this.profile.interests],
         personalityNotes: [...this.profile.personalityNotes],
+        responseStyleNotes: [...this.profile.responseStyleNotes],
       },
       relationship: { ...this.relationship },
       topicHistory: this.topicHistory.map((t) => ({ ...t })),
@@ -867,7 +899,7 @@ export class SlowBrainStore {
     this.invalidateDerivedCache();
   }
 
-  synthesizeContext(): string | undefined {
+  synthesizeContext(options?: { suppressResponseStyleNotes?: boolean }): string | undefined {
     const sections: string[] = [];
     const { profile, relationship } = this;
     const snapshot = this.getSnapshot();
@@ -883,6 +915,12 @@ export class SlowBrainStore {
     if (profile.personalityNotes.length > 0) {
       sections.push(
         `【性格观察】\n${profile.personalityNotes.map((n) => `- ${n}`).join("\n")}`,
+      );
+    }
+
+    if (!options?.suppressResponseStyleNotes && profile.responseStyleNotes.length > 0) {
+      sections.push(
+        `【回复风格偏好（候选）】这些只是最近观察到的弱偏好，若用户当轮另有明确要求，以当轮为准。\n${profile.responseStyleNotes.map((n) => `- ${n}`).join("\n")}`,
       );
     }
 
@@ -1312,6 +1350,7 @@ export class SlowBrainStore {
         facts: new Map(this.profile.facts),
         interests: [...this.profile.interests],
         personalityNotes: [...this.profile.personalityNotes],
+        responseStyleNotes: [...this.profile.responseStyleNotes],
       },
       relationship: { ...this.relationship },
       topicHistory: this.topicHistory.map((t) => ({ ...t })),
@@ -1341,6 +1380,7 @@ export class SlowBrainStore {
         facts: new Map(this.profile.facts),
         interests: [...this.profile.interests],
         personalityNotes: [...this.profile.personalityNotes],
+        responseStyleNotes: [...this.profile.responseStyleNotes],
       },
       relationship: { ...this.relationship },
       topicHistory: this.topicHistory.map((t) => ({ ...t })),

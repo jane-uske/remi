@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type InputBarProps = {
   onSend: (text: string) => void;
@@ -20,6 +20,7 @@ export function InputBar({
   placeholder,
 }: InputBarProps) {
   const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const submit = useCallback(() => {
     const t = value.trim();
@@ -28,59 +29,69 @@ export function InputBar({
     setValue("");
   }, [value, disabled, onSend]);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0px";
+    const nextHeight = Math.min(textarea.scrollHeight, 108);
+    textarea.style.height = `${Math.max(nextHeight, 40)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 108 ? "auto" : "hidden";
+  }, [value]);
+
   return (
-    <div className="flex w-full flex-col rounded-[1.75rem] border border-[#0d7286]/35 bg-[rgba(6,91,111,0.9)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.18)] backdrop-blur-xl">
-      <textarea
-        className="min-h-[7rem] w-full resize-none border-0 bg-transparent text-[15px] leading-7 text-[#eefcff] outline-none placeholder:text-[#9dc7cf] disabled:opacity-60"
-        placeholder={placeholder}
-        autoComplete="off"
-        value={value}
-        disabled={disabled}
-        rows={4}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (
-            e.key === "Enter" &&
-            !e.shiftKey &&
-            !e.nativeEvent.isComposing
-          ) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-      />
+    <div
+      data-input-layout="single-row"
+      className="flex w-full items-center gap-2 rounded-[1.2rem] border border-[color:var(--remi-input-shell-border)] bg-[var(--remi-input-shell-bg)] p-1.5 shadow-[var(--remi-input-shell-shadow)] backdrop-blur-2xl md:rounded-[1.5rem] md:p-2"
+    >
+      <button
+        type="button"
+        title="语音输入"
+        disabled={micDisabled}
+        onClick={onMicToggle}
+        className={
+          recording
+            ? "remi-mic-pulse flex h-10 min-w-[4.5rem] shrink-0 items-center justify-center rounded-full border border-transparent bg-[var(--remi-danger)] px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-white disabled:cursor-default disabled:opacity-40"
+            : "flex h-10 min-w-[4.5rem] shrink-0 items-center justify-center rounded-full border border-[color:var(--remi-mic-button-border)] bg-[var(--remi-mic-button-bg)] px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--remi-input-text)] transition hover:bg-[var(--remi-mic-button-hover)] disabled:cursor-default disabled:opacity-40"
+        }
+        aria-pressed={recording}
+      >
+        <span className="sr-only">{recording ? "停止录音" : "开始语音"}</span>
+        <span aria-hidden>{recording ? "stop" : "mic"}</span>
+      </button>
 
-      <div className="mt-3 flex min-h-[2.75rem] min-w-0 items-center justify-between gap-3">
-        <button
-          type="button"
-          title="语音输入"
-          disabled={micDisabled}
-          onClick={onMicToggle}
-          className={
-            recording
-              ? "remi-mic-pulse flex h-11 min-w-[4.5rem] shrink-0 items-center justify-center rounded-full border border-transparent bg-[var(--remi-danger)] px-4 text-xs font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-default disabled:opacity-40"
-              : "flex h-11 min-w-[4.5rem] shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20 px-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#c7edf3] transition hover:bg-black/28 disabled:cursor-default disabled:opacity-40"
-          }
-          aria-pressed={recording}
-        >
-          <span className="sr-only">{recording ? "停止录音" : "开始语音"}</span>
-          <span aria-hidden>{recording ? "stop" : "mic"}</span>
-        </button>
-
-        <div className="min-w-0 flex-1 text-[11px] uppercase tracking-[0.22em] text-[#9dc7cf]">
-          Shift + Enter 换行
-        </div>
-
-        <button
-          type="button"
+      <div className="min-w-0 flex-1 flex">
+        <textarea
+          ref={textareaRef}
+          aria-label="消息输入"
+          className="h-10 min-h-10 max-h-[6.75rem] w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-0 text-[16px] leading-10 text-[var(--remi-input-text)] outline-none placeholder:text-[var(--remi-input-placeholder)] disabled:opacity-60 md:text-[15px]"
+          placeholder={placeholder}
+          autoComplete="off"
+          value={value}
           disabled={disabled}
-          onClick={submit}
-          title="发送"
-          className="flex h-11 min-w-[5.25rem] shrink-0 items-center justify-center rounded-full bg-[linear-gradient(180deg,#b9eff8,#68bfd2)] px-4 text-sm font-semibold uppercase tracking-[0.16em] text-[#083846] shadow-[0_10px_24px_rgba(80,196,220,0.25)] transition hover:opacity-95 disabled:cursor-default disabled:opacity-40"
-        >
-          <span aria-hidden>send</span>
-        </button>
+          rows={1}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing
+            ) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
       </div>
+
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={submit}
+        title="发送"
+        className="flex h-10 min-w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-[var(--remi-send-button-bg)] px-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--remi-send-button-fg)] shadow-[var(--remi-send-button-shadow)] transition hover:opacity-95 disabled:cursor-default disabled:opacity-40"
+      >
+        <span aria-hidden>send</span>
+      </button>
     </div>
   );
 }

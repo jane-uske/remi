@@ -71,6 +71,7 @@ describe("buildAvatarRenderModel", () => {
     }));
 
     assert.equal(model.presenceLabel, "说话中");
+    assert.equal(model.motionPhase, "speaking_active");
     assert.match(model.companionLine, /不会让对话掉下去|我在这里/);
     assert.ok(model.mouthOpen > 0.6);
     assert.ok(model.smile > 0.2);
@@ -97,6 +98,7 @@ describe("buildAvatarRenderModel", () => {
     }));
 
     assert.equal(model.presenceLabel, "思考中");
+    assert.equal(model.motionPhase, "thinking");
     assert.ok(model.gazeY > 0);
     assert.ok(model.headPitch > 0);
     assert.ok(model.breath < 0.9);
@@ -143,6 +145,9 @@ describe("buildAvatarRenderModel", () => {
 
     assert.notEqual(hold.headYaw, openMic.headYaw);
     assert.notEqual(hold.posture.rotateDeg, openMic.posture.rotateDeg);
+    assert.equal(hold.motionPhase, "listening");
+    assert.equal(openMic.motionPhase, "open_mic_idle");
+    assert.equal(tail.motionPhase, "speaking_tail");
     assert.ok(tail.mouthOpen > 0);
     assert.equal(tail.presenceLabel, "说话中");
   });
@@ -163,6 +168,30 @@ describe("buildAvatarRenderModel", () => {
 
     assert.ok(listening.breath > thinking.breath);
     assert.ok(idle.breath > 0);
+    assert.equal(listening.motionPhase, "listening");
+    assert.equal(idle.motionPhase, "idle");
     assert.equal(idle.presenceLabel, "在这里");
+  });
+
+  it("maps prepare and yield phases into portrait-facing motion phases", () => {
+    const prepare = buildAvatarRenderModel(makeRuntimeState({
+      phase: "speaking",
+      phaseReason: "assistant_audio_prepare",
+    }));
+    const yieldState = buildAvatarRenderModel(makeRuntimeState({
+      phase: "reacting",
+      phaseReason: "user_interrupt",
+      turn: {
+        serverState: "interrupted_by_user",
+        reason: "user_interrupt",
+        previewText: null,
+        interruptionType: "continuation",
+        sinceAtMs: 9_990,
+      },
+    }));
+
+    assert.equal(prepare.motionPhase, "speaking_prepare");
+    assert.equal(yieldState.motionPhase, "yield");
+    assert.match(yieldState.companionLine, /听到了|让给你/);
   });
 });

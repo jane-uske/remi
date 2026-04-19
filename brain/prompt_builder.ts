@@ -128,6 +128,7 @@ function stripPriorityBlocks(
 function buildSystemPrompt(
   memory: MemoryEntry[],
   emotion: Emotion,
+  userMessage: string,
   currentContext?: string,
   priorityContext?: string,
   persona?: PersonaState,
@@ -154,6 +155,7 @@ function buildSystemPrompt(
           .join("\n")
       : undefined;
     return buildPersonaPrompt(persona, {
+      userMessage,
       currentContext: trimmedCurrentContext,
       priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
         ? trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars)
@@ -229,7 +231,7 @@ export function buildPrompt({
   persona,
 }: BuildPromptInput): PromptMessage[] {
   return [
-    { role: "system", content: buildSystemPrompt(memory, emotion, currentContext, priorityContext, persona) },
+    { role: "system", content: buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona) },
     ...history,
     { role: "user", content: userMessage },
   ];

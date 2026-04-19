@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import type { IncomingMessage } from "http";
 
 import { SttStream } from "../../voice/stt_stream";
+import type { StreamingTranscriptPartial } from "../../voice/stt_incremental_types";
 import type {
   SttTranscribeMeta,
   SttTranscribeOptions,
@@ -55,6 +56,8 @@ import {
 import { parseHistoryCursor, sendSessionHistoryPage } from "./history";
 import { cleanupSessionResources, attachSessionCloseHandlers } from "./lifecycle";
 import { attachSessionMessageHandlers } from "./message_router";
+import { isPersonaPresetId } from "../../persona/presets";
+import { saveUserPersonaPreset } from "../../storage/repositories/user_persona_preset_repository";
 import {
   duplexAssistantNoPreviewInterruptMinSpeechMs,
   duplexIdleGuardAfterMs,
@@ -224,6 +227,7 @@ export class ConnectionSession {
   private readonly resolvedTtsTransport: SessionTtsTransport;
   private readonly handshakeTtsTransportRaw: string | null;
   private clientContextTtsTransport: ClientContextTtsTransport | null = null;
+  private personaPresetBootstrapReady = false;
 
   sessionId: string | null = null;
   pipelineChain: Promise<void> = Promise.resolve();
@@ -406,9 +410,22 @@ export class ConnectionSession {
     this.handshakeTtsTransportRaw = transportMeta.rawTtsTransport;
     this.brain.setUserId(this.storageUserId);
 
+    this.setupSttEvents();
     this.setupVadEvents();
     this.setupMessageHandlers();
     this.setupCloseHandlers();
+  }
+
+  private setupSttEvents(): void {
+    this.stt.on("streaming_partial", (event: StreamingTranscriptPartial) => {
+      this.handleStreamingSttPartial(event);
+    });
+    this.stt.on("error", (error: Error) => {
+      logger.warn("[STT realtime]", {
+        connId: this.connId,
+        error: error.message,
+      });
+    });
   }
 
   private async sendHistoryPage(
@@ -432,17 +449,29 @@ export class ConnectionSession {
       clientFamily: this.clientFamily,
       ttsTransport: this.resolvedTtsTransport,
     });
-    await initializeSessionStorage({
-      connId: this.connId,
-      storageUserId: this.storageUserId,
-      authPrincipal: this.authPrincipal,
-      brain: this.brain,
-      historyPageSize: HISTORY_PAGE_SIZE,
-      setSessionId: (sessionId) => {
-        this.sessionId = sessionId;
-      },
-      sendHistoryPage: (mode) => this.sendHistoryPage(mode),
-    });
+    try {
+      await initializeSessionStorage({
+        connId: this.connId,
+        storageUserId: this.storageUserId,
+        authPrincipal: this.authPrincipal,
+        brain: this.brain,
+        historyPageSize: HISTORY_PAGE_SIZE,
+        setSessionId: (sessionId) => {
+          this.sessionId = sessionId;
+        },
+        sendHistoryPage: (mode) => this.sendHistoryPage(mode),
+      });
+    } finally {
+      this.personaPresetBootstrapReady = true;
+    }
+    this.sendPersonaPresetState();
+  }
+
+  private sendPersonaPresetState(): void {
+    send(this.ws, {
+      type: "persona_preset_state",
+      presetId: this.brain.persona.profile.presetId,
+    } as any);
   }
 
   private pushSpeechChunk(chunk: Buffer): void {
@@ -1968,7 +1997,14 @@ export class ConnectionSession {
     }
   }
 
-  private emitSttPartial(content: string): void {
+  private emitSttPartial(
+    content: string,
+    meta?: {
+      source?: string;
+      stability?: string;
+      sequence?: number;
+    },
+  ): void {
     if (!content) return;
     const now = Date.now();
     const sameContent = content === this.lastPartialContent;
@@ -1981,7 +2017,13 @@ export class ConnectionSession {
     if (meaningfulPreview) {
       this.maybeEmitDeferredVadStart("stt_partial");
     }
-    send(this.ws, { type: "stt_partial", content });
+    send(this.ws, {
+      type: "stt_partial",
+      content,
+      ...(meta?.source ? { source: meta.source } : {}),
+      ...(meta?.stability ? { stability: meta.stability } : {}),
+      ...(typeof meta?.sequence === "number" ? { sequence: meta.sequence } : {}),
+    });
     this.lastPartialEmitAt = now;
     this.lastPartialContent = content;
     this.trackTurnTakingPartial(content);
@@ -2025,6 +2067,26 @@ export class ConnectionSession {
         void this.runPrediction(content, { mode, includeCarryForwardHint });
       }, debounceMs);
     }
+  }
+
+  private handleStreamingSttPartial(event: StreamingTranscriptPartial): void {
+    if (!this.duplexActive) return;
+    const text = String(event.content ?? "").trim();
+    if (!text) return;
+    if (!this.vad.speaking && this.speechBufferBytes <= 0) return;
+
+    const durMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
+    this.lastPreviewCandidateText = text;
+    if (text === this.lastPreviewText) return;
+    if (!this.shouldExternalizeSttPreview(text, durMs)) return;
+
+    this.lastPreviewText = text;
+    this.markMeaningfulSpeechActivity("streaming_stt_partial");
+    this.emitSttPartial(text, {
+      source: event.provider,
+      stability: event.stability,
+      sequence: event.sequence,
+    });
   }
 
   private nextGenerationId(): number {
@@ -2744,6 +2806,17 @@ export class ConnectionSession {
       runDevResetState: (data) => {
         this.runDevCommand(this.handleDevResetState(data));
       },
+      handleGetPersonaPreset: () => this.handleGetPersonaPreset(),
+      handleSetPersonaPreset: (data) => {
+        void this.handleSetPersonaPreset(data).catch((error) => {
+          logger.warn("[Persona] set_persona_preset failed", {
+            connId: this.connId,
+            userId: this.brain.userId,
+            error,
+          });
+          send(this.ws, { type: "error", content: "保存 persona preset 失败，请稍后重试" });
+        });
+      },
       handleDuplexStart: (data) => this.handleDuplexStart(data),
       handleDuplexStop: () => this.handleDuplexStop(),
       handleAudioStream: (data) => this.handleAudioStream(data),
@@ -2937,6 +3010,7 @@ export class ConnectionSession {
     this.duplexIdleGuardActive = false;
     this.duplexIdleSince = 0;
     this.resetDuplexRxMetrics();
+    this.stt.startStreamingPcmSession();
     // 启动双工前同步VAD阈值
     this.syncVadSilenceThreshold();
     logger.info(`[Duplex] 已启动`, {
@@ -2993,6 +3067,7 @@ export class ConnectionSession {
     const noVadReason = this.classifyNoVadStopReason();
 
     this.duplexActive = false;
+    this.stt.stopStreamingPcmSession();
     this.vad.reset();
     this.clearPendingUtteranceTimer();
     this.resetPreviewState();
@@ -3170,6 +3245,7 @@ export class ConnectionSession {
     const sampleRate = normalized.normalizedSampleRate;
     this.duplexSampleRate = sampleRate;
     this.stt.setSampleRate(sampleRate);
+    this.stt.feedStreamingPcm(normalizedPcm, sampleRate);
     const rms = pcmRms(normalizedPcm);
     const peak = pcmPeak(normalizedPcm);
     this.duplexRxFrames += 1;
@@ -3380,6 +3456,39 @@ export class ConnectionSession {
       },
       data,
     );
+  }
+
+  private handleGetPersonaPreset(): void {
+    this.sendPersonaPresetState();
+  }
+
+  private async handleSetPersonaPreset(data: any): Promise<void> {
+    if (!this.personaPresetBootstrapReady) {
+      send(this.ws, {
+        type: "error",
+        content: "persona preset unavailable until session bootstrap completes",
+      });
+      return;
+    }
+
+    const presetId = typeof data?.presetId === "string" ? data.presetId.trim() : "";
+    if (!presetId) {
+      send(this.ws, { type: "error", content: "presetId is required" });
+      return;
+    }
+    if (!isPersonaPresetId(presetId)) {
+      send(this.ws, { type: "error", content: `invalid persona preset: ${presetId}` });
+      return;
+    }
+
+    const userId = typeof this.brain.userId === "string" ? this.brain.userId.trim() : "";
+    const shouldPersist = Boolean(this.sessionId && userId);
+    if (shouldPersist) {
+      await saveUserPersonaPreset(userId, presetId);
+    }
+
+    this.brain.applyUserPersonaPreset(presetId);
+    this.sendPersonaPresetState();
   }
 
   private handleClientContext(data: any): void {

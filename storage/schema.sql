@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS user_auth_identities (
 
 CREATE INDEX IF NOT EXISTS idx_user_auth_identities_user_id ON user_auth_identities (user_id);
 
+CREATE TABLE IF NOT EXISTS user_persona_presets (
+  user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  preset_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users (id),

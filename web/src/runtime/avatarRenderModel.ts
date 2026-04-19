@@ -1,8 +1,19 @@
 import type { AvatarIntentFacialAccent, AvatarIntentGesture } from "@/types/avatar";
 import type { CanonicalAvatarState } from "./remiRuntimeAdapter";
 
+export type PortraitMotionPhase =
+  | "idle"
+  | "listening"
+  | "open_mic_idle"
+  | "thinking"
+  | "speaking_prepare"
+  | "speaking_active"
+  | "speaking_tail"
+  | "yield";
+
 export type AvatarRenderModel = {
   emotion: string;
+  motionPhase: PortraitMotionPhase;
   phase: CanonicalAvatarState["phase"];
   phaseReason: CanonicalAvatarState["phaseReason"];
   presenceLabel: string;
@@ -140,6 +151,44 @@ function getRuntimeCompanionLine(state: CanonicalAvatarState): string {
   }
 }
 
+function resolveMotionPhase(
+  state: CanonicalAvatarState,
+): PortraitMotionPhase {
+  switch (state.phaseReason) {
+    case "user_voice":
+    case "user_hold":
+      return "listening";
+    case "open_mic_idle":
+      return "open_mic_idle";
+    case "awaiting_model":
+    case "assistant_text_streaming":
+      return "thinking";
+    case "assistant_audio_prepare":
+      return "speaking_prepare";
+    case "assistant_audio_active":
+      return "speaking_active";
+    case "assistant_audio_tail":
+      return "speaking_tail";
+    case "user_interrupt":
+      return "yield";
+    default:
+      break;
+  }
+
+  switch (state.phase) {
+    case "listening":
+      return "listening";
+    case "thinking":
+      return "thinking";
+    case "speaking":
+      return "speaking_active";
+    case "reacting":
+      return "yield";
+    default:
+      return "idle";
+  }
+}
+
 export function buildAvatarRenderModel(
   state: CanonicalAvatarState,
 ): AvatarRenderModel {
@@ -214,6 +263,7 @@ export function buildAvatarRenderModel(
 
   return {
     emotion: state.affect.emotion,
+    motionPhase: resolveMotionPhase(state),
     phase: state.phase,
     phaseReason: state.phaseReason,
     presenceLabel: getRuntimePresenceLabel(state),

@@ -12,7 +12,7 @@
     "dev:app": "node scripts/start-dev-app.cjs",
     "dev:app:once": "./scripts/start-native-dev.sh",
     "dev:web:clean": "./scripts/clean-web-cache.sh",
-    "dev:web:standalone": "npm run dev --prefix web",
+    "dev:web:standalone": "PORT=3001 npm run dev --prefix web",
     "dev:infra": "./scripts/start-dev-stack.sh",
     "dev:infra:ide": "./scripts/start-dev-stack.sh --ide",
     "dev:up": "./scripts/start-dev-stack.sh --app",

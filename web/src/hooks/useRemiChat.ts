@@ -10,6 +10,7 @@ import type {
   InterruptionType,
   RemiTurnState,
   RemiTurnStateReason,
+  TtsLipSyncPatch,
 } from "@/types/avatar";
 import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
@@ -24,6 +25,7 @@ import {
   INITIAL_BROWSER_IDENTITY,
   isListeningFallbackText,
   loadPersistedMessages,
+  mergeSttPartialText,
   mergeTranscriptTexts,
   MESSAGE_STORAGE_MAX,
   measurePcmFrame,
@@ -40,6 +42,7 @@ import {
   parseServerTurnState,
 } from "./useRemiChatProtocol";
 import { resolveDuplexInputPlaceholder } from "@/lib/duplex_ui_state";
+import { MicTxGate } from "@/lib/micTxGate";
 import {
   startPcmCapture,
   type PcmCapture,
@@ -78,6 +81,7 @@ const DUPLEX_AWAITING_COMMIT_TIMEOUT_MS = 5000;
 const STT_USER_MERGE_WINDOW_MS = 2200;
 const MIC_TX_LOG_INTERVAL_MS = 900;
 const CHAT_END_PLAYBACK_GRACE_MS = 220;
+const CLIENT_MIC_PRE_GATE_ENABLED = process.env.NEXT_PUBLIC_REMI_CLIENT_MIC_PRE_GATE === "1";
 
 type HistoryCursor = {
   id: string;
@@ -132,6 +136,7 @@ export function useRemiChat() {
   const [duplex, setDuplex] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [awaitingSpeechCommit, setAwaitingSpeechCommit] = useState(false);
+  const [personaPreset, setPersonaPreset] = useState<string | null>(null);
   const remiAuth = useRemiWebAuth();
   const messageStorageKey = useMemo(
     () =>
@@ -197,6 +202,7 @@ export function useRemiChat() {
   const micTxLastPeakRef = useRef(0);
   const micTxMaxRmsRef = useRef(0);
   const micTxLastLogAtRef = useRef(0);
+  const micTxGateRef = useRef<MicTxGate | null>(null);
   const lastMicFaultAtRef = useRef(0);
   const startingDuplexRef = useRef(false);
   const runtimeStateRef = useRef<CanonicalAvatarState | null>(null);
@@ -572,6 +578,7 @@ export function useRemiChat() {
     voiceActive,
     lipEnvelopeRef,
     lipSignalRef,
+    applyTtsLipSyncPatch,
   } =
     useAudioBase64Queue({
       onPlaybackStart: handlePlaybackStart,
@@ -895,40 +902,66 @@ export function useRemiChat() {
       micTxLastPeakRef.current = 0;
       micTxMaxRmsRef.current = 0;
       micTxLastLogAtRef.current = 0;
+      micTxGateRef.current = CLIENT_MIC_PRE_GATE_ENABLED ? new MicTxGate() : null;
       const capture = await startPcmCapture(
         stream,
         (pcm16) => {
-          const metrics = measurePcmFrame(pcm16);
-          micTxFramesRef.current += 1;
-          micTxBytesRef.current += pcm16.byteLength;
-          micTxLastRmsRef.current = metrics.rms;
-          micTxLastPeakRef.current = metrics.peak;
-          micTxMaxRmsRef.current = Math.max(micTxMaxRmsRef.current, metrics.rms);
-          const now = Date.now();
-          if (now - micTxLastLogAtRef.current >= MIC_TX_LOG_INTERVAL_MS) {
-            micTxLastLogAtRef.current = now;
-            pushAvatarDevtoolsLog("system", "mic tx", {
-              frames: micTxFramesRef.current,
-              bytes: micTxBytesRef.current,
-              rms: Number(metrics.rms.toFixed(4)),
-              peak: Number(metrics.peak.toFixed(4)),
-              maxRms: Number(micTxMaxRmsRef.current.toFixed(4)),
-              wsOpen: ws.readyState === WebSocket.OPEN,
+          const gate = micTxGateRef.current;
+          const gateResult = gate?.feed(pcm16, {
+            assistantSpeaking: turnStateRef.current === "assistant_speaking",
+          });
+          if (gateResult?.opened) {
+            pushAvatarDevtoolsLog("system", "mic tx gate open", {
+              bufferedFrames: gateResult.framesToSend.length,
+              assistantSpeaking: turnStateRef.current === "assistant_speaking",
+              rms: Number(gateResult.analysis.rms.toFixed(4)),
+              zcr: Number(gateResult.analysis.zcr.toFixed(4)),
+              activeRatio: Number(gateResult.analysis.activeRatio.toFixed(4)),
+            });
+          } else if (gateResult?.closed) {
+            pushAvatarDevtoolsLog("system", "mic tx gate close", {
+              assistantSpeaking: turnStateRef.current === "assistant_speaking",
+              rms: Number(gateResult.analysis.rms.toFixed(4)),
+              zcr: Number(gateResult.analysis.zcr.toFixed(4)),
+              activeRatio: Number(gateResult.analysis.activeRatio.toFixed(4)),
             });
           }
-          if (ws.readyState === WebSocket.OPEN) {
-            const frame = encodePcmAudioFrame(pcm16, pcmSampleRate);
-            try {
-              ws.send(frame);
-            } catch {
-              // Compatibility fallback for servers that only parse JSON audio_stream.
-              ws.send(
-                JSON.stringify({
-                  type: "audio_stream",
-                  audio: arrayBufferToBase64(pcm16),
-                  sampleRate: pcmSampleRate,
-                }),
-              );
+          const framesToSend = gateResult?.framesToSend ?? [pcm16];
+          for (const chunk of framesToSend) {
+            const metrics = measurePcmFrame(chunk);
+            micTxFramesRef.current += 1;
+            micTxBytesRef.current += chunk.byteLength;
+            micTxLastRmsRef.current = metrics.rms;
+            micTxLastPeakRef.current = metrics.peak;
+            micTxMaxRmsRef.current = Math.max(micTxMaxRmsRef.current, metrics.rms);
+            const now = Date.now();
+            if (now - micTxLastLogAtRef.current >= MIC_TX_LOG_INTERVAL_MS) {
+              micTxLastLogAtRef.current = now;
+              pushAvatarDevtoolsLog("system", "mic tx", {
+                frames: micTxFramesRef.current,
+                bytes: micTxBytesRef.current,
+                rms: Number(metrics.rms.toFixed(4)),
+                peak: Number(metrics.peak.toFixed(4)),
+                maxRms: Number(micTxMaxRmsRef.current.toFixed(4)),
+                wsOpen: ws.readyState === WebSocket.OPEN,
+                preGate: gate != null,
+                gateOpen: gate?.isTransmitting() ?? true,
+              });
+            }
+            if (ws.readyState === WebSocket.OPEN) {
+              const frame = encodePcmAudioFrame(chunk, pcmSampleRate);
+              try {
+                ws.send(frame);
+              } catch {
+                // Compatibility fallback for servers that only parse JSON audio_stream.
+                ws.send(
+                  JSON.stringify({
+                    type: "audio_stream",
+                    audio: arrayBufferToBase64(chunk),
+                    sampleRate: pcmSampleRate,
+                  }),
+                );
+              }
             }
           }
         },
@@ -1013,6 +1046,7 @@ export function useRemiChat() {
       pcmRef.current.stop();
       pcmRef.current = null;
     }
+    micTxGateRef.current = null;
     resumeDuplexAfterReconnectRef.current = options?.preserveAutoResume ?? false;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "duplex_stop" }));
@@ -1328,6 +1362,32 @@ export function useRemiChat() {
           break;
         }
 
+        case "tts_lip_sync": {
+          if (!allowServerGeneration("tts_lip_sync", data.generationId)) break;
+          const generationId = parseGenerationId(data.generationId);
+          if (generationId == null || !Array.isArray(data.cues)) break;
+          const source =
+            data.source === "provider_viseme"
+              ? "provider_viseme"
+              : "provider_word_boundary_derived";
+          const mode = data.mode === "replace" ? "replace" : "append";
+          applyTtsLipSyncPatch({
+            generationId,
+            source,
+            mode,
+            complete: data.complete === true,
+            cues: data.cues as TtsLipSyncPatch["cues"],
+          });
+          pushAvatarDevtoolsLog("ws", "tts_lip_sync", {
+            generationId,
+            source,
+            mode,
+            complete: data.complete === true,
+            cueCount: data.cues.length,
+          });
+          break;
+        }
+
         case "avatar_frame": {
           const frame = data.frame as
             | {
@@ -1486,12 +1546,7 @@ export function useRemiChat() {
         case "stt_partial": {
           const partial = String(data.content ?? "").trim();
           if (!partial) break;
-          setSttPartialText((prev) => {
-            if (isListeningFallbackText(partial)) {
-              return isListeningFallbackText(prev) ? "" : prev;
-            }
-              return partial;
-            });
+          setSttPartialText((prev) => mergeSttPartialText(prev, partial));
           break;
         }
 
@@ -1543,6 +1598,15 @@ export function useRemiChat() {
             role: "error",
             text: String(data.content ?? "错误"),
           });
+          break;
+        }
+
+        case "persona_preset_state": {
+          const presetId =
+            typeof data.presetId === "string" && data.presetId.trim()
+              ? data.presetId.trim()
+              : null;
+          setPersonaPreset(presetId);
           break;
         }
 
@@ -1911,6 +1975,18 @@ export function useRemiChat() {
     );
   }, []);
 
+  const requestPersonaPreset = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "get_persona_preset" }));
+  }, []);
+
+  const updatePersonaPreset = useCallback((presetId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "set_persona_preset", presetId }));
+  }, []);
+
   return {
     emotion,
     turnState,
@@ -1938,6 +2014,7 @@ export function useRemiChat() {
     inputPlaceholder,
     recording,
     duplex,
+    personaPreset,
     userSpeaking,
     awaitingSpeechCommit,
     listeningHint,
@@ -1951,6 +2028,8 @@ export function useRemiChat() {
     currentUserId,
     wsTargetLabel,
     sendText,
+    requestPersonaPreset,
+    updatePersonaPreset,
     loadMoreHistory,
     applyDevPreset,
     applyDevVolcVoiceType,

@@ -9,6 +9,7 @@ import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import type { DbMessage } from "../storage/types";
 import {
   createDefaultPersona,
+  applyPersonaProfilePreset,
   type PersonaState,
   type EnergyLevel,
   type ClosenessLevel,
@@ -16,7 +17,6 @@ import {
   type ProactiveIntent,
 } from "../persona";
 import {
-  applyPersonaPreset,
   resetPersonaLiveState,
   type PersonaPresetId,
 } from "./dev_presets";
@@ -25,6 +25,9 @@ import {
   detectDecisionSeekingSignal,
 } from "../brain/tone_policy";
 import { deriveRelationalStance } from "./relational_stance";
+import {
+  decayPersonaStyleOverride,
+} from "../persona/style_override";
 import type {
   ResponsePolicy,
   StructuredAnalysisSource,
@@ -278,8 +281,12 @@ export class RemiSessionContext {
   }
 
   applyPersonaPreset(presetId: PersonaPresetId): void {
-    applyPersonaPreset(this.persona, presetId);
+    this.applyUserPersonaPreset(presetId);
     resetPersonaLiveState(this.persona);
+  }
+
+  applyUserPersonaPreset(presetId: PersonaPresetId): void {
+    applyPersonaProfilePreset(this.persona, presetId);
   }
 
   resetSessionArtifacts(): void {
@@ -447,5 +454,6 @@ export class RemiSessionContext {
     // 打断标记仅生效一轮
     liveState.lastInterrupted = false;
     liveState.wasInterrupted = false;
+    liveState.styleOverride = decayPersonaStyleOverride(liveState.styleOverride);
   }
 }

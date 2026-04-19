@@ -11,10 +11,10 @@ export function VoiceIndicator({ model }: VoiceIndicatorProps) {
     <div
       role="status"
       aria-live="polite"
-      className="flex shrink-0 items-center gap-2.5 rounded-full border border-white/10 bg-[rgba(12,16,18,0.62)] px-3.5 py-2 shadow-lg backdrop-blur-xl"
+      className="flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-[rgba(9,14,18,0.34)] px-2.5 py-1.5 shadow-[0_14px_28px_rgba(0,0,0,0.1)] backdrop-blur-xl"
     >
       <div
-        className="remi-voice-bars flex h-9 items-end justify-center gap-1"
+        className="remi-voice-bars flex h-7 items-end justify-center gap-1"
         data-active={model.active ? "true" : "false"}
         aria-hidden
       >
@@ -25,7 +25,7 @@ export function VoiceIndicator({ model }: VoiceIndicatorProps) {
           />
         ))}
       </div>
-      <span className="max-w-[5rem] truncate text-[11px] font-medium uppercase tracking-[0.16em] text-[#c8e9ef]">
+      <span className="max-w-[4.5rem] truncate text-[10px] font-medium uppercase tracking-[0.14em] text-[#c8e9ef]">
         {model.label}
       </span>
     </div>

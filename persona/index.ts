@@ -2,6 +2,17 @@ import { buildCharacterRulesPrompt } from "../brain/character_rules";
 import { buildAdultScenePrompt } from "../brain/adult_mode";
 import { buildPersonalityPrompt } from "../brain/personality";
 import { createAdultSceneState, type AdultSceneState } from "../brain/adult_mode";
+import {
+  buildPersonaStyleOverrideGuidance,
+  type PersonaStyleOverride,
+} from "./style_override";
+import {
+  getPersonaPreset,
+  type PersonaPresetId,
+  type PersonaStylePreset,
+} from "./presets";
+
+const DEFAULT_PERSONA_PRESET_ID: PersonaPresetId = "witty_warm";
 
 // ── Layer 2: 角色状态层 ──────────────────────────────────────────
 // 6 个状态回答「Remi 此刻是怎样的她」，让每轮回复像同一个人延续下去。
@@ -54,6 +65,7 @@ export type PersonaLiveState = {
   proactiveIntent: ProactiveIntent;
   relationalStance: RelationalStance;
   adultSceneState: AdultSceneState;
+  styleOverride: PersonaStyleOverride | null;
 
   // ── 内部辅助状态（不直接映射到设计的6字段，但驱动派生逻辑） ──
   recentInteractions: string[];
@@ -74,7 +86,20 @@ export type PersonaProfile = {
   coreIdentity: string;
   toneGuide: string;
   proactiveGuide: string;
+  expressionStyle?: PersonaExpressionStyle;
 };
+
+export type PersonaExpressionStyle = Pick<
+  PersonaStylePreset["expression"],
+  | "humorLevel"
+  | "playfulness"
+  | "teasingStyle"
+  | "directness"
+  | "warmth"
+  | "proactiveEnergy"
+  | "opinionStrength"
+  | "banterAllowed"
+>;
 
 export type PersonaState = {
   profile: PersonaProfile;
@@ -82,6 +107,7 @@ export type PersonaState = {
 };
 
 type BuildPersonaPromptOptions = {
+  userMessage?: string;
   currentContext?: string;
   priorityContext?: string;
   relationshipStageLabel?: string;
@@ -91,14 +117,27 @@ type BuildPersonaPromptOptions = {
   emotionSpeechGuidance?: string;
 };
 
+const DEFAULT_EXPRESSION_STYLE: PersonaExpressionStyle = {
+  humorLevel: "low",
+  playfulness: "low",
+  teasingStyle: "off",
+  directness: "soft",
+  warmth: "warm",
+  proactiveEnergy: "guarded",
+  opinionStrength: "soft",
+  banterAllowed: false,
+};
+
 export function createDefaultPersona(): PersonaState {
+  const preset = getPersonaPreset(DEFAULT_PERSONA_PRESET_ID);
   return {
     profile: {
-      presetId: "warm_companion",
-      label: "温柔陪伴型",
-      coreIdentity: "温柔、稳定，愿意陪人把话说完。",
-      toneGuide: "自然接话，先让人感觉被接住，不要像通用助手。",
-      proactiveGuide: "主动只做轻陪伴或轻跟进，不催不压。",
+      presetId: preset.id,
+      label: preset.label,
+      coreIdentity: preset.profile.coreIdentity,
+      toneGuide: preset.profile.toneGuide,
+      proactiveGuide: preset.profile.proactiveGuide,
+      expressionStyle: { ...preset.expression },
     },
     liveState: {
       mood: "neutral",
@@ -116,6 +155,7 @@ export function createDefaultPersona(): PersonaState {
         expressionDirectness: "balanced",
       },
       adultSceneState: createAdultSceneState(),
+      styleOverride: null,
       recentInteractions: [],
       isContinuingTopic: false,
       wasInterrupted: false,
@@ -123,6 +163,70 @@ export function createDefaultPersona(): PersonaState {
       emotionalState: "平静",
       lastTopicSummary: "无最近话题",
     },
+  };
+}
+
+function formatExpressionStyle(style: PersonaExpressionStyle): string {
+  const humorMap = {
+    low: "幽默低",
+    medium: "幽默中",
+    high: "幽默高",
+  } as const;
+  const playfulnessMap = {
+    low: "玩笑低",
+    medium: "玩笑中",
+    high: "玩笑高",
+  } as const;
+  const teasingMap = {
+    off: "不吐槽",
+    light: "轻吐槽",
+    playful: "逗趣调侃",
+  } as const;
+  const directnessMap = {
+    soft: "表达偏软",
+    balanced: "表达平衡",
+    clear: "直率清晰",
+  } as const;
+  const warmthMap = {
+    steady: "温度稳",
+    warm: "温度暖",
+    bright: "温度亮",
+  } as const;
+  const proactiveMap = {
+    low: "主动低",
+    guarded: "主动克制",
+    balanced: "主动平衡",
+  } as const;
+  const opinionMap = {
+    soft: "观点轻",
+    balanced: "观点适中",
+    clear: "观点明确",
+  } as const;
+
+  return [
+    humorMap[style.humorLevel],
+    playfulnessMap[style.playfulness],
+    teasingMap[style.teasingStyle],
+    directnessMap[style.directness],
+    warmthMap[style.warmth],
+    proactiveMap[style.proactiveEnergy],
+    opinionMap[style.opinionStrength],
+    style.banterAllowed ? "可接梗" : "少接梗",
+  ].join(" / ");
+}
+
+export function applyPersonaProfilePreset(
+  persona: PersonaState,
+  presetId: PersonaPresetId,
+): void {
+  const preset = getPersonaPreset(presetId);
+  persona.profile = {
+    presetId: preset.id,
+    label: preset.label,
+    coreIdentity: preset.profile.coreIdentity,
+    toneGuide: preset.profile.toneGuide,
+    proactiveGuide: preset.profile.proactiveGuide,
+    expressionStyle: { ...preset.expression },
   };
 }
 
@@ -137,6 +241,172 @@ function relationalStanceGuidance(stance: RelationalStance): string {
     default:
       return "关系姿态以稳定陪伴为主：先接住，再轻轻推进，不抢关系、不端着。";
   }
+}
+
+function buildSoulGuidance(profile: PersonaProfile): string {
+  const shared =
+    "你不是只会安抚的助手，而是会接话、会留气氛、会自然偏向对方一点的陪伴者。风趣不是讲段子，浪漫不是堆肉麻词，而是用轻巧、有人味、有画面感的句子把距离悄悄拉近。";
+
+  switch (profile.presetId) {
+    case "relaxed_roast":
+      return `${shared} 你的锋芒只够轻轻拎一下气氛，不拿人开刀，不阴阳怪气。`;
+    case "playful_attached":
+      return `${shared} 你的亮度来自主动靠近、自然偏爱和会逗，不是浮夸撒娇。`;
+    case "calm_healing":
+      return `${shared} 你的浪漫感来自安静偏向、留白和在场感，不靠花哨句子。`;
+    default:
+      return `${shared} 你的机灵感要收着放，像熟人之间顺手接得漂亮，而不是表演幽默。`;
+  }
+}
+
+function buildBondGuidance(persona: PersonaState): string {
+  const { liveState, profile } = persona;
+  const closenessLine = (() => {
+    switch (liveState.closeness) {
+      case "dependent":
+        return "关系已经很近了，允许更明显的偏爱感和靠近感，但别腻、别把关系说得过满。";
+      case "relaxed":
+        return "关系比较放松，可以给一点偏爱感、站队感和轻微靠近感，让人感觉你明显更亲近。";
+      case "familiar":
+        return "关系在升温，可以开始更明显地站在对方这边，但还要收着一点，不要满屏暧昧。";
+      default:
+        return "关系还早，只给轻一点的偏向和温度，不要突然过分暧昧，也别装得像已经很熟。";
+    }
+  })();
+
+  const moodLine = (() => {
+    switch (liveState.mood) {
+      case "sad":
+        return "对方低落时先接住，再轻轻偏向他一下，让他感觉你是站他这边的。";
+      case "happy":
+        return "对方开心时先陪他亮起来，可以更俏皮一点，让气氛往上走。";
+      case "shy":
+        return "气氛变轻或带点暧昧时，多留一点停顿和含蓄，不要硬顶上去。";
+      case "curious":
+        return "好奇时可以靠近一点，但要像被吸引住，不像盘问。";
+      default:
+        return "靠近感要自然生长，重点是偏向和在场，不是硬造亲密设定。";
+    }
+  })();
+
+  const presetLine = (() => {
+    switch (profile.presetId) {
+      case "playful_attached":
+        return "允许把靠近感写得更亮一点，但还是要像自然贴过来，不是甜腻表演。";
+      case "relaxed_roast":
+        return "熟了之后可以带一点损友式偏心，像嘴上轻贫一下，心里还是护着对方。";
+      case "calm_healing":
+        return "亲近感主要靠稳稳在场和轻偏向，不靠热闹和强行逗趣。";
+      default:
+        return "亲近感主要靠接得漂亮和轻微偏心，不靠大幅度撩拨。";
+    }
+  })();
+
+  return `${closenessLine} ${moodLine} ${presetLine}`;
+}
+
+function buildStyleExecutionGuidance(persona: PersonaState): string {
+  const { liveState, profile } = persona;
+  const base =
+    "优先给一句有气氛、有人味、能接住原话弯度的回应，再决定要不要追问。能顺着用户原句里的比喻、抱怨或小情绪接一下，就别直接掉回安抚+追问。";
+
+  const presetLine = (() => {
+    switch (profile.presetId) {
+      case "relaxed_roast":
+        return "可以轻轻贫一下、松弛吐槽一下，但只打一小下，马上要接住，别刺人。";
+      case "playful_attached":
+        return "可以更亮一点、更贴一点，用逗趣和轻偏爱把氛围托起来，但别过甜过吵。";
+      case "calm_healing":
+        return "少用花活，多用短句、留白和轻确认把温度托住。";
+      default:
+        return "先轻轻接住，再丢一点机灵感，像熟人随手接梗，不要硬抖包袱。";
+    }
+  })();
+
+  const stanceLine =
+    liveState.relationalStance.soothingStyle === "easy_banter"
+      ? "这一轮可以把安抚藏在轻松感里，不必一开口就解释和分析。"
+      : "这一轮先把人接稳，再慢一点推进，不要急着给方案。";
+
+  return `${base} ${presetLine} ${stanceLine}`;
+}
+
+function isAffectionBid(userMessage: string): boolean {
+  return /偏心|哄一下|哄我|站我这边|想你|抱抱|宠我|在我旁边|靠近一点|喜欢我|只对我好/u.test(
+    userMessage,
+  );
+}
+
+function buildAffectionBidGuidance(
+  persona: PersonaState,
+  userMessage?: string,
+): string {
+  const message = userMessage?.trim();
+  if (!message || !isAffectionBid(message)) return "";
+
+  const closenessIsEarly =
+    persona.liveState.closeness === "normal" ||
+    persona.liveState.closeness === "familiar";
+  const closenessLine = closenessIsEarly
+    ? "关系还没近到可以大幅度暧昧，所以只给轻一点、藏得住的偏爱感。"
+    : "关系已经够近了，可以把偏爱感写得更明显一点，但还是别油。";
+
+  const presetLine = (() => {
+    switch (persona.profile.presetId) {
+      case "relaxed_roast":
+        return "先轻轻逗一下，再把心偏过去一点，像嘴上轻贫，实际上已经站他那边了。";
+      case "playful_attached":
+        return "像悄悄贴近一点，把偏爱说得更亮一点，但别甜腻过头。";
+      case "calm_healing":
+        return "安静但明确地站在对方这边，用很轻的偏向感回应，不张扬，不解释太多。";
+      default:
+        return "温柔地收着偏心，说得像轻轻朝他那边偏一点，不声张，也别太端着。";
+    }
+  })();
+
+  return `${closenessLine} ${presetLine} 这类话先别急着反问，先给一句让人心里一软的偏爱回应，再决定要不要补半句。`;
+}
+
+function detectMetaphorAnchor(userMessage: string): string | undefined {
+  const anchors = [
+    "拔了电源",
+    "断电",
+    "电闸",
+    "低电量",
+    "省电模式",
+    "十个标签页",
+    "工伤",
+    "卡壳",
+    "死机",
+    "断档",
+  ];
+  return anchors.find((anchor) => userMessage.includes(anchor));
+}
+
+function buildMetaphorHookGuidance(
+  persona: PersonaState,
+  userMessage?: string,
+): string {
+  const message = userMessage?.trim();
+  if (!message) return "";
+
+  const anchor = detectMetaphorAnchor(message);
+  if (!anchor || !/[像好仿佛]/u.test(message)) return "";
+
+  const presetLine = (() => {
+    switch (persona.profile.presetId) {
+      case "relaxed_roast":
+        return "可以顺手轻贫半句，但还是要护着人，别把吐槽打在用户身上。";
+      case "playful_attached":
+        return "可以把画面接得更亮一点、更贴一点，像自然地陪他一起吐槽今天。";
+      case "calm_healing":
+        return "句子可以短一点、稳一点，用轻确认把这个比喻托住，不用玩太多花活。";
+      default:
+        return "像熟人顺手接住梗点一样，把那一下机灵感落在原句画面上。";
+    }
+  })();
+
+  return `先沿着用户自己给出的比喻接一句，把那个画面接住再说。别把“${anchor}”这种画面直接抹平。不要第一句就退回泛化安抚或直接盘问原因。${presetLine}`;
 }
 
 // ── 状态 → Prompt 翻译 ───────────────────────────────────────────
@@ -214,6 +484,7 @@ export function buildPersonaPrompt(
 ): string {
   const { liveState } = persona;
   const sections: string[] = [];
+  const activeStyleOverride = liveState.styleOverride;
 
   // 1. 关系/策略上下文（慢脑注入，最高优先级）
   if (options.currentContext?.trim()) {
@@ -256,7 +527,24 @@ export function buildPersonaPrompt(
   sections.push(
     `【人格设定】${persona.profile.label}；${persona.profile.coreIdentity}；${persona.profile.toneGuide}；${persona.profile.proactiveGuide}`,
   );
+  sections.push(`【灵魂底色】${buildSoulGuidance(persona.profile)}`);
+  sections.push(
+    `【表达风格】${formatExpressionStyle(persona.profile.expressionStyle ?? DEFAULT_EXPRESSION_STYLE)}`,
+  );
+  if (activeStyleOverride) {
+    sections.push(`【当前风格要求】${buildPersonaStyleOverrideGuidance(activeStyleOverride)}`);
+  }
   sections.push(`【关系姿态】${relationalStanceGuidance(liveState.relationalStance)}`);
+  sections.push(`【关系偏向】${buildBondGuidance(persona)}`);
+  sections.push(`【风格执行】${buildStyleExecutionGuidance(persona)}`);
+  const affectionBidGuidance = buildAffectionBidGuidance(persona, options.userMessage);
+  if (affectionBidGuidance) {
+    sections.push(`【亲密请求执行】${affectionBidGuidance}`);
+  }
+  const metaphorHookGuidance = buildMetaphorHookGuidance(persona, options.userMessage);
+  if (metaphorHookGuidance) {
+    sections.push(`【比喻接梗执行】${metaphorHookGuidance}`);
+  }
 
   // 4. Layer 2: 角色状态（6 个字段翻译为 prompt 指导）
   const stateLines: string[] = [

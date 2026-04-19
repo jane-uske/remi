@@ -3,6 +3,7 @@ import { buildToneContract, detectAnswerNowSignal, detectDecisionSeekingSignal }
 import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
+import type { StyleIntentSignal } from "../persona/style_override";
 import {
   advanceAdultSceneState,
   classifyAdultIntent,
@@ -62,6 +63,7 @@ export interface TurnInterpretation {
   sceneState?: "already_in_scene" | "not_in_scene";
   boundaryState?: "veto_topic" | "none";
   followupPermission: FollowupPermission;
+  styleIntent?: StyleIntentSignal;
   confidence: number;
 }
 
@@ -123,6 +125,15 @@ interface PartialTurnInterpretation {
   sceneState?: string;
   boundaryState?: string;
   followupPermission?: string;
+  styleIntent?: {
+    humorBoost?: boolean;
+    teasingLevel?: string;
+    assistantySuppression?: boolean;
+    familiarityBoost?: boolean;
+    romanceBoost?: boolean;
+    roleplayStyle?: string;
+    confidence?: number;
+  };
   confidence?: number;
 }
 
@@ -152,6 +163,15 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
   "sceneState": "already_in_scene | not_in_scene",
   "boundaryState": "veto_topic | none",
   "followupPermission": "none | one_light_question",
+  "styleIntent": {
+    "humorBoost": true,
+    "teasingLevel": "off | light",
+    "assistantySuppression": false,
+    "familiarityBoost": false,
+    "romanceBoost": false,
+    "roleplayStyle": "可选，短词",
+    "confidence": 0.0
+  },
   "confidence": 0.0
 }
 
@@ -166,6 +186,8 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 - adultSceneStyle 用来描述当前 explicit 的写法：scene_prose 偏氛围和画面，fantasy_execute 偏直接执行、短句、命令回应和性幻想推进。
 - 用户明确说不要聊某话题时，userAct=topic_veto。
 - 用户只是分享情绪或近况，没有明确问问题时，优先 emotional_share。
+- 用户如果在要求你“更有趣一点 / 少一点助手腔 / 像熟人一点 / 轻一点毒舌 / 更会撩一点 / 扮演一种说话做事风格”，请在 styleIntent 里体现；没有这种要求时 styleIntent 留空或不填。
+- styleIntent 只描述“接下来几轮回复应该更像什么风格”，不是长期人格设定；轻毒舌只能是 teasingLevel=light，不要输出更重等级。
 - 不要把“我是不是该辞职”“换个老板吗”“我还欠花呗两万五”误判成 small_talk。
 - feltNeeds 只保留 1-3 个最关键的。
 - followupPermission 要保守：只在真的适合轻问一句时给 one_light_question。`;
@@ -223,6 +245,52 @@ function detectContextUpdateLike(text: string, history: PromptMessage[]): boolea
 
 function detectEmotionalShare(text: string): boolean {
   return /难过|伤心|焦虑|委屈|烦|累|堵|崩溃|失眠|睡不好|想哭|低落|难受/u.test(text);
+}
+
+function detectStyleIntentLike(text: string): boolean {
+  return /有趣点|风趣点|幽默点|机灵点|会接梗|毒舌一点|嘴贫一点|损一点|别这么像助手|别太像助手|助手腔|别像客服|别像主持人|别这么官方|别这么端着|像自己人一点|像熟人一样|像熟一点的人|更会撩一点|浪漫一点|暧昧一点|扮演.+风格|说话风格|做事风格/u.test(
+    text,
+  );
+}
+
+function deriveStyleIntent(text: string): StyleIntentSignal | undefined {
+  const humorBoost = /有趣点|风趣点|幽默点|机灵点|会接梗/u.test(text);
+  const teasingLevel = /毒舌一点|嘴贫一点|损一点|嘴毒一点/u.test(text) ? "light" : "off";
+  const assistantySuppression = /别这么像助手|别太像助手|助手腔|别像客服|别像主持人|别这么官方|别这么端着|别老安慰|别老问我/u.test(
+    text,
+  );
+  const familiarityBoost = /像自己人一点|像熟人一样|像熟一点的人|像朋友一点/u.test(text);
+  const romanceBoost = /更会撩一点|浪漫一点|暧昧一点|会哄一点/u.test(text);
+  const roleplayStyle =
+    text.match(/扮演([^，。！？\n]{2,30})/u)?.[1]?.trim().slice(0, 32) ??
+    text.match(/像([^，。！？\n]{2,24})一样/u)?.[1]?.trim().slice(0, 24) ??
+    undefined;
+
+  if (
+    !humorBoost &&
+    teasingLevel === "off" &&
+    !assistantySuppression &&
+    !familiarityBoost &&
+    !romanceBoost &&
+    !roleplayStyle
+  ) {
+    return undefined;
+  }
+
+  const confidence =
+    /有趣点|风趣点|毒舌一点|别这么像助手|像自己人一点|更会撩一点|扮演/u.test(text)
+      ? 0.82
+      : 0.74;
+
+  return {
+    humorBoost,
+    teasingLevel,
+    assistantySuppression,
+    familiarityBoost,
+    romanceBoost,
+    roleplayStyle,
+    confidence,
+  };
 }
 
 function hasPositiveCue(text: string): boolean {
@@ -387,6 +455,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     sceneState: scene ? "already_in_scene" : "not_in_scene",
     boundaryState: veto ? "veto_topic" : "none",
     followupPermission,
+    styleIntent: deriveStyleIntent(trimmed),
     confidence: answerNow || decision || scene || veto || contextUpdate ? 0.72 : 0.46,
   };
 }
@@ -493,6 +562,26 @@ function normalizeInterpretation(
     ? (raw.followupPermission as FollowupPermission)
     : fallback.followupPermission;
 
+  const rawStyleIntent = raw.styleIntent;
+  const styleIntent: StyleIntentSignal | undefined =
+    rawStyleIntent &&
+    (rawStyleIntent.humorBoost === true ||
+      rawStyleIntent.teasingLevel === "light" ||
+      rawStyleIntent.assistantySuppression === true ||
+      rawStyleIntent.familiarityBoost === true ||
+      rawStyleIntent.romanceBoost === true ||
+      Boolean(rawStyleIntent.roleplayStyle?.trim()))
+      ? {
+          humorBoost: rawStyleIntent.humorBoost === true,
+          teasingLevel: rawStyleIntent.teasingLevel === "light" ? "light" : "off",
+          assistantySuppression: rawStyleIntent.assistantySuppression === true,
+          familiarityBoost: rawStyleIntent.familiarityBoost === true,
+          romanceBoost: rawStyleIntent.romanceBoost === true,
+          roleplayStyle: rawStyleIntent.roleplayStyle?.trim()?.slice(0, 32) || undefined,
+          confidence: clampConfidence(rawStyleIntent.confidence, fallback.styleIntent?.confidence ?? 0.72),
+        }
+      : fallback.styleIntent;
+
   return {
     userAct,
     adultIntent,
@@ -515,6 +604,7 @@ function normalizeInterpretation(
     sceneState,
     boundaryState,
     followupPermission,
+    styleIntent,
     confidence: clampConfidence(raw.confidence, fallback.confidence),
   };
 }
@@ -696,6 +786,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   const shortQuestionLike = isQuestionLike(text) && text.length <= 32;
   const shortEmotionalLike = detectEmotionalShare(text) && text.length <= 24;
   const shortContinuationLike = detectContinuationLike(text) && text.length <= 16;
+  const styleIntentLike = detectStyleIntentLike(text);
 
   if (input.inputSource === "text") {
     return (
@@ -704,6 +795,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
       sceneLike ||
       contextUpdateLike ||
       adultCueLike ||
+      styleIntentLike ||
       shortQuestionLike ||
       shortEmotionalLike ||
       shortContinuationLike
@@ -715,6 +807,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
     boundaryLike ||
     sceneLike ||
     adultCueLike ||
+    styleIntentLike ||
     shortQuestionLike ||
     shortEmotionalLike ||
     contextUpdateLike ||

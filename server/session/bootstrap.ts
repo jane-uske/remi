@@ -17,6 +17,7 @@ import {
 import { getPgMemoryRepository } from "../../storage/repositories/pg_memory_repository";
 import { createSession as createDbSession } from "../../storage/repositories/session_repository";
 import { ensureUserAuthIdentity } from "../../storage/repositories/user_auth_identity_repository";
+import { getUserPersonaPreset } from "../../storage/repositories/user_persona_preset_repository";
 
 const logger = createLogger("session");
 
@@ -41,6 +42,25 @@ export async function initializeSessionStorage(input: {
         })
       : await ensureStorageUser(input.storageUserId);
     input.brain.setUserId(userId);
+
+    try {
+      const savedPreset = await getUserPersonaPreset(userId);
+      if (savedPreset) {
+        input.brain.applyUserPersonaPreset(savedPreset);
+        logger.debug("[Persona] user preset restored", {
+          connId: input.connId,
+          userId,
+          presetId: savedPreset,
+        });
+      }
+    } catch (err) {
+      logger.warn("[Persona] Failed to restore user persona preset", {
+        connId: input.connId,
+        userId,
+        error: err,
+      });
+    }
+
     const session = await createDbSession(userId);
     input.setSessionId(session.id);
     logger.info("[Storage] Session created", { sessionId: session.id, userId });

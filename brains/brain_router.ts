@@ -24,6 +24,7 @@ import {
 } from "../brain/turn_interpreter";
 import { advanceAdultSceneState } from "../brain/adult_mode";
 import type { WorkingMemory } from "./slow_brain_store";
+import { resolvePersonaStyleDirective } from "../persona/style_override";
 
 const MAX_HISTORY = 10;
 const logger = createLogger("brain_router");
@@ -448,12 +449,29 @@ export async function* routeMessage(
     ctx.analysisSource = analysis.source;
     ctx.analysisLatencyMs = analysis.latencyMs;
   }
+  const resolvedStyleDirective = opts?.systemTriggered
+    ? null
+    : resolvePersonaStyleDirective({
+        styleIntent: analysis?.used ? analysis.interpretation.styleIntent : null,
+        userMessage,
+      });
+  if (resolvedStyleDirective?.kind === "clear") {
+    ctx.persona.liveState.styleOverride = null;
+    ctx.slowBrain.clearResponseStyleNotes();
+  } else if (resolvedStyleDirective?.kind === "set") {
+    ctx.persona.liveState.styleOverride = resolvedStyleDirective.override;
+    if (resolvedStyleDirective.responseStyleNote) {
+      ctx.slowBrain.addResponseStyleNote(resolvedStyleDirective.responseStyleNote);
+    }
+  }
   updateAdultSceneState(ctx, userMessage, analysis, opts?.systemTriggered);
   const guidance = ctx.slowBrain.buildConversationGuidance(
     userMessage,
     analysis?.used ? analysis : null,
   );
-  const slowBrainContext = ctx.slowBrain.synthesizeContext();
+  const slowBrainContext = ctx.slowBrain.synthesizeContext({
+    suppressResponseStyleNotes: Boolean(ctx.persona.liveState.styleOverride),
+  });
   const workingMemoryDraft = analysis?.used
     ? ctx.slowBrain.buildWorkingMemoryDraft({
         userMessage,

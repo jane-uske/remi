@@ -9,6 +9,11 @@ import {
   useRef,
   useState,
 } from "react";
+import type {
+  ConversationPerformanceModel,
+  ConversationPresenceFixture,
+  ConversationPresencePhase,
+} from "@/lib/presence/conversationPerformanceModel";
 import { clearAvatarDevtoolsLogs, useAvatarDevtoolsState } from "@/lib/rem3d/devtoolsStore";
 import type { RemiTurnState, RemiTurnStateReason } from "@/types/avatar";
 
@@ -17,7 +22,21 @@ type AvatarDevtoolsPanelProps = {
   className?: string;
   onClose?: () => void;
   draggable?: boolean;
+  performanceModel?: ConversationPerformanceModel | null;
+  presenceFixture?: ConversationPresenceFixture;
+  onPresenceFixtureChange?: (next: ConversationPresenceFixture) => void;
 };
+
+const PRESENCE_PHASE_OPTIONS: ConversationPresencePhase[] = [
+  "idle",
+  "listening",
+  "open_mic_idle",
+  "thinking",
+  "speaking_prepare",
+  "speaking_active",
+  "speaking_tail",
+  "yield",
+];
 
 const MAX_RENDERED_LOGS = 60;
 const DEFAULT_FLOAT_WIDTH = 448;
@@ -119,6 +138,9 @@ export function AvatarDevtoolsPanel({
   className = "",
   onClose,
   draggable = false,
+  performanceModel = null,
+  presenceFixture,
+  onPresenceFixtureChange,
 }: AvatarDevtoolsPanelProps) {
   const { logs, snapshot } = useAvatarDevtoolsState();
   const deferredLogs = useDeferredValue(logs);
@@ -217,6 +239,10 @@ export function AvatarDevtoolsPanel({
   const renderModelJson = useMemo(
     () => safeStringify(deferredSnapshot?.renderModel ?? null),
     [deferredSnapshot],
+  );
+  const performanceModelJson = useMemo(
+    () => safeStringify(performanceModel),
+    [performanceModel],
   );
   const turnStateLabel = getTurnStateLabel(deferredSnapshot?.turnState);
   const turnReasonLabel = getTurnReasonLabel(deferredSnapshot?.turnReason);
@@ -360,8 +386,8 @@ export function AvatarDevtoolsPanel({
         </div>
       </header>
 
-      <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="space-y-3">
+      <div className="grid min-h-0 flex-1 gap-3 overflow-hidden p-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <div className="mb-2 text-xs font-medium text-[var(--remi-dim)]">当前快照</div>
             {deferredSnapshot ? (
@@ -491,6 +517,145 @@ export function AvatarDevtoolsPanel({
               {renderModelJson}
             </pre>
           </details>
+
+          <details className="rounded-xl border border-cyan-200/15 bg-[linear-gradient(180deg,rgba(10,48,61,0.6),rgba(4,24,31,0.72))] p-3" open>
+            <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
+              Conversation Performance
+            </summary>
+            {performanceModel ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                  <div className="text-[10px] text-[#94dbe8]">Phase</div>
+                  <div className="mt-1 font-medium">{performanceModel.phase}</div>
+                </div>
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                  <div className="text-[10px] text-[#94dbe8]">Attention</div>
+                  <div className="mt-1 font-medium">{performanceModel.attentionTarget}</div>
+                </div>
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                  <div className="text-[10px] text-[#94dbe8]">Energy</div>
+                  <div className="mt-1 font-medium">
+                    {performanceModel.energyLevel.toFixed(2)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                  <div className="text-[10px] text-[#94dbe8]">Beat</div>
+                  <div className="mt-1 font-medium">
+                    {performanceModel.languageBeat.channel} /{" "}
+                    {performanceModel.languageBeat.boundary}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-[var(--remi-dim)]">还没有 performance model。</p>
+            )}
+            <pre className="mt-3 max-h-56 overflow-auto rounded-lg border border-cyan-200/12 bg-[rgba(3,17,22,0.8)] p-3 text-[11px] leading-5 text-[#dff9ff]">
+              {performanceModelJson}
+            </pre>
+          </details>
+
+          {presenceFixture && onPresenceFixtureChange ? (
+            <div className="rounded-xl border border-cyan-200/18 bg-[linear-gradient(180deg,rgba(12,76,92,0.42),rgba(8,34,42,0.88))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-xs font-semibold tracking-[0.08em] text-[#eefcff]">
+                  Presence Fixtures
+                </div>
+                <label className="flex items-center gap-2 text-[11px] text-[#dff9ff]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-cyan-300"
+                    checked={presenceFixture.enabled}
+                    onChange={(event) =>
+                      onPresenceFixtureChange({
+                        ...presenceFixture,
+                        enabled: event.target.checked,
+                        startedAtMs: Date.now(),
+                        nonce: presenceFixture.nonce + 1,
+                      })
+                    }
+                  />
+                  启用
+                </label>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <label className="block">
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#9fe4ef]">
+                    Phase
+                  </div>
+                  <select
+                    value={presenceFixture.phase}
+                    onChange={(event) =>
+                      onPresenceFixtureChange({
+                        ...presenceFixture,
+                        enabled: true,
+                        phase: event.target.value as ConversationPresencePhase,
+                        startedAtMs: Date.now(),
+                        nonce: presenceFixture.nonce + 1,
+                      })
+                    }
+                    className="w-full rounded-lg border border-[#98dfea]/55 bg-[rgba(232,250,255,0.96)] px-3 py-2 text-[12px] font-medium text-[#083241] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/25"
+                  >
+                    {PRESENCE_PHASE_OPTIONS.map((phase) => (
+                      <option key={phase} value={phase}>
+                        {phase}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#9fe4ef]">
+                    Assistant Text
+                  </div>
+                  <textarea
+                    value={presenceFixture.assistantText}
+                    onChange={(event) =>
+                      onPresenceFixtureChange({
+                        ...presenceFixture,
+                        assistantText: event.target.value,
+                        nonce: presenceFixture.nonce + 1,
+                      })
+                    }
+                    rows={3}
+                    className="w-full rounded-lg border border-[#98dfea]/55 bg-[rgba(232,250,255,0.96)] px-3 py-2 text-[12px] leading-5 text-[#083241] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition placeholder:text-[#5f8490] focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/25"
+                    placeholder="好的，我们继续。"
+                  />
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPresenceFixtureChange({
+                        ...presenceFixture,
+                        enabled: true,
+                        phase: "yield",
+                        startedAtMs: Date.now(),
+                        nonce: presenceFixture.nonce + 1,
+                      })
+                    }
+                    className="rounded-full border border-rose-300/25 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-50"
+                  >
+                    触发 yield
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPresenceFixtureChange({
+                        ...presenceFixture,
+                        enabled: false,
+                        nonce: presenceFixture.nonce + 1,
+                      })
+                    }
+                    className="rounded-full border border-cyan-200/20 bg-white/5 px-3 py-1.5 text-[11px] text-[#d6f6fb]"
+                  >
+                    关闭 fixture
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="min-h-0 rounded-xl border border-white/10 bg-white/[0.03] p-3">

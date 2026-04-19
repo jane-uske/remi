@@ -366,6 +366,37 @@ Need targeted checks for:
 - over-cute or clingy outputs in `活泼黏人`
 - flatness in `冷静治愈`
 
+### 10.4 Post-V1 extension: LLM-first short-term style intent
+
+After the preset V1 expression layer landed, a second narrow control layer was added for short-term style steering.
+
+This layer is intentionally smaller than presets:
+
+- Presets are the user's stable default expression preference.
+- `styleIntent` is a temporary "for the next few turns, talk more like this" signal.
+
+Current implementation rules:
+
+- `turn_interpreter` is the primary path for detecting requests such as:
+  - be more interesting or witty
+  - be less assistant-like
+  - sound more like a familiar person
+  - allow light teasing
+  - be slightly more romantic / more able to flirt
+  - temporarily imitate a speaking/doing style
+- A high-confidence `styleIntent` writes a short-lived session `styleOverride`.
+- Explicit regex detection remains only as fallback for direct set/clear phrases.
+- `styleOverride` is temporary and decays over a small turn window.
+- Slow brain stores weak `responseStyleNotes` as candidate hints across sessions.
+- Those weak notes must never auto-restore into a live `styleOverride`.
+- Explicit clear phrases such as "恢复正常 / 正常跟我说 / 不用演了" clear both the current override and the weak notes.
+
+Why this matters:
+
+- It improves immediacy: the user can steer tone in natural language without changing presets.
+- It preserves continuity better than free-form system prompts because it stays bounded and temporary.
+- It is still not equivalent to "Remi now reliably feels witty/romantic in all scenes." It only improves control surface and routing.
+
 ## 11. Non-Goals After V1
 
 The following are explicitly deferred:

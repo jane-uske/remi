@@ -115,6 +115,7 @@ export interface PersistentRelationshipStateV1 {
   userProfile: {
     interests: string[];
     personalityNotes: string[];
+    responseStyleNotes?: string[];
     facts?: Record<string, string>;
   };
   /** 上次会话结束时的情绪状态（neutral/happy/curious/shy/sad），重连时恢复用 */
@@ -503,6 +504,7 @@ export function normalizePersistentRelationshipState(
     userProfile: {
       interests: toStringList(userProfile.interests, 12),
       personalityNotes: toStringList(userProfile.personalityNotes, 6),
+      responseStyleNotes: toStringList(userProfile.responseStyleNotes, 5),
       facts: toFactsRecord(userProfile.facts),
     },
     lastEmotion: (VALID_EMOTIONS as readonly string[]).includes(record.lastEmotion as string)

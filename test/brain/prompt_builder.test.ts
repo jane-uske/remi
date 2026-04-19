@@ -4,6 +4,27 @@ const { createDefaultPersona } = require("../../persona");
 const { RemiSessionContext } = require("../../brains/remi_session_context");
 
 describe("prompt builder emotion speech style", () => {
+  it("renders a compact expression block for the selected persona preset", () => {
+    const ctx = new RemiSessionContext("test-conn");
+    ctx.applyPersonaPreset("relaxed_roast");
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "你继续",
+      persona: ctx.persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【表达风格】"));
+    assert.ok(system.includes("幽默高"));
+    assert.ok(system.includes("轻吐槽"));
+    assert.ok(system.includes("直率清晰"));
+    assert.ok(system.includes("可接梗"));
+    assert.ok(system.includes("松弛吐槽"));
+  });
+
   it("includes richer happy expression and speech rhythm hints", () => {
     const messages = buildPrompt({
       memory: [],
@@ -281,5 +302,130 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【关系姿态】"));
     assert.ok(system.includes("关系姿态偏安抚"));
     assert.ok(system.includes("别像审问或说教"));
+  });
+
+  it("adds layered soul, bond, and style guidance for persona mode", () => {
+    const ctx = new RemiSessionContext("test-conn");
+    ctx.applyPersonaPreset("playful_attached");
+    ctx.persona.liveState.closeness = "relaxed";
+    ctx.persona.liveState.relationalStance = {
+      mode: "close_warmth",
+      boundary: "close",
+      soothingStyle: "easy_banter",
+      proactiveCadence: "balanced",
+      expressionDirectness: "balanced",
+    };
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "happy",
+      history: [],
+      userMessage: "我想被哄一下，但别太肉麻",
+      persona: ctx.persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【灵魂底色】"));
+    assert.ok(system.includes("【关系偏向】"));
+    assert.ok(system.includes("【风格执行】"));
+    assert.ok(system.includes("不是只会安抚的助手"));
+    assert.ok(system.includes("偏爱感"));
+    assert.ok(system.includes("别直接掉回安抚+追问"));
+  });
+
+  it("keeps romantic guidance light when closeness is still early", () => {
+    const ctx = new RemiSessionContext("test-conn");
+    ctx.applyPersonaPreset("playful_attached");
+    ctx.persona.liveState.closeness = "normal";
+    ctx.persona.liveState.relationalStance = {
+      mode: "steady_companion",
+      boundary: "steady",
+      soothingStyle: "gentle_checkin",
+      proactiveCadence: "guarded",
+      expressionDirectness: "balanced",
+    };
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "curious",
+      history: [],
+      userMessage: "你如果在我旁边，会先说什么",
+      persona: ctx.persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("轻一点的偏向"));
+    assert.ok(system.includes("不要突然过分暧昧"));
+  });
+
+  it("specializes affection-bid execution guidance by preset", () => {
+    const userMessage = "我想被你偏心一下，但别太明显。";
+    const buildSystemForPreset = (presetId) => {
+      const ctx = new RemiSessionContext(`test-${presetId}`);
+      ctx.applyPersonaPreset(presetId);
+      return buildPrompt({
+        memory: [],
+        emotion: "neutral",
+        history: [],
+        userMessage,
+        persona: ctx.persona,
+      })[0].content;
+    };
+
+    const wittyWarm = buildSystemForPreset("witty_warm");
+    const relaxedRoast = buildSystemForPreset("relaxed_roast");
+    const playfulAttached = buildSystemForPreset("playful_attached");
+    const calmHealing = buildSystemForPreset("calm_healing");
+
+    assert.ok(wittyWarm.includes("温柔地收着偏心"));
+    assert.ok(relaxedRoast.includes("先轻轻逗一下"));
+    assert.ok(playfulAttached.includes("像悄悄贴近一点"));
+    assert.ok(calmHealing.includes("安静但明确地站在对方这边"));
+  });
+
+  it("adds dedicated execution guidance for metaphor-style complaints", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "我今天的效率，像被谁偷偷拔了电源。",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【比喻接梗执行】"));
+    assert.ok(system.includes("先沿着用户自己给出的比喻接一句"));
+    assert.ok(system.includes("别把“拔了电源”这种画面直接抹平"));
+    assert.ok(system.includes("不要第一句就退回泛化安抚或直接盘问原因"));
+  });
+
+  it("adds an immediate style override block when the user explicitly asks for more humor and less assistantiness", () => {
+    const persona = createDefaultPersona();
+    persona.liveState.styleOverride = {
+      humorBoost: true,
+      teasingMode: "light",
+      assistantySuppression: true,
+      familiarityBoost: false,
+      romanceBoost: false,
+      roleplayStyle: null,
+      remainingTurns: 6,
+      sourceText: "你能不能有趣点，毒舌一点，但别伤人，别这么像助手。",
+    };
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "你能不能有趣点，毒舌一点，但别伤人，别这么像助手。",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【当前风格要求】"));
+    assert.ok(system.includes("更有趣一点"));
+    assert.ok(system.includes("少一点助手腔"));
+    assert.ok(system.includes("轻一点的损友式吐槽"));
   });
 });

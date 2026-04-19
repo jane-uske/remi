@@ -29,4 +29,24 @@ describe("MessageBubble", () => {
     assert.ok(markup.includes(">你<"));
     assert.ok(markup.includes("今天很难受。"));
   });
+
+  it("keeps chat bubbles fully rounded instead of pinching one corner flat", () => {
+    const remMarkup = renderToStaticMarkup(
+      ReactLib.createElement(MessageBubble, {
+        role: "rem",
+        children: "我在。",
+      }),
+    );
+    const userMarkup = renderToStaticMarkup(
+      ReactLib.createElement(MessageBubble, {
+        role: "user",
+        children: "好。",
+      }),
+    );
+
+    assert.ok(remMarkup.includes("rounded-[1.15rem]"));
+    assert.ok(userMarkup.includes("rounded-[1.15rem]"));
+    assert.ok(!remMarkup.includes("rounded-bl-md"));
+    assert.ok(!userMarkup.includes("rounded-br-md"));
+  });
 });

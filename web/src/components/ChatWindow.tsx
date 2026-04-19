@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage } from "@/types/chat";
+import type { ConversationPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 import { MessageBubble } from "@/components/MessageBubble";
 import type { ChatWindowStatusModel } from "@/runtime/remiRuntimeSelectors";
 
@@ -15,6 +16,7 @@ export type ChatWindowProps = {
   sttPartialText: string;
   streamingText: string;
   statusModel: ChatWindowStatusModel;
+  performanceModel?: ConversationPerformanceModel | null;
 };
 
 export function ChatWindow({
@@ -27,6 +29,7 @@ export function ChatWindow({
   sttPartialText,
   streamingText,
   statusModel,
+  performanceModel = null,
 }: ChatWindowProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const prevStreamingRef = useRef("");
@@ -36,6 +39,27 @@ export function ChatWindow({
   const pendingPrependHeightRef = useRef<number | null>(null);
   const lastHandledMutationRef = useRef(0);
   const [streamStatus, setStreamStatus] = useState("");
+  const [visibleStreamingText, setVisibleStreamingText] = useState(
+    performanceModel?.chatSync.displayStreamingText ?? streamingText,
+  );
+  const [showTailSettle, setShowTailSettle] = useState(false);
+
+  const effectivePhase = performanceModel?.phase ?? null;
+  const effectiveStatusLabel =
+    performanceModel?.chatSync.statusLabel ?? statusModel.badgeLabel;
+  const effectivePartialText =
+    performanceModel?.chatSync.displayPartialText ?? sttPartialText;
+  const targetStreamingText =
+    performanceModel?.chatSync.displayStreamingText ?? streamingText;
+  const bubbleTone = performanceModel?.chatSync.bubbleTone ?? "idle";
+  const revealCadenceMs = performanceModel?.chatSync.revealCadenceMs ?? 24;
+  const emphasisStrength = performanceModel?.chatSync.emphasisStrength ?? 0;
+  const showPreparingBubble =
+    Boolean(performanceModel?.chatSync.showPreparingBubble) &&
+    targetStreamingText.length === 0;
+  const showThinkingPulse = Boolean(performanceModel?.chatSync.showThinkingPulse);
+  const showListeningPulse = Boolean(performanceModel?.chatSync.showListeningPulse);
+  const showYieldClamp = Boolean(performanceModel?.chatSync.showYieldClamp);
 
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
@@ -84,6 +108,53 @@ export function ChatWindow({
   };
 
   useEffect(() => {
+    if (!targetStreamingText) {
+      setVisibleStreamingText("");
+      return;
+    }
+
+    setVisibleStreamingText((current) => {
+      if (!current) return targetStreamingText;
+      if (!targetStreamingText.startsWith(current)) return targetStreamingText;
+      if (current.length > targetStreamingText.length) return targetStreamingText;
+      return current;
+    });
+  }, [targetStreamingText]);
+
+  useEffect(() => {
+    if (!targetStreamingText || visibleStreamingText === targetStreamingText) return;
+    const step = performanceModel?.languageBeat.boundary === "emphasis" ? 2 : 1;
+    const timer = window.setInterval(() => {
+      setVisibleStreamingText((current) => {
+        if (!targetStreamingText.startsWith(current)) return targetStreamingText;
+        if (current.length >= targetStreamingText.length) return targetStreamingText;
+        return targetStreamingText.slice(
+          0,
+          Math.min(targetStreamingText.length, current.length + step),
+        );
+      });
+    }, revealCadenceMs);
+    return () => window.clearInterval(timer);
+  }, [
+    performanceModel?.languageBeat.boundary,
+    revealCadenceMs,
+    targetStreamingText,
+    visibleStreamingText,
+  ]);
+
+  useEffect(() => {
+    if (effectivePhase !== "speaking_tail" || !performanceModel?.chatSync.tailHoldMs) {
+      setShowTailSettle(false);
+      return;
+    }
+    setShowTailSettle(true);
+    const timer = window.setTimeout(() => {
+      setShowTailSettle(false);
+    }, performanceModel.chatSync.tailHoldMs);
+    return () => window.clearTimeout(timer);
+  }, [effectivePhase, performanceModel?.chatSync.tailHoldMs]);
+
+  useEffect(() => {
     const addedMessage = messages.length !== prevMessagesLenRef.current;
     prevMessagesLenRef.current = messages.length;
     const scroller = scrollerRef.current;
@@ -98,14 +169,14 @@ export function ChatWindow({
     scroller.scrollTo({ top: scroller.scrollHeight, behavior });
   }, [
     messages,
-    sttPartialText,
-    streamingText,
-    statusModel.badgeLabel,
+    effectivePartialText,
+    visibleStreamingText,
+    effectiveStatusLabel,
     statusModel.responseBusy,
   ]);
 
   useEffect(() => {
-    const next = streamingText;
+    const next = visibleStreamingText;
     const prev = prevStreamingRef.current;
     prevStreamingRef.current = next;
     if (!prev && next) {
@@ -113,13 +184,67 @@ export function ChatWindow({
     } else if (prev && !next) {
       setStreamStatus("");
     }
-  }, [streamingText]);
+  }, [visibleStreamingText]);
 
-  const statusLabel = statusModel.badgeLabel;
+  const statusLabel = effectiveStatusLabel;
   const responseBusy = statusModel.responseBusy;
+  const statusClass =
+    effectivePhase === "thinking"
+      ? "border-amber-300/30 bg-amber-500/10 text-amber-50"
+      : effectivePhase === "speaking_prepare"
+        ? "border-cyan-300/30 bg-cyan-500/10 text-cyan-50"
+        : effectivePhase === "speaking_tail"
+          ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-50"
+          : effectivePhase === "yield"
+            ? "border-rose-300/30 bg-rose-500/10 text-rose-50"
+            : showListeningPulse
+              ? "border-sky-300/30 bg-sky-500/10 text-sky-50"
+              : "border-[#0f7287]/35 bg-black/20 text-[#9fd1db]";
+  const statusMotionClass =
+    showThinkingPulse || showListeningPulse ? "animate-pulse" : "";
+  const streamingBubbleStyle =
+    emphasisStrength > 0
+      ? {
+          transform: `translateY(${-Math.round(emphasisStrength * 2)}px) scale(${(
+            1 + emphasisStrength * 0.018
+          ).toFixed(3)})`,
+        }
+      : undefined;
+  const phaseCue =
+    performanceModel?.phaseCueText ??
+    (effectivePhase === "thinking"
+      ? "Remi 正在组织这句回复"
+      : effectivePhase === "speaking_prepare"
+        ? "Remi 正在起句"
+        : effectivePhase === "speaking_active"
+          ? "Remi 正在顺着这句说"
+          : effectivePhase === "speaking_tail"
+            ? "Remi 在收住这句"
+            : effectivePhase === "yield"
+              ? "Remi 先停一下，让你接话"
+              : effectivePhase === "listening"
+                ? "Remi 正在跟着你听"
+                : effectivePhase === "open_mic_idle"
+                  ? "Remi 在线，等你继续"
+                  : null);
+  const phaseCueClass =
+    effectivePhase === "thinking"
+      ? "border-amber-300/25 bg-amber-500/10 text-amber-50"
+      : effectivePhase === "speaking_prepare"
+        ? "border-cyan-300/30 bg-cyan-500/12 text-cyan-50"
+        : effectivePhase === "speaking_tail"
+          ? "border-emerald-300/30 bg-emerald-500/12 text-emerald-50"
+          : effectivePhase === "yield"
+            ? "border-rose-300/30 bg-rose-500/12 text-rose-50"
+            : "border-sky-300/25 bg-sky-500/10 text-sky-50";
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-transparent">
+    <section
+      className="flex min-h-0 flex-col bg-transparent md:flex-1"
+      data-chat-presence-phase={effectivePhase ?? ""}
+      data-chat-attention-target={performanceModel?.attentionTarget ?? ""}
+      data-chat-language-channel={performanceModel?.languageBeat.channel ?? "none"}
+    >
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {streamStatus}
       </div>
@@ -131,11 +256,11 @@ export function ChatWindow({
         aria-busy={responseBusy}
         tabIndex={0}
         onScroll={handleScroll}
-        className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 outline-none sm:px-5 sm:py-5 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className="remi-chat-scroll-fade pointer-events-auto flex max-h-[min(34svh,19rem)] flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
         {loadingMoreHistory ? (
           <div className="flex justify-center px-1 pb-1">
-            <div className="rounded-full border border-[#0f7287]/35 bg-black/20 px-2.5 py-1 text-[11px] text-[#92bfca] backdrop-blur-md">
+            <div className="rounded-full border border-[#0f7287]/25 bg-black/16 px-2.5 py-1 text-[10px] text-[#92bfca] backdrop-blur-md">
               正在加载更早的记录…
             </div>
           </div>
@@ -144,9 +269,30 @@ export function ChatWindow({
           <div className="flex justify-start px-1 pb-1">
             <div
               role="status"
-              className="rounded-full border border-[#0f7287]/35 bg-black/20 px-2.5 py-1 text-[11px] text-[#9fd1db] backdrop-blur-md"
+              data-chat-status-phase={effectivePhase ?? ""}
+              className={`rounded-full border px-2.5 py-1 text-[10px] backdrop-blur-md ${statusClass} ${statusMotionClass}`}
             >
               {statusLabel}
+            </div>
+          </div>
+        ) : null}
+        {phaseCue ? (
+          <div className="flex justify-start px-1">
+            <div
+              data-chat-stream-phase={
+                effectivePhase === "yield"
+                  ? "yield"
+                  : effectivePhase === "speaking_prepare"
+                    ? "preparing"
+                    : effectivePhase === "speaking_active"
+                      ? "speaking_active"
+                    : effectivePhase === "speaking_tail"
+                      ? "settling"
+                  : effectivePhase ?? "idle"
+              }
+              className={`rounded-[1rem] border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur-md transition-all ${phaseCueClass} ${showThinkingPulse || showListeningPulse || showYieldClamp ? "animate-pulse" : ""}`}
+            >
+              {phaseCue}
             </div>
           </div>
         ) : null}
@@ -155,11 +301,30 @@ export function ChatWindow({
             {m.text}
           </MessageBubble>
         ))}
-        {sttPartialText ? (
-          <MessageBubble role="partial">{sttPartialText}</MessageBubble>
+        {effectivePartialText ? (
+          <MessageBubble role="partial">{effectivePartialText}</MessageBubble>
         ) : null}
-        {streamingText ? (
-          <MessageBubble role="rem">{streamingText}</MessageBubble>
+        {showPreparingBubble ? (
+          <div
+            data-chat-stream-phase="preparing"
+            className="animate-pulse"
+          >
+            <MessageBubble role="rem">…</MessageBubble>
+          </div>
+        ) : null}
+        {visibleStreamingText ? (
+          <div
+            data-chat-stream-phase={bubbleTone}
+            className="transition-transform duration-150"
+            style={streamingBubbleStyle}
+          >
+            <MessageBubble role="rem">{visibleStreamingText}</MessageBubble>
+          </div>
+        ) : null}
+        {!visibleStreamingText && showTailSettle ? (
+          <div data-chat-stream-phase="settling" className="opacity-80">
+            <MessageBubble role="rem">…</MessageBubble>
+          </div>
         ) : null}
       </div>
     </section>
