@@ -22,11 +22,12 @@
     "dev:check": "./scripts/check-local-dev.sh",
     "dev:term": "./scripts/start-web-terminal.sh",
     "dev:term:check": "./scripts/check-web-terminal.sh",
+    "stt:sherpa:setup": "node scripts/setup_local_sherpa_stt.cjs",
     "tunnel:start": "./scripts/start-cloudflare-tunnel.sh",
     "prod:local:start": "./scripts/start-local-prod.sh",
-    "prod:local:stop": "./scripts/stop-local-prod.sh",
     "prod:local:build": "./scripts/build-local-prod.sh",
     "prod:local:rebuild": "./scripts/rebuild-local-prod.sh",
+    "prod:local:stop": "./scripts/stop-local-prod.sh",
     "prod:local:check": "./scripts/check-local-prod.sh",
     "prod:local:reset-demo-users": "node scripts/reset-demo-users.mjs",
     "logs:data-entry": "node scripts/log_data_analysis_entry.cjs",
@@ -52,6 +53,7 @@
     "openai": "^6.33.0",
     "pg": "^8.20.0",
     "pino": "^10.3.1",
+    "sherpa-onnx-node": "^1.12.38",
     "ws": "^8.20.0"
   },
   "devDependencies": {
