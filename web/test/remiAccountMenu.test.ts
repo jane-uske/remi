@@ -32,6 +32,27 @@ describe("RemiAccountMenu", () => {
     assert.ok(!markup.includes("ws:"));
   });
 
+  it("supports an avatar-only trigger for the merged left-side identity entry", () => {
+    const markup = renderToStaticMarkup(
+      ReactLib.createElement(RemiAccountMenu, {
+        emotionLabel: "中性",
+        currentUserId: "default-user",
+        isDefaultDevUser: true,
+        wsTargetLabel: "ws://localhost:3001/ws",
+        personaPreset: "remi_core",
+        canSignOut: false,
+        onSignOut: async () => {},
+        onUpdatePersonaPreset: () => {},
+        triggerMode: "avatar-only",
+      }),
+    );
+
+    assert.ok(markup.includes("h-11 w-11"));
+    assert.ok(markup.includes('/avatar/assets/remi-selected-portrait.png'));
+    assert.ok(!markup.includes("当前会话"));
+    assert.ok(!markup.includes("开发身份"));
+  });
+
   it("keeps the theme selector but hides the persona selector from the formal account menu", () => {
     const markup = renderToStaticMarkup(
       ReactLib.createElement(RemiAccountMenu, {

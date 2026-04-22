@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RemiAccountMenu } from "@/components/RemiAccountMenu";
-import { RemiIdentityAvatar } from "@/components/RemiIdentityAvatar";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { CharacterStage } from "@/components/CharacterStage";
 import { ChatWindow } from "@/components/ChatWindow";
@@ -90,7 +89,6 @@ export function RemiChatApp() {
     historyMutationNonce,
     sttPartialText,
     streamingText,
-    personaPreset,
     runtimeState,
     avatarRenderModel,
     inputPlaceholder,
@@ -100,7 +98,6 @@ export function RemiChatApp() {
     currentUserId,
     wsTargetLabel,
     sendText,
-    updatePersonaPreset,
     loadMoreHistory,
     applyDevPreset,
     applyDevVolcVoiceType,
@@ -166,7 +163,17 @@ export function RemiChatApp() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 bg-[linear-gradient(180deg,rgba(33,160,191,0.16),rgba(33,160,191,0.08)_44%,transparent)] blur-2xl sm:h-24" />
         <div className={remiChatLayoutClasses.headerInner}>
           <div className="flex min-w-0 items-center gap-3">
-            <RemiIdentityAvatar className="h-11 w-11 shrink-0" />
+            <RemiAccountMenu
+              triggerMode="avatar-only"
+              emotionLabel={emotionLabel}
+              currentUserId={currentUserId}
+              isDefaultDevUser={isDefaultDevUser}
+              wsTargetLabel={wsTargetLabel}
+              personaPreset={null}
+              canSignOut={remiAuth.canSignOut}
+              onSignOut={remiAuth.signOut}
+              onUpdatePersonaPreset={() => {}}
+            />
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="truncate text-lg font-semibold tracking-[0.06em] text-[var(--remi-header-title)] sm:text-xl">
@@ -199,7 +206,7 @@ export function RemiChatApp() {
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
+          <div className="flex min-w-0 items-center justify-end gap-2 sm:flex-none">
             {isDefaultDevUser ? (
               <div className="relative">
                 <button
@@ -224,17 +231,6 @@ export function RemiChatApp() {
                 ) : null}
               </div>
             ) : null}
-
-            <RemiAccountMenu
-              emotionLabel={emotionLabel}
-              currentUserId={currentUserId}
-              isDefaultDevUser={isDefaultDevUser}
-              wsTargetLabel={wsTargetLabel}
-              personaPreset={personaPreset}
-              canSignOut={remiAuth.canSignOut}
-              onSignOut={remiAuth.signOut}
-              onUpdatePersonaPreset={updatePersonaPreset}
-            />
           </div>
         </div>
       </header>

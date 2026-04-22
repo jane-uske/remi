@@ -34,6 +34,7 @@ type RemiAccountMenuProps = {
   onSignOut: () => Promise<void>;
   onUpdatePersonaPreset: (presetId: string) => void;
   defaultOpen?: boolean;
+  triggerMode?: "compact" | "avatar-only";
 };
 
 type PersonaPresetSelectorSectionProps = {
@@ -95,6 +96,7 @@ export function RemiAccountMenu({
   onSignOut,
   onUpdatePersonaPreset: _onUpdatePersonaPreset,
   defaultOpen = false,
+  triggerMode = "compact",
 }: RemiAccountMenuProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [signingOut, setSigningOut] = useState(false);
@@ -152,36 +154,50 @@ export function RemiAccountMenu({
     applyThemePreferenceToDocument(document.documentElement, nextPreference);
   };
 
+  const menuAnchorClass = triggerMode === "avatar-only" ? "left-0" : "right-0";
+
   return (
-    <div ref={rootRef} className="relative flex max-w-full justify-end">
-      <button
-        type="button"
-        className="group flex h-12 min-w-0 max-w-fit items-center gap-1.5 rounded-full border border-[color:var(--remi-account-trigger-border)] bg-[var(--remi-account-trigger-bg)] px-1.5 py-1.5 text-left shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-[var(--remi-account-trigger-hover)] sm:min-w-[11rem] sm:gap-3 sm:pr-3.5"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <RemiIdentityAvatar className="size-11 shrink-0 border-white/18 shadow-lg shadow-cyan-950/10" />
-        <div className="hidden min-w-0 sm:block">
-          <h1 className="truncate whitespace-nowrap text-sm font-semibold tracking-tight text-[var(--remi-account-trigger-title)]">
-            {compactPrimaryLabel}
-          </h1>
-          <p className="mt-0.5 truncate whitespace-nowrap text-[11px] text-[var(--remi-account-trigger-subtitle)]">
-            {secondaryLabel}
-          </p>
-        </div>
-        <span
-          aria-hidden
-          className="hidden text-[11px] text-[var(--remi-account-trigger-subtitle)] sm:inline"
+    <div ref={rootRef} className="relative flex max-w-full">
+      {triggerMode === "avatar-only" ? (
+        <button
+          type="button"
+          className="group flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--remi-account-trigger-border)] bg-[var(--remi-account-trigger-bg)] shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-[var(--remi-account-trigger-hover)]"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
         >
-          {open ? "收起" : "展开"}
-        </span>
-      </button>
+          <RemiIdentityAvatar className="size-full border-white/18 shadow-lg shadow-cyan-950/10" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="group flex h-12 min-w-0 max-w-fit items-center gap-1.5 rounded-full border border-[color:var(--remi-account-trigger-border)] bg-[var(--remi-account-trigger-bg)] px-1.5 py-1.5 text-left shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-[var(--remi-account-trigger-hover)] sm:min-w-[11rem] sm:gap-3 sm:pr-3.5"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <RemiIdentityAvatar className="size-11 shrink-0 border-white/18 shadow-lg shadow-cyan-950/10" />
+          <div className="hidden min-w-0 sm:block">
+            <h1 className="truncate whitespace-nowrap text-sm font-semibold tracking-tight text-[var(--remi-account-trigger-title)]">
+              {compactPrimaryLabel}
+            </h1>
+            <p className="mt-0.5 truncate whitespace-nowrap text-[11px] text-[var(--remi-account-trigger-subtitle)]">
+              {secondaryLabel}
+            </p>
+          </div>
+          <span
+            aria-hidden
+            className="hidden text-[11px] text-[var(--remi-account-trigger-subtitle)] sm:inline"
+          >
+            {open ? "收起" : "展开"}
+          </span>
+        </button>
+      )}
 
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+0.75rem)] z-20 w-[min(88vw,22rem)] overflow-hidden rounded-3xl border border-[color:var(--remi-account-menu-border)] bg-[var(--remi-account-menu-bg)] shadow-2xl shadow-black/35 backdrop-blur-xl"
+          className={`absolute top-[calc(100%+0.75rem)] z-20 w-[min(88vw,22rem)] overflow-hidden rounded-3xl border border-[color:var(--remi-account-menu-border)] bg-[var(--remi-account-menu-bg)] shadow-2xl shadow-black/35 backdrop-blur-xl ${menuAnchorClass}`}
         >
           <div className="border-b border-white/10 px-4 py-4">
             <p className="text-xs uppercase tracking-[0.22em] text-[var(--remi-dim)]">
