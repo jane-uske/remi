@@ -1,5 +1,12 @@
 import type { PromptMessage } from "./prompt_builder";
-import { buildToneContract, detectAnswerNowSignal, detectDecisionSeekingSignal } from "./tone_policy";
+import {
+  buildToneContract,
+  detectAnswerNowSignal,
+  detectDecisionSeekingSignal,
+  detectHighRiskDistressSignal,
+  detectPracticalDistressSignal,
+  detectRelationalRecallSignal,
+} from "./tone_policy";
 import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
@@ -40,9 +47,15 @@ export type TopicUpdateKind = "new_topic" | "continuation" | "constraint_update"
 export type FollowupPermission = "none" | "one_light_question";
 export type StructuredAnalysisSource = "llm_structured" | "heuristic_fallback";
 export type StructuredInterpreterMode = "off" | "shadow" | "on";
+export type TurnSceneType =
+  | "light_chat"
+  | "relational_recall"
+  | "practical_judgment"
+  | "high_risk_distress";
 
 export interface TurnInterpretation {
   userAct: TurnUserAct;
+  sceneType?: TurnSceneType;
   adultIntent?: AdultIntent;
   adultSceneBeat?: AdultSceneBeat;
   adultSceneIntensity?: AdultSceneIntensity;
@@ -81,6 +94,10 @@ export interface ResponsePolicy {
     | "no_repeat_user_question"
     | "no_reopen_vetoed_topic"
     | "no_scene_reset"
+    | "no_jokes"
+    | "no_topic_pivot"
+    | "no_speculative_memory"
+    | "no_shallow_reassurance"
   >;
 }
 
@@ -230,6 +247,89 @@ function detectContinuationLike(text: string): boolean {
   return /继续|接着|刚才|还是那个|回到刚才|上次那个|又想到|后来呢|然后呢/u.test(text);
 }
 
+function detectRelationalRecallContext(history: PromptMessage[]): boolean {
+  const recent = history.slice(-4);
+  const recentUserText = recent
+    .filter((entry) => entry.role === "user")
+    .map((entry) => entry.content)
+    .join(" ");
+  if (detectRelationalRecallSignal(recentUserText)) return true;
+
+  const recentAssistantText = recent
+    .filter((entry) => entry.role === "assistant")
+    .map((entry) => entry.content)
+    .join(" ");
+  return /记错|记混|绕晕|被你抓包|快给点提示|没记牢|我怎么绕晕|猜错/u.test(recentAssistantText);
+}
+
+function detectPracticalFollowupContext(
+  text: string,
+  history: PromptMessage[],
+  snapshot: SlowBrainSnapshot,
+): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const active = snapshot.workingMemory;
+  const activeDecisionThread =
+    active?.sceneState === "decision" &&
+    (/判断|债务|还款|约束|算/u.test(active.activeThread || "") ||
+      /判断|还款|债务|花呗|欠/u.test(active.currentNeed || "") ||
+      (active.currentConstraints?.length ?? 0) > 0);
+  if (!activeDecisionThread) return false;
+
+  if (/^(你帮我算算|帮我算算|你说呢|那怎么办|继续算|继续说|接着算|那我怎么办)$/u.test(trimmed)) {
+    return true;
+  }
+
+  const recentUserText = history
+    .slice(-3)
+    .filter((entry) => entry.role === "user")
+    .map((entry) => entry.content)
+    .join(" ");
+  return Boolean(recentUserText) && /欠|花呗|还到|月收入|每个月挣|赔了/u.test(recentUserText);
+}
+
+function detectConstraintCarryContext(
+  text: string,
+  history: PromptMessage[],
+  snapshot: SlowBrainSnapshot,
+): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  const active = snapshot.workingMemory;
+  const activeDecisionThread =
+    active?.sceneState === "decision" &&
+    /判断|约束|债务|还款|现金流|房租|负债|花呗|贷款|网贷|工资|月收入|每个月挣|去留|老板|工作/u.test(
+      `${active.activeThread || ""} ${active.currentNeed || ""} ${active.openLoop || ""} ${(active.currentConstraints ?? []).join(" ")}`,
+    );
+  if (!activeDecisionThread) return false;
+
+  if (
+    detectDecisionSeekingSignal(trimmed) ||
+    detectAnswerNowSignal(trimmed) ||
+    detectHighRiskDistressSignal(trimmed)
+  ) {
+    return false;
+  }
+
+  const connectorLike = /^(而且|还有|另外|但是|但|不过|只是|现在|可我|可是|问题是|再加上)/u.test(trimmed);
+  const constraintLike =
+    /(?:\d|花呗|房租|贷款|网贷|负债|还欠|赔偿|赔了|月收入|月薪|工资|手里|现金|现金流|存款|只剩|这个月|下个月|offer|面试|住院|睡不好|失眠|老板|工时|时间不够|没空)/u.test(
+      trimmed,
+    );
+  const recentDecisionContext = history
+    .slice(-4)
+    .filter((entry) => entry.role === "user")
+    .map((entry) => entry.content)
+    .join(" ");
+
+  return (
+    constraintLike &&
+    (connectorLike || (active.currentConstraints?.length ?? 0) > 0 || /欠|花呗|房租|贷款|网贷|工资|月收入|每个月挣/u.test(recentDecisionContext))
+  );
+}
+
 function detectContextUpdateLike(text: string, history: PromptMessage[]): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -367,9 +467,16 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
   const adultRepairHint = adultIntent === "scene_repair" ? deriveAdultRepairHint(trimmed) : undefined;
   const answerNow = detectAnswerNowSignal(trimmed);
   const decision = detectDecisionSeekingSignal(trimmed);
+  const highRiskDistress = detectHighRiskDistressSignal(trimmed);
+  const practicalDistress = detectPracticalDistressSignal(trimmed);
+  const question = isQuestionLike(trimmed);
+  const practicalFollowup = detectPracticalFollowupContext(trimmed, input.history, input.slowBrainSnapshot);
+  const constraintCarry = detectConstraintCarryContext(trimmed, input.history, input.slowBrainSnapshot);
+  const relationalRecall =
+    detectRelationalRecallSignal(trimmed) ||
+    (question && detectRelationalRecallContext(input.history));
   const veto = detectTopicVeto(trimmed);
   const contextUpdate = detectContextUpdateLike(trimmed, input.history);
-  const question = isQuestionLike(trimmed);
   const continuation = detectContinuationLike(trimmed);
 
   let userAct: TurnUserAct = "small_talk";
@@ -381,7 +488,33 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     kind: continuation ? "continuation" : "none",
   };
 
-  if (answerNow) {
+  if (highRiskDistress) {
+    userAct = "emotional_share";
+    answerObligation = "must_answer";
+    responseMode = "attune_then_answer";
+    followupPermission = "none";
+    posture = "serious";
+  } else if (practicalDistress) {
+    userAct = "decision_seek";
+    answerObligation = "must_answer";
+    responseMode = "attune_then_answer";
+    followupPermission = "none";
+    posture = "serious";
+    topicUpdate = { kind: "constraint_update" };
+  } else if (constraintCarry) {
+    userAct = "context_update";
+    answerObligation = "answer_then_followup";
+    responseMode = "answer_first";
+    followupPermission = "none";
+    posture = "serious";
+    topicUpdate = { kind: "constraint_update" };
+  } else if (practicalFollowup) {
+    userAct = "decision_seek";
+    answerObligation = "must_answer";
+    responseMode = "answer_first";
+    followupPermission = "none";
+    posture = "serious";
+  } else if (answerNow) {
     userAct = "answer_now";
     answerObligation = "must_answer";
     responseMode = "answer_first";
@@ -415,6 +548,12 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     responseMode = "quiet_presence";
     followupPermission = "none";
     posture = "steady";
+  } else if (relationalRecall) {
+    userAct = "direct_question";
+    answerObligation = "must_answer";
+    responseMode = "answer_first";
+    followupPermission = "none";
+    posture = "serious";
   } else if (question) {
     userAct = "direct_question";
     answerObligation = "answer_then_followup";
@@ -442,9 +581,17 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     answerObligation,
     responseMode,
     emotionalState: {
-      valence: negative ? "negative" : hasPositiveCue(trimmed) ? "positive" : "neutral",
-      intensity: trimmed.length > 24 || /很|特别|太|一直/u.test(trimmed) ? "medium" : "low",
-      feltNeeds: userAct === "decision_seek" || userAct === "context_update"
+      valence: highRiskDistress || negative ? "negative" : hasPositiveCue(trimmed) ? "positive" : "neutral",
+      intensity: highRiskDistress
+        ? "high"
+        : trimmed.length > 24 || /很|特别|太|一直/u.test(trimmed)
+          ? "medium"
+          : "low",
+      feltNeeds: highRiskDistress
+        ? ["validation", "comfort", "space"]
+        : practicalDistress
+        ? ["validation", "clarity", "practical_help"]
+        : userAct === "decision_seek" || userAct === "context_update"
         ? ["clarity", "practical_help"]
         : negative
           ? ["validation", "comfort"]
@@ -456,7 +603,10 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     boundaryState: veto ? "veto_topic" : "none",
     followupPermission,
     styleIntent: deriveStyleIntent(trimmed),
-    confidence: answerNow || decision || scene || veto || contextUpdate ? 0.72 : 0.46,
+    confidence:
+      answerNow || decision || scene || veto || contextUpdate || practicalDistress || practicalFollowup || constraintCarry
+        ? 0.72
+        : 0.46,
   };
 }
 
@@ -609,6 +759,29 @@ function normalizeInterpretation(
   };
 }
 
+function deriveSceneType(
+  interpretation: TurnInterpretation,
+  userMessage: string,
+  history: PromptMessage[],
+): TurnSceneType {
+  const text = userMessage.trim();
+  if (detectHighRiskDistressSignal(text)) return "high_risk_distress";
+  if (
+    detectRelationalRecallSignal(text) ||
+    (interpretation.userAct === "direct_question" && detectRelationalRecallContext(history))
+  ) {
+    return "relational_recall";
+  }
+  if (
+    interpretation.userAct === "decision_seek" ||
+    interpretation.userAct === "context_update" ||
+    interpretation.userAct === "answer_now"
+  ) {
+    return "practical_judgment";
+  }
+  return "light_chat";
+}
+
 function composeResponsePolicy(
   interpretation: TurnInterpretation,
   slowBrainSnapshot: SlowBrainSnapshot,
@@ -619,8 +792,30 @@ function composeResponsePolicy(
   const negative = interpretation.emotionalState.valence === "negative" || interpretation.emotionalState.valence === "mixed";
   const bans: ResponsePolicy["bans"] = ["no_assistantese", "no_host_mode"];
 
+  if (interpretation.sceneType === "high_risk_distress") {
+    bans.push("no_repeat_user_question", "no_jokes", "no_topic_pivot", "no_speculative_memory");
+  } else if (interpretation.sceneType === "relational_recall") {
+    bans.push("no_topic_pivot", "no_speculative_memory");
+  } else if (interpretation.sceneType === "practical_judgment") {
+    bans.push("no_topic_pivot");
+    if (
+      interpretation.responseMode === "attune_then_answer" &&
+      interpretation.emotionalState.feltNeeds.includes("practical_help")
+    ) {
+      bans.push("no_shallow_reassurance");
+    }
+    if (
+      slowBrainSnapshot.workingMemory?.doNotTouch?.includes("不要轻飘安慰或无依据粗算") &&
+      !bans.includes("no_shallow_reassurance")
+    ) {
+      bans.push("no_shallow_reassurance");
+    }
+  }
+
   if (interpretation.answerObligation !== "followup_ok") {
-    bans.push("no_repeat_user_question");
+    if (!bans.includes("no_repeat_user_question")) {
+      bans.push("no_repeat_user_question");
+    }
   }
   if (interpretation.boundaryState === "veto_topic") {
     bans.push("no_reopen_vetoed_topic");
@@ -635,7 +830,9 @@ function composeResponsePolicy(
     interpretation.userAct === "context_update" || interpretation.topicUpdate?.kind === "constraint_update";
 
   let openingMove: ResponsePolicy["openingMove"] = "gentle_attunement";
-  if (interpretation.responseMode === "stay_in_scene") {
+  if (interpretation.sceneType === "relational_recall") {
+    openingMove = "direct_answer";
+  } else if (interpretation.responseMode === "stay_in_scene") {
     openingMove = "scene_ack";
   } else if (interpretation.responseMode === "quiet_presence") {
     openingMove = "quiet_presence";
@@ -657,7 +854,9 @@ function composeResponsePolicy(
   }
 
   const directness: ResponsePolicy["directness"] =
-    shouldGiveJudgment || shouldUpdateDecisionContext || interpretation.userAct === "answer_now"
+    interpretation.sceneType === "high_risk_distress"
+      ? "medium"
+      : shouldGiveJudgment || shouldUpdateDecisionContext || interpretation.userAct === "answer_now"
       ? "high"
       : interpretation.userAct === "direct_question"
         ? "medium"
@@ -678,6 +877,8 @@ function composeResponsePolicy(
         : "medium";
 
   const questionBudget: 0 | 1 =
+    interpretation.sceneType !== "high_risk_distress" &&
+    interpretation.sceneType !== "relational_recall" &&
     interpretation.followupPermission === "one_light_question" &&
     interpretation.userAct !== "answer_now" &&
     !shouldUpdateDecisionContext &&
@@ -779,6 +980,11 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   if (!text) return false;
 
   const decisionLike = detectDecisionSeekingSignal(text) || detectAnswerNowSignal(text);
+  const highRiskDistressLike = detectHighRiskDistressSignal(text);
+  const practicalDistressLike = detectPracticalDistressSignal(text);
+  const practicalFollowupLike = detectPracticalFollowupContext(text, input.history, input.slowBrainSnapshot);
+  const constraintCarryLike = detectConstraintCarryContext(text, input.history, input.slowBrainSnapshot);
+  const relationalRecallLike = detectRelationalRecallSignal(text);
   const boundaryLike = detectTopicVeto(text);
   const sceneLike = isSceneImmersionLike(text);
   const contextUpdateLike = detectContextUpdateLike(text, input.history);
@@ -791,6 +997,11 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   if (input.inputSource === "text") {
     return (
       decisionLike ||
+      highRiskDistressLike ||
+      practicalDistressLike ||
+      practicalFollowupLike ||
+      constraintCarryLike ||
+      relationalRecallLike ||
       boundaryLike ||
       sceneLike ||
       contextUpdateLike ||
@@ -804,6 +1015,11 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
 
   return (
     decisionLike ||
+    highRiskDistressLike ||
+    practicalDistressLike ||
+    practicalFollowupLike ||
+    constraintCarryLike ||
+    relationalRecallLike ||
     boundaryLike ||
     sceneLike ||
     adultCueLike ||
@@ -850,6 +1066,7 @@ export async function analyzeTurn(input: AnalyzeTurnInput): Promise<TurnAnalysis
     }
   }
 
+  interpretation.sceneType = deriveSceneType(interpretation, input.userMessage, input.history);
   const policy = composeResponsePolicy(interpretation, input.slowBrainSnapshot);
   return {
     interpretation,
@@ -865,7 +1082,7 @@ export async function analyzeTurn(input: AnalyzeTurnInput): Promise<TurnAnalysis
 export function buildResponsePolicyGuidance(bundle: TurnAnalysisBundle): string {
   const { interpretation, policy, source } = bundle;
   const lines: string[] = [
-    `【响应策略】${interpretation.userAct}；开头=${policy.openingMove}；直接度=${policy.directness}；温度=${policy.warmth}；问题预算=${policy.questionBudget}；来源=${source}。`,
+    `【响应策略】${interpretation.userAct}；场景=${interpretation.sceneType ?? "light_chat"}；开头=${policy.openingMove}；直接度=${policy.directness}；温度=${policy.warmth}；问题预算=${policy.questionBudget}；来源=${source}。`,
   ];
   if (policy.shouldGiveJudgment) {
     lines.push("先给判断，不要先把问题丢回用户。");
@@ -881,6 +1098,18 @@ export function buildResponsePolicyGuidance(bundle: TurnAnalysisBundle): string 
 
 export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   const { interpretation, policy } = bundle;
+  if (interpretation.sceneType === "high_risk_distress") {
+    return "这是高风险现实场景。第一句先确认用户此刻是不是安全的；第二句明确别让他一个人硬扛；第三句只给一个最小下一步。不要开玩笑，不要把话题拉回宠物或轻松梗，也不要立刻抛一串赚钱点子。";
+  }
+  if (interpretation.sceneType === "relational_recall") {
+    return "这是关系连续性校验。先直接回答你记得的部分；记不准就直接承认，不要靠猜，也不要把问题丢回用户或换成轻松话题。";
+  }
+  if (
+    interpretation.sceneType === "practical_judgment" &&
+    policy.bans.includes("no_shallow_reassurance")
+  ) {
+    return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
+  }
   if (interpretation.userAct === "answer_now") {
     return "第一句直接给判断或建议；第二句补一条依据；不要反问，也别把决定权抛回去。";
   }
@@ -991,11 +1220,27 @@ export function buildPolicyToneContract(
     shortInput: Boolean((input.userMessage ?? "").trim().length > 0 && (input.userMessage ?? "").trim().length < 12),
     negativeEmotionalContext: interpretation.emotionalState.valence === "negative" || interpretation.emotionalState.valence === "mixed",
     continuingTopic: interpretation.topicUpdate?.kind === "continuation",
-    decisionSeeking: interpretation.userAct === "decision_seek" || interpretation.userAct === "direct_question",
+    decisionSeeking:
+      interpretation.sceneType === "practical_judgment" ||
+      interpretation.userAct === "decision_seek" ||
+      interpretation.userAct === "answer_now" ||
+      policy.shouldUpdateDecisionContext,
     answerNow: interpretation.userAct === "answer_now",
   });
 
   const extra: string[] = [];
+  if (interpretation.sceneType === "high_risk_distress") {
+    extra.push("这是高风险现实场景：禁玩笑、禁轻飘安慰、禁把话题拉回宠物梗、禁猜测式记忆。");
+  }
+  if (interpretation.sceneType === "relational_recall") {
+    extra.push("这是关系连续性校验：先回答你记得的部分，记不准就直接承认，不要靠猜。");
+  }
+  if (interpretation.sceneType === "practical_judgment") {
+    extra.push("这是现实判断场景：别绕回轻聊或不相干的话题。");
+    if (policy.bans.includes("no_shallow_reassurance")) {
+      extra.push("这是现实压力判断：先承认压力，再给有依据的拆法，别随口给一个轻飘的粗算。");
+    }
+  }
   if (policy.shouldUpdateDecisionContext) {
     extra.push("补充现实约束时，要像真的听懂并纳入判断。");
   }

@@ -272,7 +272,7 @@ describe("session persona preset protocol", function () {
         );
 
         assert.equal(session.brain.userId, session.storageUserId);
-        assert.equal(session.brain.persona.profile.presetId, "witty_warm");
+        assert.equal(session.brain.persona.profile.presetId, "remi_core");
         assert.equal(saveCalls.length, 0);
 
         releaseBootstrap();

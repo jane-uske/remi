@@ -11,7 +11,7 @@ services:
         NEXT_PUBLIC_VRM_FRAMING: ${NEXT_PUBLIC_VRM_FRAMING:-}
         NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT: ${NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT:-}
         NEXT_PUBLIC_REM_DEVTOOLS: ${NEXT_PUBLIC_REM_DEVTOOLS:-}
-    env_file: ${REMI_ENV_FILE:-.env}
+    env_file: ${REMI_ENV_FILE:-.env.local-prod}
     environment:
       NODE_ENV: production
       PORT: 3000

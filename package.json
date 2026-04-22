@@ -33,6 +33,7 @@
     "logs:data-entry": "node scripts/log_data_analysis_entry.cjs",
     "duplex:data-entry": "node scripts/duplex_data_analysis_entry.cjs",
     "memory:v2:audit": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_memory_audit.ts",
+    "memory:v2:acceptance": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_acceptance.ts",
     "memory:v2:hygiene": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_memory_hygiene.ts",
     "build": "npm run build --prefix web && tsc",
     "test": "mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",

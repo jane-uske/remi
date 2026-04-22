@@ -149,7 +149,7 @@ describe("prompt memory retrieval with episode store", () => {
       assert.deepEqual(memories, [
         {
           key: "长期关系主线",
-          value: "工作：工作：那次被误解之后，这条线一直拖着。",
+          value: "工作压力：工作：那次被误解之后，这条线一直拖着。",
         },
         {
           key: "当前未完主线",
@@ -341,7 +341,7 @@ describe("prompt memory retrieval with episode store", () => {
       assert.deepEqual(memories, [
         {
           key: "当前未完主线",
-          value: "工作：游戏：上次你提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
+          value: "钱和现实压力：游戏：上次你提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
         },
       ]);
       assert.deepEqual(referenced, ["episode-2"]);
@@ -351,6 +351,63 @@ describe("prompt memory retrieval with episode store", () => {
         episodeReferenceApplied: true,
         episodeRecallFallback: false,
       });
+    } finally {
+      restore();
+    }
+  });
+
+  it("uses the structured relationship domain when a comfort-failure episode would otherwise surface as a pet topic", async () => {
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode({
+              id: "episode-3",
+              title: "宠物",
+              summary: "宠物：点点今天又闯祸了。",
+              topics: ["宠物", "点点", "狗"],
+              origin_moment_summaries: [
+                "我不想再重复解释点点那件事了",
+                "你安慰人都不会",
+              ],
+              recurrence_count: 2,
+              relationship_weight: 0.88,
+              unresolved: true,
+              status: "active",
+              v3_domain: "relationship_with_remi",
+              v3_pressure_source: "relational",
+              v3_relational_impact: "high",
+              v3_user_stance: "seeking_support",
+              v3_unresolved_level: 3,
+              v3_event_summary: "你说我根本不会安慰人，也不想再重复解释点点那件事。",
+              v3_evidence_turns: [
+                "我不想再重复解释点点那件事了",
+                "你安慰人都不会",
+              ],
+              v3_last_user_position: "你安慰人都不会",
+            }),
+            score: 0.95,
+          },
+        ],
+        markReferenced: async () => {},
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      const memories = await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "你根本没懂我，安慰也安慰不到点上",
+        slowBrainSnapshot: makeSnapshot(),
+        maxEntries: 1,
+      });
+
+      assert.deepEqual(memories, [
+        {
+          key: "当前未完主线",
+          value: "你和 Remi 之间：你说我根本不会安慰人，也不想再重复解释点点那件事。",
+        },
+      ]);
     } finally {
       restore();
     }

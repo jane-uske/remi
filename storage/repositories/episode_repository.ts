@@ -22,6 +22,14 @@ export interface DbEpisode {
   origin_moment_summaries: string[];
   relationship_weight: number;
   status: string;
+  v3_domain: string | null;
+  v3_pressure_source: string | null;
+  v3_relational_impact: string | null;
+  v3_user_stance: string | null;
+  v3_unresolved_level: number | null;
+  v3_event_summary: string | null;
+  v3_evidence_turns: string[];
+  v3_last_user_position: string | null;
 }
 
 function mapRow(row: Record<string, unknown>): DbEpisode {
@@ -43,12 +51,25 @@ function mapRow(row: Record<string, unknown>): DbEpisode {
     origin_moment_summaries: (row.origin_moment_summaries as string[]) ?? [],
     relationship_weight: Number(row.relationship_weight),
     status: row.status as string,
+    v3_domain: (row.v3_domain as string | null) ?? null,
+    v3_pressure_source: (row.v3_pressure_source as string | null) ?? null,
+    v3_relational_impact: (row.v3_relational_impact as string | null) ?? null,
+    v3_user_stance: (row.v3_user_stance as string | null) ?? null,
+    v3_unresolved_level:
+      row.v3_unresolved_level === null || row.v3_unresolved_level === undefined
+        ? null
+        : Number(row.v3_unresolved_level),
+    v3_event_summary: (row.v3_event_summary as string | null) ?? null,
+    v3_evidence_turns: (row.v3_evidence_turns as string[]) ?? [],
+    v3_last_user_position: (row.v3_last_user_position as string | null) ?? null,
   };
 }
 
 const EPISODE_COLUMNS = `id, user_id, title, summary, topics, mood, kind, salience, recurrence_count,
   unresolved, first_seen_at, last_seen_at, last_referenced_at, centroid_embedding,
-  origin_moment_summaries, relationship_weight, status`;
+  origin_moment_summaries, relationship_weight, status,
+  v3_domain, v3_pressure_source, v3_relational_impact, v3_user_stance,
+  v3_unresolved_level, v3_event_summary, v3_evidence_turns, v3_last_user_position`;
 
 export async function insertEpisode(params: {
   userId: string;
@@ -63,6 +84,14 @@ export async function insertEpisode(params: {
   centroidEmbedding: number[];
   originMomentSummaries: string[];
   relationshipWeight: number;
+  v3Domain?: string;
+  v3PressureSource?: string;
+  v3RelationalImpact?: string;
+  v3UserStance?: string;
+  v3UnresolvedLevel?: number;
+  v3EventSummary?: string;
+  v3EvidenceTurns?: string[];
+  v3LastUserPosition?: string;
 }): Promise<DbEpisode> {
   try {
     const res = await query(
@@ -78,9 +107,17 @@ export async function insertEpisode(params: {
          status,
          centroid_embedding,
          origin_moment_summaries,
-         relationship_weight
+         relationship_weight,
+         v3_domain,
+         v3_pressure_source,
+         v3_relational_impact,
+         v3_user_stance,
+         v3_unresolved_level,
+         v3_event_summary,
+         v3_evidence_turns,
+         v3_last_user_position
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        RETURNING ${EPISODE_COLUMNS}`,
       [
         params.userId,
@@ -95,6 +132,14 @@ export async function insertEpisode(params: {
         embeddingToVectorLiteral(params.centroidEmbedding),
         params.originMomentSummaries,
         params.relationshipWeight,
+        params.v3Domain ?? null,
+        params.v3PressureSource ?? null,
+        params.v3RelationalImpact ?? null,
+        params.v3UserStance ?? null,
+        params.v3UnresolvedLevel ?? null,
+        params.v3EventSummary ?? null,
+        params.v3EvidenceTurns ?? [],
+        params.v3LastUserPosition ?? null,
       ]
     );
     return mapRow(res.rows[0] as Record<string, unknown>);
@@ -119,6 +164,14 @@ export async function updateEpisode(
     originMomentSummaries?: string[];
     relationshipWeight?: number;
     status?: string;
+    v3Domain?: string | null;
+    v3PressureSource?: string | null;
+    v3RelationalImpact?: string | null;
+    v3UserStance?: string | null;
+    v3UnresolvedLevel?: number | null;
+    v3EventSummary?: string | null;
+    v3EvidenceTurns?: string[];
+    v3LastUserPosition?: string | null;
   }
 ): Promise<DbEpisode | null> {
   try {
@@ -172,6 +225,38 @@ export async function updateEpisode(
     if (params.status !== undefined) {
       values.push(params.status);
       updates.push(`status = $${values.length}`);
+    }
+    if (params.v3Domain !== undefined) {
+      values.push(params.v3Domain);
+      updates.push(`v3_domain = $${values.length}`);
+    }
+    if (params.v3PressureSource !== undefined) {
+      values.push(params.v3PressureSource);
+      updates.push(`v3_pressure_source = $${values.length}`);
+    }
+    if (params.v3RelationalImpact !== undefined) {
+      values.push(params.v3RelationalImpact);
+      updates.push(`v3_relational_impact = $${values.length}`);
+    }
+    if (params.v3UserStance !== undefined) {
+      values.push(params.v3UserStance);
+      updates.push(`v3_user_stance = $${values.length}`);
+    }
+    if (params.v3UnresolvedLevel !== undefined) {
+      values.push(params.v3UnresolvedLevel);
+      updates.push(`v3_unresolved_level = $${values.length}`);
+    }
+    if (params.v3EventSummary !== undefined) {
+      values.push(params.v3EventSummary);
+      updates.push(`v3_event_summary = $${values.length}`);
+    }
+    if (params.v3EvidenceTurns !== undefined) {
+      values.push(params.v3EvidenceTurns);
+      updates.push(`v3_evidence_turns = $${values.length}`);
+    }
+    if (params.v3LastUserPosition !== undefined) {
+      values.push(params.v3LastUserPosition);
+      updates.push(`v3_last_user_position = $${values.length}`);
     }
 
     if (updates.length === 0) {

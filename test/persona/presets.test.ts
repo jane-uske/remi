@@ -13,12 +13,13 @@ const { createDefaultPersona } = require("../../persona");
 describe("persona preset registry", () => {
   it("initializes the default persona with a canonical preset id", () => {
     const persona = createDefaultPersona();
-    assert.equal(persona.profile.presetId, "witty_warm");
+    assert.equal(persona.profile.presetId, "remi_core");
   });
 
-  it("exposes the four user-facing presets", () => {
+  it("exposes remi_core plus the dev-facing experimental presets", () => {
     const ids = listPersonaPresets().map((preset) => preset.id);
     assert.deepEqual(ids, [
+      "remi_core",
       "witty_warm",
       "relaxed_roast",
       "playful_attached",
@@ -26,8 +27,17 @@ describe("persona preset registry", () => {
     ]);
   });
 
+  it("defines remi_core as witty by default without losing serious-scene restraint", () => {
+    const preset = getPersonaPreset("remi_core");
+    assert.equal(preset.label, "Remi");
+    assert.equal(preset.expression.humorLevel, "high");
+    assert.equal(preset.expression.teasingStyle, "light");
+    assert.match(preset.profile.toneGuide, /严肃|收住/);
+  });
+
   it("guards unknown preset ids and exposes structured expression fields", () => {
     assert.equal(isPersonaPresetId("witty_warm"), true);
+    assert.equal(isPersonaPresetId("remi_core"), true);
     assert.equal(isPersonaPresetId("nope"), false);
     assert.equal(getPersonaPreset("relaxed_roast").expression.teasingStyle, "light");
   });

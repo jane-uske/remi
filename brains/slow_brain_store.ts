@@ -105,6 +105,14 @@ export interface TopicBoundaryState {
   expiresAtTurn: number;
 }
 
+export type RepairStateLevel = "none" | "minor_miss" | "trust_drop" | "rupture";
+
+export interface RepairState {
+  level: RepairStateLevel;
+  reason: string;
+  lastUpdatedTurn: number;
+}
+
 export interface TopicThread {
   topic: string;
   summary: string;
@@ -166,13 +174,17 @@ export interface ProactiveStrategyState {
 
 export type WorkingMemorySceneState = "none" | "planning" | "decision" | "immersive";
 
-export interface WorkingMemory {
+export interface WorkingMemoryV2 {
+  activeThread: string;
   currentNeed: string;
   currentConstraints: string[];
   openLoop: string;
+  doNotTouch: string[];
   sceneState: WorkingMemorySceneState;
   lastUpdatedTurn: number;
 }
+
+export type WorkingMemory = WorkingMemoryV2;
 
 export interface SlowBrainSnapshot {
   userProfile: UserProfile;
@@ -184,7 +196,8 @@ export interface SlowBrainSnapshot {
   sharedMoments: SharedMoment[];
   episodes?: Episode[];
   topicThreads?: TopicThread[];
-  workingMemory?: WorkingMemory;
+  workingMemory?: WorkingMemoryV2;
+  repairState?: RepairState;
   continuityCueState: ContinuityCueState;
   topicBoundaryState?: TopicBoundaryState;
   proactiveLedger?: ProactiveLedgerEntry[];
@@ -212,7 +225,11 @@ export interface SilenceNudgePlan {
 }
 
 const WORKING_MEMORY_TTL_TURNS = 3;
+const REPAIR_STATE_TTL_TURNS = 3;
 const WORKING_MEMORY_MAX_CHARS = 180;
+const WORKING_MEMORY_MAX_CONSTRAINTS = 4;
+const GREETING_LIKE_TURN_PATTERN =
+  /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好)[!！?？~～。\s]*$/iu;
 
 function workingMemoryEnabled(): boolean {
   const raw = (process.env.REMI_WORKING_MEMORY_ENABLED ?? "0").trim().toLowerCase();
@@ -223,6 +240,38 @@ function clipWorkingMemoryText(text: string, maxChars: number): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function normalizeWorkingMemoryConstraint(text: string): string {
+  return text
+    .trim()
+    .replace(/^(而且|还有|另外|但是|但|不过|只是|现在|可我|可是|再加上)/u, "")
+    .replace(/\s+/g, "");
+}
+
+function dedupeWorkingMemoryConstraints(entries: string[]): string[] {
+  const kept: Array<{ raw: string; normalized: string }> = [];
+  for (const entry of entries) {
+    const raw = entry.trim();
+    if (!raw) continue;
+    const normalized = normalizeWorkingMemoryConstraint(raw);
+    if (!normalized) continue;
+    const overlapsExisting = kept.some(
+      (candidate) =>
+        candidate.normalized === normalized ||
+        candidate.normalized.includes(normalized) ||
+        normalized.includes(candidate.normalized),
+    );
+    if (overlapsExisting) continue;
+    kept.push({ raw, normalized });
+  }
+  return kept.map((entry) => entry.raw);
+}
+
+function isGreetingLikeTurn(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (!trimmed || trimmed.length > 12) return false;
+  return GREETING_LIKE_TURN_PATTERN.test(trimmed);
 }
 
 function describeWorkingMemoryScene(sceneState: WorkingMemorySceneState): string {
@@ -259,6 +308,7 @@ export class SlowBrainStore {
     lastSharedMomentTurn: -100,
   };
   private topicBoundaryState: TopicBoundaryState | null = null;
+  private repairState: RepairState | null = null;
   private readonly proactiveLedger = new Map<string, ProactiveLedgerEntry>();
   private readonly proactiveStrategyState: ProactiveStrategyState = {
     lastUserTurnAt: 0,
@@ -272,7 +322,7 @@ export class SlowBrainStore {
     cooldownUntilAt: 0,
     lastProactiveMode: "",
   };
-  private workingMemory: WorkingMemory | null = null;
+  private workingMemory: WorkingMemoryV2 | null = null;
   private derivedCache: {
     topicSignals: DerivedTopicSignal[];
     episodes: Episode[];
@@ -503,11 +553,20 @@ export class SlowBrainStore {
       sharedMoments: snap.sharedMoments.map((entry) => ({ ...entry })),
       workingMemory: snap.workingMemory
         ? {
+            activeThread: snap.workingMemory.activeThread,
             currentNeed: snap.workingMemory.currentNeed,
             currentConstraints: [...snap.workingMemory.currentConstraints],
             openLoop: snap.workingMemory.openLoop,
+            doNotTouch: [...snap.workingMemory.doNotTouch],
             sceneState: snap.workingMemory.sceneState,
             lastUpdatedTurn: snap.workingMemory.lastUpdatedTurn,
+          }
+        : undefined,
+      repairState: snap.repairState
+        ? {
+            level: snap.repairState.level,
+            reason: snap.repairState.reason,
+            lastUpdatedTurn: snap.repairState.lastUpdatedTurn,
           }
         : undefined,
       continuityCueState: { ...snap.continuityCueState },
@@ -604,11 +663,20 @@ export class SlowBrainStore {
       state.proactiveStrategyState.lastProactiveMode ?? "";
     this.workingMemory = state.workingMemory
       ? {
+          activeThread: state.workingMemory.activeThread,
           currentNeed: state.workingMemory.currentNeed,
           currentConstraints: [...state.workingMemory.currentConstraints],
           openLoop: state.workingMemory.openLoop,
+          doNotTouch: [...state.workingMemory.doNotTouch],
           sceneState: state.workingMemory.sceneState,
           lastUpdatedTurn: state.workingMemory.lastUpdatedTurn,
+        }
+      : null;
+    this.repairState = state.repairState
+      ? {
+          level: state.repairState.level,
+          reason: state.repairState.reason,
+          lastUpdatedTurn: state.repairState.lastUpdatedTurn,
         }
       : null;
     this.topicBoundaryState = null;
@@ -635,13 +703,16 @@ export class SlowBrainStore {
       topicThreads: this.cloneTopicThreadsForSnapshot(derived.topicThreads),
       workingMemory: workingMemory
         ? {
+            activeThread: workingMemory.activeThread,
             currentNeed: workingMemory.currentNeed,
             currentConstraints: [...workingMemory.currentConstraints],
             openLoop: workingMemory.openLoop,
+            doNotTouch: [...workingMemory.doNotTouch],
             sceneState: workingMemory.sceneState,
             lastUpdatedTurn: workingMemory.lastUpdatedTurn,
           }
         : undefined,
+      repairState: this.getActiveRepairState() ?? undefined,
       continuityCueState: { ...this.continuityCueState },
       topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
@@ -658,7 +729,7 @@ export class SlowBrainStore {
     interpretation?: TurnInterpretation | null;
     responsePolicy?: ResponsePolicy | null;
     directCapabilityId?: string | null;
-  }): WorkingMemory | null {
+  }): WorkingMemoryV2 | null {
     if (!workingMemoryEnabled()) return null;
 
     const active = this.getActiveWorkingMemory();
@@ -673,6 +744,12 @@ export class SlowBrainStore {
     }
 
     const currentConstraints = this.extractWorkingMemoryConstraints(input.userMessage);
+    const activeThread = this.deriveWorkingMemoryActiveThread(
+      trimmed,
+      input.interpretation ?? null,
+      input.directCapabilityId ?? null,
+      active,
+    );
     const currentNeed = this.deriveWorkingMemoryNeed(
       trimmed,
       input.interpretation ?? null,
@@ -683,6 +760,12 @@ export class SlowBrainStore {
       input.interpretation ?? null,
       input.directCapabilityId ?? null,
     );
+    const sameDecisionThread = active?.sceneState === "decision" && sceneState === "decision";
+    const mergeConstraintContext =
+      sameDecisionThread &&
+      (input.interpretation?.userAct === "context_update" ||
+        input.interpretation?.sceneType === "practical_judgment" ||
+        trimmed.length <= 24);
 
     const shouldOverwrite =
       input.directCapabilityId != null ||
@@ -696,14 +779,28 @@ export class SlowBrainStore {
 
     const nextConstraints =
       input.interpretation?.userAct === "context_update"
-        ? [
-            ...(active?.currentConstraints ?? []),
-            ...currentConstraints,
-          ]
-            .filter(Boolean)
-            .filter((entry, index, list) => list.indexOf(entry) === index)
-            .slice(-3)
-        : currentConstraints.slice(0, 3);
+        ? dedupeWorkingMemoryConstraints(
+            [
+              ...(active?.currentConstraints ?? []),
+              ...currentConstraints,
+            ]
+              .filter(Boolean)
+              .filter((entry, index, list) => list.indexOf(entry) === index),
+          ).slice(-WORKING_MEMORY_MAX_CONSTRAINTS)
+        : mergeConstraintContext && currentConstraints.length > 0
+        ? dedupeWorkingMemoryConstraints(
+            [
+              ...(active?.currentConstraints ?? []),
+              ...currentConstraints,
+            ]
+              .filter(Boolean)
+              .filter((entry, index, list) => list.indexOf(entry) === index),
+          ).slice(-WORKING_MEMORY_MAX_CONSTRAINTS)
+        : input.interpretation?.userAct === "decision_seek" &&
+            currentConstraints.length === 0 &&
+            active?.sceneState === "decision"
+        ? [...(active.currentConstraints ?? [])].slice(0, WORKING_MEMORY_MAX_CONSTRAINTS)
+        : currentConstraints.slice(0, WORKING_MEMORY_MAX_CONSTRAINTS);
 
     const openLoop = this.deriveWorkingMemoryOpenLoop(
       trimmed,
@@ -711,27 +808,43 @@ export class SlowBrainStore {
       input.directCapabilityId ?? null,
       active,
     );
+    const doNotTouch = this.deriveWorkingMemoryDoNotTouch(
+      input.interpretation ?? null,
+      input.responsePolicy ?? null,
+      active,
+    );
+    const nextDoNotTouch =
+      sameDecisionThread || (active?.sceneState === "immersive" && sceneState === "immersive")
+        ? [...(active?.doNotTouch ?? []), ...doNotTouch]
+            .filter(Boolean)
+            .filter((entry, index, list) => list.indexOf(entry) === index)
+            .slice(0, 4)
+        : doNotTouch;
 
-    if (!shouldOverwrite && !openLoop && nextConstraints.length === 0) {
+    if (!shouldOverwrite && !openLoop && nextConstraints.length === 0 && !activeThread && nextDoNotTouch.length === 0) {
       return active;
     }
 
     return {
+      activeThread: activeThread || active?.activeThread || "",
       currentNeed: currentNeed || active?.currentNeed || trimmed,
       currentConstraints: nextConstraints,
       openLoop,
+      doNotTouch: nextDoNotTouch,
       sceneState,
       lastUpdatedTurn: this.relationship.turnCount + 1,
     };
   }
 
-  applyWorkingMemoryDraft(draft: WorkingMemory | null | undefined): void {
+  applyWorkingMemoryDraft(draft: WorkingMemoryV2 | null | undefined): void {
     if (!workingMemoryEnabled()) return;
     this.workingMemory = draft
       ? {
+          activeThread: draft.activeThread,
           currentNeed: draft.currentNeed,
           currentConstraints: [...draft.currentConstraints],
           openLoop: draft.openLoop,
+          doNotTouch: [...draft.doNotTouch],
           sceneState: draft.sceneState,
           lastUpdatedTurn: draft.lastUpdatedTurn,
         }
@@ -739,12 +852,15 @@ export class SlowBrainStore {
     this.invalidateDerivedCache();
   }
 
-  buildWorkingMemoryPromptBlock(draft?: WorkingMemory | null): string | undefined {
+  buildWorkingMemoryPromptBlock(draft?: WorkingMemoryV2 | null): string | undefined {
     if (!workingMemoryEnabled()) return undefined;
     const workingMemory = draft ?? this.getActiveWorkingMemory();
     if (!workingMemory) return undefined;
 
     const parts = [
+      workingMemory.activeThread
+        ? `当前主线：${workingMemory.activeThread}`
+        : "",
       workingMemory.currentNeed
         ? `当前需求：${workingMemory.currentNeed}`
         : "",
@@ -753,6 +869,9 @@ export class SlowBrainStore {
         : "",
       workingMemory.openLoop
         ? `未收口问题：${workingMemory.openLoop}`
+        : "",
+      workingMemory.doNotTouch.length > 0
+        ? `不要做：${workingMemory.doNotTouch.join("；")}`
         : "",
       workingMemory.sceneState !== "none"
         ? `场景状态：${describeWorkingMemoryScene(workingMemory.sceneState)}`
@@ -1029,9 +1148,11 @@ export class SlowBrainStore {
     analysis?: TurnAnalysisBundle | null,
   ): ConversationGuidance {
     this.observeUserTopicBoundary(userMessage);
+    const repairState = this.observeRepairState(userMessage);
     const snap = this.getSnapshot();
     const lines: string[] = [];
     const trimmed = userMessage.trim();
+    const greetingLikeTurn = isGreetingLikeTurn(trimmed);
     const structuredInterpretation = analysis?.used ? analysis.interpretation : null;
     const structuredPolicy = analysis?.used ? analysis.policy : null;
     const decisionSeeking =
@@ -1057,7 +1178,10 @@ export class SlowBrainStore {
       answerNow ||
       contextUpdate ||
       sceneContinue ||
-      vetoTopic;
+      greetingLikeTurn ||
+      vetoTopic ||
+      repairState?.level === "trust_drop" ||
+      repairState?.level === "rupture";
 
     const { familiarity, emotionalBond, turnCount } = snap.relationship;
     const sceneImmersionGuidance =
@@ -1067,9 +1191,18 @@ export class SlowBrainStore {
     if (sceneImmersionGuidance) {
       lines.push(sceneImmersionGuidance);
     }
-    const realtimeContinuityHint = buildRealtimeContinuityHint(snap, userMessage);
+    const realtimeContinuityHint = greetingLikeTurn
+      ? null
+      : buildRealtimeContinuityHint(snap, userMessage);
     if (realtimeContinuityHint && !sceneContinue) {
       lines.push(realtimeContinuityHint);
+    }
+    if (greetingLikeTurn) {
+      lines.push("【轻接话】这轮只是轻打招呼或确认在不在。先轻轻接住，不主动翻旧账，不把旧重话题拉回当前回复。");
+    }
+    const repairGuidance = this.buildRepairGuidance(repairState);
+    if (repairGuidance) {
+      lines.push(repairGuidance);
     }
 
     if (!analysis?.used && turnCount > 0 && turnCount < 4) {
@@ -1192,12 +1325,24 @@ export class SlowBrainStore {
   }
 
   private extractWorkingMemoryConstraints(userMessage: string): string[] {
+    const explicitMatches = [
+      ...userMessage.matchAll(/((?:我)?每个月挣[^，。！？；;,.!?]{1,12})/gu),
+      ...userMessage.matchAll(/((?:月(?:收入|薪)|工资(?:只有)?)[^，。！？；;,.!?]{1,12})/gu),
+      ...userMessage.matchAll(/(((?:我)?(?:还欠|欠了?|负债))[^，。！？；;,.!?]{1,12})/gu),
+      ...userMessage.matchAll(/((?:赔了)[^，。！？；;,.!?]{1,12})/gu),
+      ...userMessage.matchAll(/((?:房租(?:也)?快到了|手里只剩|现金(?:流)?(?:很)?紧|只剩[^，。！？；;,.!?]{1,12}|存款[^，。！？；;,.!?]{1,12})[^，。！？；;,.!?]{0,12})/gu),
+    ]
+      .map((match) => clipWorkingMemoryText(match[1] ?? "", 48))
+      .filter(Boolean);
     const fragments = userMessage
       .split(/[，。！？；;,.!?]/u)
       .map((part) => clipWorkingMemoryText(part, 48))
       .filter(Boolean);
-    const constraintLike = /(\d|钱|预算|负债|花呗|房租|贷款|offer|面试|时间|今天|这周|这个月|最近|已经|还|只能|不能|没法|不想|别|先不)/u;
-    return fragments.filter((entry) => constraintLike.test(entry)).slice(0, 3);
+    const constraintLike = /(\d|钱|预算|负债|花呗|房租|贷款|网贷|赔偿|现金|现金流|存款|手里|只剩|offer|面试|时间|今天|这周|这个月|最近|已经|还|只能|不能|没法|不想|别|先不)/u;
+    return dedupeWorkingMemoryConstraints([
+      ...explicitMatches,
+      ...fragments.filter((entry) => constraintLike.test(entry)),
+    ]).slice(0, WORKING_MEMORY_MAX_CONSTRAINTS);
   }
 
   private deriveWorkingMemoryNeed(
@@ -1240,6 +1385,53 @@ export class SlowBrainStore {
     }
   }
 
+  private deriveWorkingMemoryActiveThread(
+    trimmedUserMessage: string,
+    interpretation: TurnInterpretation | null,
+    directCapabilityId: string | null,
+    active: WorkingMemoryV2 | null,
+  ): string {
+    if (directCapabilityId === "date_recap") {
+      return "当前在回顾之前某个时间点的对话。";
+    }
+    if (directCapabilityId === "time") {
+      return "当前在确认时间或日期。";
+    }
+    if (!interpretation) {
+      return active?.activeThread ?? "";
+    }
+
+    if (interpretation.sceneType === "high_risk_distress") {
+      return "当前在处理高风险现实压力，先稳住安全和眼前状态。";
+    }
+    if (interpretation.sceneType === "relational_recall") {
+      return "当前在校验关系连续性，先答记得的部分，不要靠猜。";
+    }
+    if (interpretation.sceneType === "practical_judgment") {
+      const label = interpretation.topicUpdate?.label?.trim();
+      return label
+        ? `当前在处理「${label}」这条现实判断线。`
+        : "当前在处理现实判断和约束更新。";
+    }
+    if (
+      interpretation.userAct === "decision_seek" ||
+      interpretation.userAct === "answer_now" ||
+      interpretation.userAct === "context_update"
+    ) {
+      const label = interpretation.topicUpdate?.label?.trim();
+      return label
+        ? `当前在处理「${label}」这条现实判断线。`
+        : "当前在处理现实判断和约束更新。";
+    }
+    if (interpretation.userAct === "scene_continue") {
+      return "当前在继续同一场景，不要重新开场。";
+    }
+    if (interpretation.userAct === "emotional_share") {
+      return `当前在接住这轮感受：${clipWorkingMemoryText(trimmedUserMessage, 28)}`;
+    }
+    return active?.activeThread ?? "";
+  }
+
   private deriveWorkingMemorySceneState(
     userMessage: string,
     interpretation: TurnInterpretation | null,
@@ -1267,7 +1459,7 @@ export class SlowBrainStore {
     trimmedUserMessage: string,
     interpretation: TurnInterpretation | null,
     directCapabilityId: string | null,
-    active: WorkingMemory | null,
+    active: WorkingMemoryV2 | null,
   ): string {
     if (directCapabilityId) return "";
     if (interpretation?.boundaryState === "veto_topic") return "";
@@ -1284,6 +1476,88 @@ export class SlowBrainStore {
       return clipWorkingMemoryText(trimmedUserMessage, 52);
     }
     return active?.openLoop ?? "";
+  }
+
+  private deriveWorkingMemoryDoNotTouch(
+    interpretation: TurnInterpretation | null,
+    responsePolicy: ResponsePolicy | null,
+    active: WorkingMemoryV2 | null,
+  ): string[] {
+    if (!interpretation || !responsePolicy) {
+      return active?.doNotTouch ? [...active.doNotTouch] : [];
+    }
+    if (interpretation.boundaryState === "veto_topic") {
+      return [];
+    }
+
+    const bans = new Set(responsePolicy.bans);
+    const rules: string[] = [];
+    if (bans.has("no_jokes")) {
+      rules.push("不要开玩笑");
+    }
+    if (bans.has("no_topic_pivot")) {
+      rules.push("不要把话题拉回轻聊或不相干方向");
+    }
+    if (bans.has("no_speculative_memory")) {
+      rules.push("记不准就承认，不要靠猜");
+    }
+    if (bans.has("no_shallow_reassurance")) {
+      rules.push("不要轻飘安慰或无依据粗算");
+    }
+    if (bans.has("no_repeat_user_question")) {
+      rules.push("不要把问题原样丢回去");
+    }
+    if (bans.has("no_reopen_vetoed_topic")) {
+      rules.push("不要回拉用户刚拒绝的话题");
+    }
+
+    return rules.filter((entry, index, list) => list.indexOf(entry) === index).slice(0, 3);
+  }
+
+  private observeRepairState(userMessage: string): RepairState | null {
+    const trimmed = userMessage.trim();
+    if (!trimmed) return this.getActiveRepairState();
+
+    let nextLevel: RepairStateLevel | null = null;
+    let nextReason = "";
+
+    if (/(傻逼|闭嘴|滚|有病吧|别说了|别烦我)/u.test(trimmed)) {
+      nextLevel = "rupture";
+      nextReason = "用户已经明显被惹毛了，先止损，不要解释或继续追问。";
+    } else if (
+      /(你安慰人都不会|我不想回答你问题了|你到底有没有在听|你根本没懂|你真记性不好|我已经说过了|你怎么又问|别再问了)/u.test(
+        trimmed,
+      )
+    ) {
+      nextLevel = "trust_drop";
+      nextReason = "你刚刚没有接住对方，先承认失手，别继续追问或替自己辩解。";
+    } else if (/(你在问我呢|你怎么老是问我|你忘了|再想想|不是这个意思)/u.test(trimmed)) {
+      nextLevel = "minor_miss";
+      nextReason = "这轮先修正理解，直接回到对方真正要的点，不要绕。";
+    }
+
+    if (!nextLevel) {
+      return this.getActiveRepairState();
+    }
+
+    this.repairState = {
+      level: nextLevel,
+      reason: nextReason,
+      lastUpdatedTurn: this.relationship.turnCount,
+    };
+    this.invalidateDerivedCache();
+    return this.getActiveRepairState();
+  }
+
+  private buildRepairGuidance(repairState: RepairState | null): string | null {
+    if (!repairState || repairState.level === "none") return null;
+    if (repairState.level === "rupture") {
+      return "【关系修复】用户已经明显烦了。先短句承认你刚刚没接住，别替自己解释，别继续追问，别把话题拉回你想聊的线；先站到对方这边，收住语气，再给一句低打扰的修复回应。";
+    }
+    if (repairState.level === "trust_drop") {
+      return `【关系修复】当前不是普通续聊，而是在修复信任下滑。${repairState.reason} 回应顺序：先承认你刚刚没接住或问错了，再直接回到对方在意的点，不要急着安抚或讲道理。`;
+    }
+    return `【关系修复】当前先修正理解偏差。${repairState.reason} 先改口并贴着对方原话接住，不要继续复述旧理解。`;
   }
 
   markContinuityCueUsed(input: {
@@ -1312,16 +1586,18 @@ export class SlowBrainStore {
     this.derivedCache = null;
   }
 
-  private getActiveWorkingMemory(): WorkingMemory | null {
+  private getActiveWorkingMemory(): WorkingMemoryV2 | null {
     if (!this.workingMemory) return null;
     if (this.relationship.turnCount - this.workingMemory.lastUpdatedTurn >= WORKING_MEMORY_TTL_TURNS) {
       this.workingMemory = null;
       return null;
     }
     return {
+      activeThread: this.workingMemory.activeThread,
       currentNeed: this.workingMemory.currentNeed,
       currentConstraints: [...this.workingMemory.currentConstraints],
       openLoop: this.workingMemory.openLoop,
+      doNotTouch: [...this.workingMemory.doNotTouch],
       sceneState: this.workingMemory.sceneState,
       lastUpdatedTurn: this.workingMemory.lastUpdatedTurn,
     };
@@ -1338,6 +1614,19 @@ export class SlowBrainStore {
       blockedKeywords: [...this.topicBoundaryState.blockedKeywords],
       setAtTurn: this.topicBoundaryState.setAtTurn,
       expiresAtTurn: this.topicBoundaryState.expiresAtTurn,
+    };
+  }
+
+  private getActiveRepairState(): RepairState | null {
+    if (!this.repairState || this.repairState.level === "none") return null;
+    if (this.relationship.turnCount - this.repairState.lastUpdatedTurn >= REPAIR_STATE_TTL_TURNS) {
+      this.repairState = null;
+      return null;
+    }
+    return {
+      level: this.repairState.level,
+      reason: this.repairState.reason,
+      lastUpdatedTurn: this.repairState.lastUpdatedTurn,
     };
   }
 
@@ -1361,6 +1650,7 @@ export class SlowBrainStore {
       episodes,
       topicThreads,
       workingMemory: this.getActiveWorkingMemory() ?? undefined,
+      repairState: this.getActiveRepairState() ?? undefined,
       continuityCueState: { ...this.continuityCueState },
       topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
@@ -1389,6 +1679,7 @@ export class SlowBrainStore {
       proactiveTopics: [...this.proactiveTopics],
       sharedMoments: this.sharedMoments.map((entry) => ({ ...entry })),
       continuityCueState: { ...this.continuityCueState },
+      repairState: this.getActiveRepairState() ?? undefined,
       topicBoundaryState: this.getActiveTopicBoundaryState() ?? undefined,
       proactiveLedger: [...this.proactiveLedger.values()].map((entry) => ({ ...entry })),
       proactiveStrategyState: { ...this.proactiveStrategyState },

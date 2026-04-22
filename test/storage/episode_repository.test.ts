@@ -36,6 +36,14 @@ describe("episode_repository", () => {
             origin_moment_summaries: ["summary"],
             relationship_weight: 0.6,
             status: "active",
+            v3_domain: "money",
+            v3_pressure_source: "financial",
+            v3_relational_impact: "medium",
+            v3_user_stance: "concerned",
+            v3_unresolved_level: 3,
+            v3_event_summary: "money summary",
+            v3_evidence_turns: ["summary"],
+            v3_last_user_position: "summary",
           },
         ],
       };
@@ -63,6 +71,14 @@ describe("episode_repository", () => {
       centroidEmbedding: [0.1, 0.2, 0.3],
       originMomentSummaries: ["昨晚又失眠了"],
       relationshipWeight: 0.7,
+      v3Domain: "money",
+      v3PressureSource: "financial",
+      v3RelationalImpact: "medium",
+      v3UserStance: "concerned",
+      v3UnresolvedLevel: 3,
+      v3EventSummary: "钱和压力",
+      v3EvidenceTurns: ["昨晚又失眠了"],
+      v3LastUserPosition: "昨晚又失眠了",
     });
 
     assert.equal(calls.length, 1);
@@ -80,6 +96,14 @@ describe("episode_repository", () => {
       "[0.1,0.2,0.3]",
       ["昨晚又失眠了"],
       0.7,
+      "money",
+      "financial",
+      "medium",
+      "concerned",
+      3,
+      "钱和压力",
+      ["昨晚又失眠了"],
+      "昨晚又失眠了",
     ]);
     assert.deepEqual(row.centroid_embedding, [0.1, 0.2]);
   });
@@ -101,16 +125,22 @@ describe("episode_repository", () => {
       summary: "新的 summary",
       unresolved: false,
       centroidEmbedding: [0.4, 0.8],
+      v3Domain: "work",
+      v3EventSummary: "工作 summary",
     });
 
     assert.match(calls[0].text, /summary = \$1/);
     assert.match(calls[0].text, /unresolved = \$2/);
     assert.match(calls[0].text, /centroid_embedding = \$3::vector/);
+    assert.match(calls[0].text, /v3_domain = \$4/);
+    assert.match(calls[0].text, /v3_event_summary = \$5/);
     assert.doesNotMatch(calls[0].text, /topics =/);
     assert.deepEqual(calls[0].params, [
       "新的 summary",
       false,
       "[0.4,0.8]",
+      "work",
+      "工作 summary",
       "episode-1",
     ]);
   });

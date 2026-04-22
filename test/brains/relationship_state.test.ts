@@ -760,9 +760,11 @@ describe("relationship state persistence", () => {
     const store = new SlowBrainStore();
     store.recordTurn();
     store.applyWorkingMemoryDraft({
+      activeThread: "当前在处理债务判断。",
       currentNeed: "用户想先判断先还哪笔债。",
       currentConstraints: ["还欠花呗两万五", "手头现金紧"],
       openLoop: "先还哪笔债更稳妥",
+      doNotTouch: ["不要轻飘安慰或无依据粗算"],
       sceneState: "decision",
       lastUpdatedTurn: 1,
     });
@@ -772,9 +774,11 @@ describe("relationship state persistence", () => {
       const loaded = await loadPersistentRelationshipState(repo);
 
       assert.deepEqual(loaded.workingMemory, {
+        activeThread: "当前在处理债务判断。",
         currentNeed: "用户想先判断先还哪笔债。",
         currentConstraints: ["还欠花呗两万五", "手头现金紧"],
         openLoop: "先还哪笔债更稳妥",
+        doNotTouch: ["不要轻飘安慰或无依据粗算"],
         sceneState: "decision",
         lastUpdatedTurn: 1,
       });
@@ -786,9 +790,60 @@ describe("relationship state persistence", () => {
       assert.ok(
         restored.buildWorkingMemoryPromptBlock()?.includes("【当前上下文】"),
       );
+      assert.ok(restored.buildWorkingMemoryPromptBlock()?.includes("当前主线"));
+      assert.ok(restored.buildWorkingMemoryPromptBlock()?.includes("不要做"));
     } finally {
       restoreEnv();
     }
+  });
+
+  it("persists and restores repair state through relationship state payloads", async () => {
+    const { repo } = createPersistentRepo();
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.buildConversationGuidance("你安慰人都不会");
+
+    await savePersistentRelationshipState(repo, store.exportPersistentState(456));
+    const loaded = await loadPersistentRelationshipState(repo);
+
+    assert.equal(loaded.repairState?.level, "trust_drop");
+    assert.equal(loaded.repairState?.lastUpdatedTurn, 1);
+    assert.ok((loaded.repairState?.reason ?? "").includes("先承认"));
+
+    const restored = new SlowBrainStore();
+    restored.hydratePersistentState(loaded);
+    const snapshot = restored.getSnapshot();
+    assert.deepEqual(snapshot.repairState, loaded.repairState);
+  });
+
+  it("injects repair guidance and suppresses proactive pullbacks after a trust drop", () => {
+    const store = new SlowBrainStore();
+    store.recordTurn();
+    store.recordTurn();
+    store.recordTurn();
+    store.bumpRelationship({ familiarityDelta: 0.58, emotionalBondDelta: 0.51 });
+    store.setProactiveTopics(["那件工作上的事后来缓一点了吗"]);
+    store.recordSharedMoment({
+      summary: "上次你提到那件工作上的事一直压着你。",
+      topic: "工作",
+      mood: "委屈",
+      hook: "那件工作上的事后来缓一点了吗",
+      kind: "stress",
+      salience: 0.9,
+      unresolved: true,
+      createdAt: 280,
+    });
+
+    const guidance = store.buildConversationGuidance("你安慰人都不会");
+    const snapshot = store.getSnapshot();
+
+    assert.ok(guidance.hints?.includes("【关系修复】"));
+    assert.ok(guidance.hints?.includes("修复信任下滑"));
+    assert.equal(Boolean(guidance.proactiveCandidate), false);
+    assert.equal(Boolean(guidance.sharedMomentCandidate), false);
+    assert.equal(snapshot.repairState?.level, "trust_drop");
+    assert.equal(snapshot.repairState?.lastUpdatedTurn, 3);
+    assert.ok((snapshot.repairState?.reason ?? "").includes("先承认"));
   });
 
   it("builds decision/context working memory and expires it after three turns", () => {
@@ -808,8 +863,10 @@ describe("relationship state persistence", () => {
       });
       assert.ok(decisionDraft);
       assert.equal(decisionDraft.sceneState, "decision");
+      assert.ok(decisionDraft.activeThread.includes("债务"));
       assert.ok(decisionDraft.currentNeed.includes("明确判断"));
       assert.equal(decisionDraft.currentConstraints.includes("我还欠两万五"), true);
+      assert.deepEqual(decisionDraft.doNotTouch, []);
       store.applyWorkingMemoryDraft(decisionDraft);
 
       const contextUpdateDraft = store.buildWorkingMemoryDraft({
@@ -839,9 +896,11 @@ describe("relationship state persistence", () => {
       assert.equal(store.getSnapshot().workingMemory, undefined);
 
       store.applyWorkingMemoryDraft({
+        activeThread: "当前在继续同一场景。",
         currentNeed: "用户在继续当前场景。",
         currentConstraints: [],
         openLoop: "继续眼前这个场景",
+        doNotTouch: ["不要重新开场"],
         sceneState: "immersive",
         lastUpdatedTurn: 1,
       });
@@ -849,6 +908,138 @@ describe("relationship state persistence", () => {
       store.recordTurn();
       store.recordTurn();
       assert.equal(store.getSnapshot().workingMemory, undefined);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("extracts concrete financial constraints into working memory for debt-pressure turns", () => {
+    const restoreEnv = applyEnv({ REMI_WORKING_MEMORY_ENABLED: "1" });
+    const store = new SlowBrainStore();
+    store.recordTurn();
+
+    try {
+      const draft = store.buildWorkingMemoryDraft({
+        userMessage: "我每个月挣三千，还欠七八万，得还到啥时候啊",
+        interpretation: {
+          sceneType: "practical_judgment",
+          userAct: "decision_seek",
+          sceneState: "not_in_scene",
+          boundaryState: "none",
+          topicUpdate: { kind: "constraint_update", label: "债务" },
+        },
+        responsePolicy: {
+          openingMove: "direct_answer",
+          directness: "high",
+          warmth: "high",
+          questionBudget: 0,
+          shouldMirrorEmotion: true,
+          shouldGiveJudgment: true,
+          shouldUpdateDecisionContext: true,
+          bans: ["no_assistantese", "no_topic_pivot", "no_shallow_reassurance"],
+        },
+      });
+
+      assert.ok(draft);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("每个月挣三千")), true);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("还欠七八万")), true);
+      assert.equal(draft.doNotTouch.includes("不要轻飘安慰或无依据粗算"), true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("inherits prior debt constraints on short decision follow-ups instead of clearing the thread", () => {
+    const restoreEnv = applyEnv({ REMI_WORKING_MEMORY_ENABLED: "1" });
+    const store = new SlowBrainStore();
+    store.recordTurn();
+
+    try {
+      store.applyWorkingMemoryDraft({
+        activeThread: "当前在处理「债务」这条现实判断线。",
+        currentNeed: "用户想就「债务」得到明确判断。",
+        currentConstraints: ["我每个月挣三千", "还欠七八万"],
+        openLoop: "我每个月挣三千，还欠七八万，得还到啥时候啊",
+        doNotTouch: ["不要轻飘安慰或无依据粗算"],
+        sceneState: "decision",
+        lastUpdatedTurn: 1,
+      });
+
+      const draft = store.buildWorkingMemoryDraft({
+        userMessage: "你帮我算算",
+        interpretation: {
+          sceneType: "practical_judgment",
+          userAct: "decision_seek",
+          sceneState: "not_in_scene",
+          boundaryState: "none",
+          topicUpdate: { kind: "none" },
+        },
+        responsePolicy: {
+          openingMove: "direct_answer",
+          directness: "high",
+          warmth: "high",
+          questionBudget: 0,
+          shouldMirrorEmotion: false,
+          shouldGiveJudgment: true,
+          shouldUpdateDecisionContext: false,
+          bans: ["no_assistantese", "no_topic_pivot", "no_repeat_user_question", "no_shallow_reassurance"],
+        },
+      });
+
+      assert.ok(draft);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("每个月挣三千")), true);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("还欠七八万")), true);
+      assert.equal(draft.doNotTouch.includes("不要轻飘安慰或无依据粗算"), true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("merges newly added debt constraints into the same active thread instead of replacing the prior context", () => {
+    const restoreEnv = applyEnv({ REMI_WORKING_MEMORY_ENABLED: "1" });
+    const store = new SlowBrainStore();
+    store.recordTurn();
+
+    try {
+      store.applyWorkingMemoryDraft({
+        activeThread: "当前在处理「债务」这条现实判断线。",
+        currentNeed: "用户想就「债务」得到明确判断。",
+        currentConstraints: ["我每个月挣三千", "还欠七八万"],
+        openLoop: "我每个月挣三千，还欠七八万，得还到啥时候啊",
+        doNotTouch: ["不要轻飘安慰或无依据粗算"],
+        sceneState: "decision",
+        lastUpdatedTurn: 1,
+      });
+
+      const draft = store.buildWorkingMemoryDraft({
+        userMessage: "而且这个月房租也快到了，手里只剩三千现金",
+        interpretation: {
+          sceneType: "practical_judgment",
+          userAct: "context_update",
+          sceneState: "not_in_scene",
+          boundaryState: "none",
+          topicUpdate: { kind: "constraint_update", label: "现金流" },
+        },
+        responsePolicy: {
+          openingMove: "direct_answer",
+          directness: "high",
+          warmth: "high",
+          questionBudget: 0,
+          shouldMirrorEmotion: true,
+          shouldGiveJudgment: false,
+          shouldUpdateDecisionContext: true,
+          bans: ["no_assistantese", "no_topic_pivot", "no_shallow_reassurance"],
+        },
+      });
+
+      assert.ok(draft);
+      assert.ok(draft.activeThread.includes("现实判断线"));
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("每个月挣三千")), true);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("还欠七八万")), true);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("房租也快到了")), true);
+      assert.equal(draft.currentConstraints.some((entry) => entry.includes("手里只剩三千现金")), true);
+      assert.equal(draft.doNotTouch.includes("不要轻飘安慰或无依据粗算"), true);
+      assert.ok(draft.openLoop.includes("还到啥时候"));
     } finally {
       restoreEnv();
     }

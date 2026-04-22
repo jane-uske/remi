@@ -6,6 +6,7 @@ import {
   extractMemory,
   retrievePromptMemory,
 } from "../memory/memory_agent";
+import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
@@ -23,17 +24,21 @@ import {
   type TurnAnalysisBundle,
 } from "../brain/turn_interpreter";
 import { advanceAdultSceneState } from "../brain/adult_mode";
-import type { WorkingMemory } from "./slow_brain_store";
+import type { RepairState, WorkingMemoryV2 } from "./slow_brain_store";
 import { resolvePersonaStyleDirective } from "../persona/style_override";
 
 const MAX_HISTORY = 10;
 const logger = createLogger("brain_router");
 const DEFAULT_FAST_PATH_HISTORY_TOKENS = 1000;
 const DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS = 1200;
+const DEFAULT_TEXT_DELIBERATE_HISTORY_TOKENS = 2200;
 const DEFAULT_FAST_PATH_PROMPT_MEMORY_ENTRIES = 4;
 const DEFAULT_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES = 5;
+const DEFAULT_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES = 6;
 const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
 const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
+const GREETING_LIKE_TURN_PATTERN =
+  /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好)[!！?？~～。\s]*$/iu;
 
 function configuredPositiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw === "") return fallback;
@@ -41,10 +46,23 @@ function configuredPositiveInt(raw: string | undefined, fallback: number): numbe
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function isGreetingLikeTurn(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (!trimmed || trimmed.length > 12) return false;
+  return GREETING_LIKE_TURN_PATTERN.test(trimmed);
+}
+
 function resolvePromptMemoryMaxEntries(
   inputSource: "text" | "voice",
   _analysisCandidate: boolean,
+  deliberationBudget?: "text_normal" | "text_deliberate",
 ): number {
+  if (inputSource === "text" && deliberationBudget === "text_deliberate") {
+    return configuredPositiveInt(
+      process.env.REMI_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES,
+      DEFAULT_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES,
+    );
+  }
   if (inputSource === "text") {
     return configuredPositiveInt(
       process.env.REMI_FAST_PATH_PROMPT_MEMORY_ENTRIES,
@@ -60,7 +78,14 @@ function resolvePromptMemoryMaxEntries(
 function resolveHistoryTokenBudget(
   inputSource: "text" | "voice",
   analysisCandidate: boolean,
+  deliberationBudget?: "text_normal" | "text_deliberate",
 ): number {
+  if (inputSource === "text" && deliberationBudget === "text_deliberate") {
+    return configuredPositiveInt(
+      process.env.REMI_TEXT_DELIBERATE_HISTORY_TOKENS,
+      DEFAULT_TEXT_DELIBERATE_HISTORY_TOKENS,
+    );
+  }
   if (inputSource === "text" && !analysisCandidate) {
     return configuredPositiveInt(
       process.env.REMI_FAST_PATH_HISTORY_TOKENS,
@@ -71,6 +96,86 @@ function resolveHistoryTokenBudget(
     process.env.REMI_ANALYSIS_PATH_HISTORY_TOKENS,
     DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS,
   );
+}
+
+function resolveTextDeliberationBudget(args: {
+  inputSource: "text" | "voice";
+  userMessage: string;
+  analysis?: TurnAnalysisBundle | null;
+  repairLevel?: string | null;
+}): "text_normal" | "text_deliberate" | undefined {
+  if (args.inputSource !== "text") return undefined;
+  const trimmed = args.userMessage.trim();
+  if (
+    /认真想|想一下|捋一下|别急着答|你想想|认真回答/u.test(trimmed)
+  ) {
+    return "text_deliberate";
+  }
+  if (args.repairLevel === "trust_drop" || args.repairLevel === "rupture") {
+    return "text_deliberate";
+  }
+  if (args.analysis?.used) {
+    const sceneType = args.analysis.interpretation.sceneType;
+    if (
+      sceneType === "practical_judgment" ||
+      sceneType === "relational_recall" ||
+      sceneType === "high_risk_distress"
+    ) {
+      return "text_deliberate";
+    }
+  }
+  if (
+    /怎么办|要不要|值不值得|帮我算|还到啥时候|还到什么时候|该不该|怎么选|你还记得|你忘了|我们之前聊了什么|再想想/u.test(
+      trimmed,
+    )
+  ) {
+    return "text_deliberate";
+  }
+  return "text_normal";
+}
+
+function resolveTextDeliberateReasoningEffort(
+  deliberationBudget?: "text_normal" | "text_deliberate",
+): string | undefined {
+  if (deliberationBudget !== "text_deliberate") return undefined;
+  const configured = (process.env.REMI_TEXT_DELIBERATE_REASONING_EFFORT ?? "medium")
+    .trim()
+    .toLowerCase();
+  if (!configured || configured === "provider_default" || configured === "default" || configured === "off") {
+    return undefined;
+  }
+  return configured;
+}
+
+function buildArchiveTurnId(connId: string, traceId?: string): string {
+  if (traceId?.trim()) return traceId.trim();
+  return `text:${connId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function cloneWorkingMemory(
+  value: WorkingMemoryV2 | null | undefined,
+): WorkingMemoryV2 | null {
+  if (!value) return null;
+  return {
+    activeThread: value.activeThread,
+    currentNeed: value.currentNeed,
+    currentConstraints: [...value.currentConstraints],
+    openLoop: value.openLoop,
+    doNotTouch: [...value.doNotTouch],
+    sceneState: value.sceneState,
+    lastUpdatedTurn: value.lastUpdatedTurn,
+  };
+}
+
+function cloneRepairState(
+  value: RepairState | null | undefined,
+): RepairState | null {
+  if (!value) return null;
+  return {
+    level: value.level,
+    reason: value.reason,
+    lastUpdatedTurn: value.lastUpdatedTurn,
+  };
 }
 
 function readPriorityBlock(text: string | undefined, heading: string): string | undefined {
@@ -279,9 +384,10 @@ function finalizeDirectReply(input: {
   userMessage: string;
   reply: string;
   emotion: Emotion;
-  workingMemoryDraft?: WorkingMemory | null;
+  workingMemoryDraft?: WorkingMemoryV2 | null;
   signal?: AbortSignal;
   systemTriggered?: boolean;
+  inputSource?: "text" | "voice";
 }): "handled" | "aborted" {
   const { ctx, userMessage, reply, emotion, signal } = input;
   if (signal?.aborted) {
@@ -308,6 +414,30 @@ function finalizeDirectReply(input: {
   ctx.slowBrain.recordUserTurnActivity(userMessage);
   ctx.slowBrain.applyWorkingMemoryDraft(input.workingMemoryDraft);
   ctx.slowBrain.setLastEmotion(emotion);
+  if ((input.inputSource ?? "text") === "text") {
+    recordTextArchiveEntry({
+      kind: "text_archive",
+      stage: "prompt",
+      recordedAt: new Date().toISOString(),
+      turnId: buildArchiveTurnId(ctx.connId),
+      connId: ctx.connId,
+      userId: ctx.userId,
+      inputSource: input.inputSource ?? "text",
+      systemTriggered: Boolean(input.systemTriggered),
+      userMessage,
+      memoryWrites: [],
+      prompt: {
+        memoryKeys: [],
+        strategyHints: "",
+        currentContext: "",
+        slowBrainContext: "",
+        deliberationBudget: "text_normal",
+        reasoningEffort: "",
+      },
+      workingMemory: cloneWorkingMemory(input.workingMemoryDraft ?? null),
+      repairState: cloneRepairState(ctx.slowBrain.getSnapshot().repairState ?? null),
+    });
+  }
   return "handled";
 }
 
@@ -345,6 +475,7 @@ export async function* routeMessage(
   }
 
   const inputSource = opts?.inputSource ?? "text";
+  const archiveTurnId = buildArchiveTurnId(ctx.connId, opts?.traceId);
   const directCapabilityResult = await tryHandleDirectCapabilities({
     userMessage,
     emotion,
@@ -367,6 +498,7 @@ export async function* routeMessage(
       workingMemoryDraft: directWorkingMemoryDraft,
       signal,
       systemTriggered: opts?.systemTriggered,
+      inputSource,
     });
     if (result === "handled" && !opts?.systemTriggered) {
       await persistContinuityCueState(ctx);
@@ -374,9 +506,9 @@ export async function* routeMessage(
     return;
   }
 
-  if (!opts?.systemTriggered) {
-    extractMemory(userMessage, ctx.memory);
-  }
+  const fastMemoryWrites = !opts?.systemTriggered
+    ? extractMemory(userMessage, ctx.memory)
+    : [];
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
@@ -392,8 +524,17 @@ export async function* routeMessage(
   const analysisCandidate =
     Boolean(precomputedAnalysis) ||
     (!opts?.systemTriggered && shouldAnalyzeTurn(analysisInput));
-  const promptMemoryMaxEntries = resolvePromptMemoryMaxEntries(inputSource, analysisCandidate);
-  const historyTokenBudget = resolveHistoryTokenBudget(inputSource, analysisCandidate);
+  const preliminaryDeliberationBudget = resolveTextDeliberationBudget({
+    inputSource,
+    userMessage,
+    analysis: precomputedAnalysis,
+    repairLevel: slowBrainSnapshot.repairState?.level ?? null,
+  });
+  const preliminaryPromptMemoryMaxEntries = resolvePromptMemoryMaxEntries(
+    inputSource,
+    analysisCandidate,
+    preliminaryDeliberationBudget,
+  );
   const latencyTracer = opts?.traceId ? getLatencyTracer(ctx.connId) : null;
   const traceId = opts?.traceId;
   let analysis = precomputedAnalysis;
@@ -423,7 +564,7 @@ export async function* routeMessage(
           userId: ctx.userId,
           userMessage,
           slowBrainSnapshot,
-          maxEntries: promptMemoryMaxEntries,
+          maxEntries: preliminaryPromptMemoryMaxEntries,
           diagnostics: (meta) => {
             if (latencyTracer && traceId) {
               latencyTracer.annotateTrace(traceId, {
@@ -448,6 +589,35 @@ export async function* routeMessage(
     ctx.lastResponsePolicy = analysis.policy;
     ctx.analysisSource = analysis.source;
     ctx.analysisLatencyMs = analysis.latencyMs;
+  }
+  const deliberationBudget = resolveTextDeliberationBudget({
+    inputSource,
+    userMessage,
+    analysis,
+    repairLevel: slowBrainSnapshot.repairState?.level ?? null,
+  });
+  const promptMemoryMaxEntries = resolvePromptMemoryMaxEntries(
+    inputSource,
+    analysisCandidate,
+    deliberationBudget,
+  );
+  const historyTokenBudget = resolveHistoryTokenBudget(
+    inputSource,
+    analysisCandidate,
+    deliberationBudget,
+  );
+  const reasoningEffortOverride = resolveTextDeliberateReasoningEffort(deliberationBudget);
+  if (
+    !pregeneratedReply &&
+    deliberationBudget === "text_deliberate" &&
+    preliminaryPromptMemoryMaxEntries < promptMemoryMaxEntries
+  ) {
+    memory = await retrievePromptMemory(ctx.memory, {
+      userId: ctx.userId,
+      userMessage,
+      slowBrainSnapshot,
+      maxEntries: promptMemoryMaxEntries,
+    });
   }
   const resolvedStyleDirective = opts?.systemTriggered
     ? null
@@ -484,8 +654,9 @@ export async function* routeMessage(
     inputSource === "text" && analysis?.used
       ? buildAnalysisPriorityContext(analysis, guidance.hints, slowBrainContext)
       : undefined;
+  const greetingLikeTurn = inputSource === "text" && isGreetingLikeTurn(userMessage);
   const compactPriorityContext =
-    inputSource === "text" && !analysisCandidate
+    inputSource === "text" && !analysisCandidate && !greetingLikeTurn
       ? buildCompactPriorityContext(guidance.hints, slowBrainContext)
       : undefined;
   const historyForPrompt = trimHistoryToTokenBudget([...ctx.history], historyTokenBudget);
@@ -496,10 +667,44 @@ export async function* routeMessage(
     .filter((part): part is string => Boolean(part?.trim()))
     .join("\n\n");
   const slowBrainContextForPrompt =
-    (analysisPriorityContext && inputSource === "text") ||
-    (compactPriorityContext && inputSource === "text" && !analysisCandidate)
+    greetingLikeTurn
       ? undefined
+      : (analysisPriorityContext && inputSource === "text") ||
+        (compactPriorityContext && inputSource === "text" && !analysisCandidate)
+        ? undefined
       : slowBrainContext;
+
+  if (inputSource === "text") {
+    recordTextArchiveEntry({
+      kind: "text_archive",
+      stage: "prompt",
+      recordedAt: new Date().toISOString(),
+      turnId: archiveTurnId,
+      connId: ctx.connId,
+      userId: ctx.userId,
+      inputSource,
+      systemTriggered: Boolean(opts?.systemTriggered),
+      userMessage,
+      memoryWrites: fastMemoryWrites.map((entry) => ({
+        ...entry,
+        source: "fast_extract" as const,
+      })),
+      prompt: {
+        memoryKeys: memory.map((entry) => entry.key),
+        strategyHints: strategyHintsForPrompt,
+        currentContext: currentContext ?? "",
+        slowBrainContext: slowBrainContextForPrompt ?? "",
+        deliberationBudget: deliberationBudget ?? "",
+        reasoningEffort: reasoningEffortOverride ?? "",
+      },
+      workingMemory: cloneWorkingMemory(
+        workingMemoryDraft ?? slowBrainSnapshot.workingMemory ?? null,
+      ),
+      repairState: cloneRepairState(
+        ctx.slowBrain.getSnapshot().repairState ?? null,
+      ),
+    });
+  }
 
   let fullReply = "";
   const onFirstLlmChunk =
@@ -541,6 +746,8 @@ export async function* routeMessage(
       currentContext,
       slowBrainContext: slowBrainContextForPrompt,
       strategyHints: strategyHintsForPrompt,
+      deliberationBudget,
+      reasoningEffortOverride,
       signal,
       onFirstLlmChunk,
       onFirstLlmReasoningChunk,
@@ -610,9 +817,12 @@ export async function* routeMessage(
   if (!opts?.systemTriggered && shouldPersistAssistantReply && slowBrainEnabled()) {
     const slowBrainSignal = ctx.beginSlowBrain();
     runSlowBrain({
+      connId: ctx.connId,
+      turnId: archiveTurnId,
       userId: ctx.userId,
       userMessage,
       assistantReply: fullReply,
+      inputSource,
       history: [...ctx.history],
       slowBrain: ctx.slowBrain,
       memoryRepo: ctx.memory,

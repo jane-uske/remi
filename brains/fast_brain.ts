@@ -97,6 +97,8 @@ export interface FastBrainInput {
   /** 由 Router 从 SlowBrainStore 注入 */
   strategyHints?: string;
   slowBrainContext?: string;
+  deliberationBudget?: "text_normal" | "text_deliberate";
+  reasoningEffortOverride?: string;
   signal?: AbortSignal;
   onFirstLlmChunk?: () => void;
   onFirstLlmReasoningChunk?: () => void;
@@ -112,7 +114,10 @@ export interface FastBrainInput {
 export async function* fastBrainStream(
   input: FastBrainInput,
 ): AsyncGenerator<string> {
-  const reasoningEffort = getFastBrainReasoningEffort();
+  const reasoningEffort =
+    input.reasoningEffortOverride && input.reasoningEffortOverride !== "provider_default"
+      ? input.reasoningEffortOverride
+      : getFastBrainReasoningEffort();
   const model = getFastBrainModel();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
@@ -157,6 +162,7 @@ export async function* fastBrainStream(
     historyMessages: input.history.length,
     currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
+    deliberationBudget: input.deliberationBudget ?? "unspecified",
     reasoningEffort: reasoningEffort ?? "provider_default",
     model: model ?? "unconfigured",
   });
@@ -231,7 +237,10 @@ export async function* fastBrainStream(
 export async function fastBrainPredictOnly(
   input: FastBrainInput,
 ): Promise<string> {
-  const reasoningEffort = getFastBrainReasoningEffort();
+  const reasoningEffort =
+    input.reasoningEffortOverride && input.reasoningEffortOverride !== "provider_default"
+      ? input.reasoningEffortOverride
+      : getFastBrainReasoningEffort();
   const model = getFastBrainModel();
   const priorityParts = [input.strategyHints, input.slowBrainContext].filter(
     (s): s is string => Boolean(s?.trim()),
@@ -276,6 +285,7 @@ export async function fastBrainPredictOnly(
     historyMessages: input.history.length,
     currentContextChars,
     priorityChars: priorityContext?.length ?? 0,
+    deliberationBudget: input.deliberationBudget ?? "unspecified",
     reasoningEffort: reasoningEffort ?? "provider_default",
     model: model ?? "unconfigured",
   });

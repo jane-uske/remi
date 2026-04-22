@@ -17,7 +17,7 @@ describe("RemiAccountMenu", () => {
         currentUserId: "default-user",
         isDefaultDevUser: true,
         wsTargetLabel: "ws://localhost:3001/ws",
-        personaPreset: "witty_warm",
+        personaPreset: "remi_core",
         canSignOut: false,
         onSignOut: async () => {},
         onUpdatePersonaPreset: () => {},
@@ -32,18 +32,26 @@ describe("RemiAccountMenu", () => {
     assert.ok(!markup.includes("ws:"));
   });
 
-  it("renders the persona preset selector section with explanatory copy", () => {
+  it("keeps the theme selector but hides the persona selector from the formal account menu", () => {
     const markup = renderToStaticMarkup(
-      ReactLib.createElement(PersonaPresetSelectorSection, {
+      ReactLib.createElement(RemiAccountMenu, {
+        emotionLabel: "中性",
+        currentUserId: "default-user",
+        isDefaultDevUser: true,
+        wsTargetLabel: "ws://localhost:3001/ws",
         personaPreset: "playful_attached",
+        canSignOut: false,
+        onSignOut: async () => {},
         onUpdatePersonaPreset: () => {},
+        defaultOpen: true,
       }),
     );
 
-    assert.ok(markup.includes("表达风格"));
-    assert.ok(markup.includes("只改变 Remi 的表达风格，不会重置关系或记忆"));
-    assert.ok(markup.includes("活泼黏人"));
-    assert.ok(markup.includes('data-persona-preset="playful_attached"'));
+    assert.ok(markup.includes("外观主题"));
+    assert.ok(!markup.includes("表达风格"));
+    assert.ok(!markup.includes("只改变 Remi 的表达风格，不会重置关系或记忆"));
+    assert.ok(!markup.includes("活泼黏人"));
+    assert.ok(!markup.includes("data-persona-preset"));
   });
 
   it("renders the theme selector section with system/light/dark options", () => {

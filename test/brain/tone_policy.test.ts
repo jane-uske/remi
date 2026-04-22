@@ -5,6 +5,9 @@ const {
   reviewReplyTone,
   detectDecisionSeekingSignal,
   detectAnswerNowSignal,
+  detectHighRiskDistressSignal,
+  detectPracticalDistressSignal,
+  detectRelationalRecallSignal,
 } = require("../../brain/tone_policy");
 
 describe("tone policy", () => {
@@ -48,5 +51,20 @@ describe("tone policy", () => {
     assert.equal(detectAnswerNowSignal("你又不会帮我做，然后一直问我问题，让我梳理"), true);
     assert.equal(detectAnswerNowSignal("你说"), true);
     assert.equal(detectAnswerNowSignal("你还在吗"), false);
+  });
+
+  it("detects high-risk distress and relational recall signals", () => {
+    assert.equal(detectHighRiskDistressSignal("有时候，我想直接从这里跳下去"), true);
+    assert.equal(detectHighRiskDistressSignal("是不是就都结束了"), true);
+    assert.equal(detectHighRiskDistressSignal("今天上班好累"), false);
+
+    assert.equal(detectPracticalDistressSignal("我每个月挣三千，还欠七八万，得还到啥时候"), true);
+    assert.equal(detectPracticalDistressSignal("赔了十几万，现在真有点扛不住"), true);
+    assert.equal(detectPracticalDistressSignal("今天工资到账了"), false);
+
+    assert.equal(detectRelationalRecallSignal("我们之前聊了什么"), true);
+    assert.equal(detectRelationalRecallSignal("我刚才说过了，你忘记啦？"), true);
+    assert.equal(detectRelationalRecallSignal("你真记性不好哦，再想想"), true);
+    assert.equal(detectRelationalRecallSignal("你今天吃了吗"), false);
   });
 });

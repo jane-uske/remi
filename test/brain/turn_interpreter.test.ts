@@ -133,6 +133,70 @@ describe("turn interpreter", () => {
     }
   });
 
+  it("routes high-risk distress into a no-jokes, no-followup safety-first scene", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "有时候，我想直接从这里跳下去",
+        history: [
+          { role: "user", content: "我每个月挣三千，得还到啥时候啊" },
+          { role: "assistant", content: "三四年也差不多能还清了。" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.sceneType, "high_risk_distress");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.bans.includes("no_jokes"), true);
+      assert.equal(result.policy.bans.includes("no_topic_pivot"), true);
+      assert.ok(buildResponseShapeContract(result).includes("先确认用户此刻是不是安全的"));
+      assert.ok(
+        buildPolicyToneContract(result, {
+          relationshipStage: "熟悉加深期",
+          familiarity: 0.56,
+          emotionalBond: 0.48,
+          userMessage: "有时候，我想直接从这里跳下去",
+        }).includes("禁玩笑"),
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("treats debt-pressure turns as practical judgment with no shallow reassurance", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "我每个月挣三千，还欠七八万，得还到啥时候",
+        history: [
+          { role: "user", content: "点点上次追电瓶车，把人弄摔了" },
+          { role: "assistant", content: "啊？后来怎么样了？" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.sceneType, "practical_judgment");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.bans.includes("no_topic_pivot"), true);
+      assert.equal(result.policy.bans.includes("no_shallow_reassurance"), true);
+      assert.ok(buildResponseShapeContract(result).includes("不要无依据地粗算"));
+      assert.ok(
+        buildPolicyToneContract(result, {
+          relationshipStage: "熟悉加深期",
+          familiarity: 0.56,
+          emotionalBond: 0.48,
+          userMessage: "我每个月挣三千，还欠七八万，得还到啥时候",
+        }).includes("别随口给一个轻飘的粗算"),
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("treats added real-world constraints as context updates that must update the judgment", async () => {
     const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
     try {
@@ -159,6 +223,129 @@ describe("turn interpreter", () => {
           userMessage: "攒了两年半，还欠花呗两万五",
         }).includes("纳入判断"),
       );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("routes continuity-check turns into relational recall without speculative guessing", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "我们之前聊了什么",
+        history: [
+          { role: "user", content: "点点给我妈妈带了" },
+          { role: "assistant", content: "原来如此。" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.sceneType, "relational_recall");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.bans.includes("no_speculative_memory"), true);
+      assert.ok(buildResponseShapeContract(result).includes("记不准就直接承认"));
+      assert.ok(
+        buildPolicyToneContract(result, {
+          relationshipStage: "熟悉加深期",
+          familiarity: 0.56,
+          emotionalBond: 0.48,
+          userMessage: "我们之前聊了什么",
+        }).includes("不要靠猜"),
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("keeps factual follow-up probes in relational recall when the recent context is already a memory check", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "点点现在是谁在养？",
+        history: [
+          { role: "user", content: "我刚才说，点点给谁带了，你忘记啦？" },
+          { role: "assistant", content: "啊哈哈被你抓包！" },
+          { role: "user", content: "你真记性不好哦，再想想" },
+          { role: "assistant", content: "啊……不会是接回你自己身边了？" },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.sceneType, "relational_recall");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.bans.includes("no_speculative_memory"), true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("keeps short calculation follow-ups inside practical judgment when the active thread is already a debt decision", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const snapshot = makeSnapshot();
+      snapshot.workingMemory = {
+        activeThread: "当前在处理「债务」这条现实判断线。",
+        currentNeed: "用户想就「债务」得到明确判断。",
+        currentConstraints: ["我每个月挣三千", "还欠七八万"],
+        openLoop: "我每个月挣三千，还欠七八万，得还到啥时候啊",
+        doNotTouch: ["不要轻飘安慰或无依据粗算"],
+        sceneState: "decision",
+        lastUpdatedTurn: 5,
+      };
+
+      const result = await analyzeTurn({
+        userMessage: "你帮我算算",
+        history: [
+          { role: "user", content: "我每个月挣三千，得还到啥时候啊" },
+          { role: "assistant", content: "先别急，我认真按你眼前这些条件算。" },
+        ],
+        slowBrainSnapshot: snapshot,
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.sceneType, "practical_judgment");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.bans.includes("no_shallow_reassurance"), true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("treats short added constraints as context updates when the active thread is already a debt decision", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const snapshot = makeSnapshot();
+      snapshot.workingMemory = {
+        activeThread: "当前在处理「债务」这条现实判断线。",
+        currentNeed: "用户想就「债务」得到明确判断。",
+        currentConstraints: ["我每个月挣三千", "还欠七八万"],
+        openLoop: "我每个月挣三千，还欠七八万，得还到啥时候啊",
+        doNotTouch: ["不要轻飘安慰或无依据粗算"],
+        sceneState: "decision",
+        lastUpdatedTurn: 5,
+      };
+
+      const result = await analyzeTurn({
+        userMessage: "而且这个月房租也快到了，手里只剩三千现金",
+        history: [
+          { role: "user", content: "我每个月挣三千，得还到啥时候啊" },
+          { role: "assistant", content: "先别急，我认真按你眼前这些条件算。" },
+        ],
+        slowBrainSnapshot: snapshot,
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.userAct, "context_update");
+      assert.equal(result.interpretation.sceneType, "practical_judgment");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.shouldUpdateDecisionContext, true);
+      assert.equal(result.policy.bans.includes("no_topic_pivot"), true);
     } finally {
       restoreEnv();
     }

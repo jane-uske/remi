@@ -164,6 +164,14 @@ describe("episode_store", () => {
         centroidEmbedding: makeVector([0.4, 0.5, 0.6]),
         originMomentSummaries: ["昨晚又失眠了"],
         relationshipWeight: 0.7,
+        v3Domain: "other",
+        v3PressureSource: "unknown",
+        v3RelationalImpact: "low",
+        v3UserStance: "neutral",
+        v3UnresolvedLevel: 3,
+        v3EventSummary: "睡眠:昨晚又失眠了",
+        v3EvidenceTurns: ["昨晚又失眠了"],
+        v3LastUserPosition: "昨晚又失眠了",
       });
       assert.equal(episode, insertResult);
     } finally {
@@ -228,6 +236,13 @@ describe("episode_store", () => {
       assert.equal(calls.update[0].params.relationshipWeight, 0.9);
       assert.equal(calls.update[0].params.status, "active");
       assert.equal(calls.update[0].params.unresolved, true);
+      assert.equal(calls.update[0].params.v3Domain, "other");
+      assert.equal(calls.update[0].params.v3PressureSource, "unknown");
+      assert.equal(calls.update[0].params.v3RelationalImpact, "low");
+      assert.equal(calls.update[0].params.v3UserStance, "neutral");
+      assert.equal(calls.update[0].params.v3UnresolvedLevel, 3);
+      assert.deepEqual(calls.update[0].params.v3EvidenceTurns, ["第一条", "第二条", "第三条"]);
+      assert.equal(calls.update[0].params.v3LastUserPosition, "第三条");
       assert.equal(episode, updatedResult);
     } finally {
       restore();

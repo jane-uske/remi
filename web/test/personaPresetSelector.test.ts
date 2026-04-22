@@ -12,8 +12,9 @@ const {
 } = require("../src/components/RemiAccountMenu");
 
 describe("USER_PERSONA_PRESET_OPTIONS", () => {
-  it("matches the canonical user-facing preset list", () => {
+  it("matches the canonical internal preset list with remi_core first", () => {
     assert.deepEqual(USER_PERSONA_PRESET_OPTIONS, [
+      { value: "remi_core", label: "Remi" },
       { value: "witty_warm", label: "温柔机灵" },
       { value: "relaxed_roast", label: "松弛吐槽" },
       { value: "playful_attached", label: "活泼黏人" },
@@ -39,12 +40,13 @@ describe("normalizeUserPersonaPreset", () => {
       normalizeUserPersonaPreset("playful_attached"),
       "playful_attached",
     );
+    assert.equal(normalizeUserPersonaPreset("remi_core"), "remi_core");
   });
 });
 
 describe("resolveUserPersonaPresetChange", () => {
   it("treats re-selecting the same normalized preset as a no-op", () => {
-    assert.equal(resolveUserPersonaPresetChange(null, "witty_warm"), null);
+    assert.equal(resolveUserPersonaPresetChange(null, "remi_core"), null);
     assert.equal(
       resolveUserPersonaPresetChange("playful_attached", "playful_attached"),
       null,
@@ -83,7 +85,7 @@ describe("PersonaPresetSelectorSection", () => {
   it("only calls onUpdatePersonaPreset for a different canonical option", () => {
     const calls: string[] = [];
     const noopChange = {
-      target: { value: "witty_warm" },
+      target: { value: "remi_core" },
     };
     const realChange = {
       target: { value: "calm_healing" },

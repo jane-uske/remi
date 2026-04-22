@@ -11,6 +11,7 @@ import {
 } from "@/lib/theme/themePreference";
 
 export const USER_PERSONA_PRESET_OPTIONS = [
+  { value: "remi_core", label: "Remi" },
   { value: "witty_warm", label: "温柔机灵" },
   { value: "relaxed_roast", label: "松弛吐槽" },
   { value: "playful_attached", label: "活泼黏人" },
@@ -32,6 +33,7 @@ type RemiAccountMenuProps = {
   canSignOut: boolean;
   onSignOut: () => Promise<void>;
   onUpdatePersonaPreset: (presetId: string) => void;
+  defaultOpen?: boolean;
 };
 
 type PersonaPresetSelectorSectionProps = {
@@ -88,12 +90,13 @@ export function RemiAccountMenu({
   currentUserId,
   isDefaultDevUser,
   wsTargetLabel,
-  personaPreset,
+  personaPreset: _personaPreset,
   canSignOut,
   onSignOut,
-  onUpdatePersonaPreset,
+  onUpdatePersonaPreset: _onUpdatePersonaPreset,
+  defaultOpen = false,
 }: RemiAccountMenuProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [signingOut, setSigningOut] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>("system");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -201,11 +204,6 @@ export function RemiAccountMenu({
               </span>
             </div>
           </div>
-
-          <PersonaPresetSelectorSection
-            personaPreset={personaPreset}
-            onUpdatePersonaPreset={onUpdatePersonaPreset}
-          />
 
           <ThemePreferenceSelectorSection
             themePreference={themePreference}

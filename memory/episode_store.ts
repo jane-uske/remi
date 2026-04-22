@@ -1,5 +1,6 @@
 import { embed } from "../llm/embedding_client";
 import { extractKeywords, normalizeText } from "./prompt_memory_support";
+import { toEpisodeV3StorageFields } from "./episode_v3";
 import {
   insertEpisode,
   updateEpisode,
@@ -52,6 +53,50 @@ function buildEpisodeSummary(moment: Pick<MomentInput, "summary" | "topic">): st
 
 function inferRelationshipWeight(moment: Pick<MomentInput, "salience">): number {
   return moment.salience;
+}
+
+function buildEpisodeV3Source(
+  base: {
+    id: string;
+    title: string;
+    summary: string;
+    topics: string[];
+    mood: string;
+    kind: string;
+    salience: number;
+    unresolved: boolean;
+    status: string;
+    recurrence_count: number;
+    origin_moment_summaries: string[];
+  },
+): DbEpisode {
+  return {
+    id: base.id,
+    user_id: "",
+    title: base.title,
+    summary: base.summary,
+    topics: base.topics,
+    mood: base.mood,
+    kind: base.kind,
+    salience: base.salience,
+    recurrence_count: base.recurrence_count,
+    unresolved: base.unresolved,
+    first_seen_at: new Date(0),
+    last_seen_at: new Date(0),
+    last_referenced_at: null,
+    centroid_embedding: [],
+    origin_moment_summaries: base.origin_moment_summaries,
+    relationship_weight: 0,
+    status: base.status,
+    v3_domain: null,
+    v3_pressure_source: null,
+    v3_relational_impact: null,
+    v3_user_stance: null,
+    v3_unresolved_level: null,
+    v3_event_summary: null,
+    v3_evidence_turns: [],
+    v3_last_user_position: null,
+  };
 }
 
 function episodeLifecycleEnabled(): boolean {
@@ -276,6 +321,21 @@ async function mergeIntoEpisode(
     ].filter(Boolean)),
   );
   const status = resolveLifecycleStatus(existing, moment);
+  const v3Fields = toEpisodeV3StorageFields(
+    buildEpisodeV3Source({
+      id: existing.id,
+      title: existing.title,
+      summary: buildEpisodeSummary(moment),
+      topics: mergedTopics,
+      mood: moment.mood,
+      kind: existing.kind,
+      salience: Math.max(existing.salience, moment.salience),
+      unresolved: status === "active",
+      status,
+      recurrence_count: existing.recurrence_count + 1,
+      origin_moment_summaries: originMomentSummaries,
+    }),
+  );
   const updated = await updateEpisode(existing.id, {
     summary: buildEpisodeSummary(moment),
     topics: mergedTopics,
@@ -288,6 +348,14 @@ async function mergeIntoEpisode(
     centroidEmbedding,
     originMomentSummaries,
     relationshipWeight: Math.max(existing.relationship_weight, inferRelationshipWeight(moment)),
+    v3Domain: v3Fields.v3Domain,
+    v3PressureSource: v3Fields.v3PressureSource,
+    v3RelationalImpact: v3Fields.v3RelationalImpact,
+    v3UserStance: v3Fields.v3UserStance,
+    v3UnresolvedLevel: v3Fields.v3UnresolvedLevel,
+    v3EventSummary: v3Fields.v3EventSummary,
+    v3EvidenceTurns: v3Fields.v3EvidenceTurns,
+    v3LastUserPosition: v3Fields.v3LastUserPosition,
   });
 
   if (!updated) {
@@ -304,6 +372,21 @@ async function createNewEpisode(
   const summary = buildEpisodeSummary(moment);
   const titleSource = moment.topic || moment.summary;
   const status = resolveLifecycleStatus(null, moment);
+  const v3Fields = toEpisodeV3StorageFields(
+    buildEpisodeV3Source({
+      id: "episode-v3-create",
+      title: titleSource.slice(0, 30),
+      summary,
+      topics: moment.topic ? [moment.topic] : [],
+      mood: moment.mood,
+      kind: moment.kind,
+      salience: moment.salience,
+      unresolved: status === "active",
+      status,
+      recurrence_count: 1,
+      origin_moment_summaries: [moment.summary],
+    }),
+  );
   return insertEpisode({
     userId: moment.userId,
     title: titleSource.slice(0, 30),
@@ -317,6 +400,14 @@ async function createNewEpisode(
     centroidEmbedding: momentEmbedding,
     originMomentSummaries: [moment.summary],
     relationshipWeight: inferRelationshipWeight(moment),
+    v3Domain: v3Fields.v3Domain,
+    v3PressureSource: v3Fields.v3PressureSource,
+    v3RelationalImpact: v3Fields.v3RelationalImpact,
+    v3UserStance: v3Fields.v3UserStance,
+    v3UnresolvedLevel: v3Fields.v3UnresolvedLevel,
+    v3EventSummary: v3Fields.v3EventSummary,
+    v3EvidenceTurns: v3Fields.v3EvidenceTurns,
+    v3LastUserPosition: v3Fields.v3LastUserPosition,
   });
 }
 

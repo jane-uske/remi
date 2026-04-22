@@ -77,6 +77,34 @@ export function detectAnswerNowSignal(text: string): boolean {
   );
 }
 
+export function detectHighRiskDistressSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(?:想直接从这里跳下去|是不是就都结束了|都结束了吧|结束算了|不想活了|不如死了|想死|去死|活不下去|撑不住了(?:真的|了)?|不如一了百了)/u.test(
+    trimmed,
+  );
+}
+
+export function detectPracticalDistressSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const debtOrConstraint =
+    /(?:欠(?:了)?(?:七八万|十几万|[\d一二三四五六七八九十百千万]+)|负债|花呗|贷款|网贷|赔了十几万|赔了[\d一二三四五六七八九十百千万]+|月(?:收入|薪)|每个月挣|工资只有|手里只有|还到啥时候|还到什么时候|扛不住|撑不住|压得我喘不过气)/u;
+  const judgmentAsk =
+    /(?:怎么办|咋办|怎么还|还到啥时候|还到什么时候|你帮我算算|该怎么办|是不是该|要不要|该不该|得还到)/u;
+  const debtPlusDistress =
+    /(?:(?:赔了|欠了|还欠|负债|花呗|贷款|网贷).{0,12}(?:扛不住|撑不住|喘不过气|压得我|压得人|快崩了|要疯了))/u;
+  return (debtOrConstraint.test(trimmed) && judgmentAsk.test(trimmed)) || debtPlusDistress.test(trimmed);
+}
+
+export function detectRelationalRecallSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(?:我们之前聊了什么|还记得吗|还记得|你忘记(?:啦|了)?|你忘了|我刚才说过|我已经说过|你真记性不好|再想想|你记性不好|不是刚说过)/u.test(
+    trimmed,
+  );
+}
+
 export function buildToneContract(input: ToneContractInput): string {
   const distance = classifyRelationshipDistance(input);
   const lines: string[] = [

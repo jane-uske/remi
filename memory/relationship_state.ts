@@ -102,10 +102,18 @@ export interface PersistentProactiveStrategyState {
 }
 
 export interface PersistentWorkingMemory {
+  activeThread: string;
   currentNeed: string;
   currentConstraints: string[];
   openLoop: string;
+  doNotTouch: string[];
   sceneState: "none" | "planning" | "decision" | "immersive";
+  lastUpdatedTurn: number;
+}
+
+export interface PersistentRepairState {
+  level: "none" | "minor_miss" | "trust_drop" | "rupture";
+  reason: string;
   lastUpdatedTurn: number;
 }
 
@@ -135,6 +143,7 @@ export interface PersistentRelationshipStateV1 {
   episodes?: PersistentEpisode[];
   topicThreads?: PersistentTopicThread[];
   workingMemory?: PersistentWorkingMemory;
+  repairState?: PersistentRepairState;
   continuityCueState: PersistentContinuityCueState;
   proactiveLedger: PersistentProactiveLedgerEntry[];
   proactiveStrategyState: PersistentProactiveStrategyState;
@@ -448,10 +457,14 @@ function toProactiveStrategyState(value: unknown): PersistentProactiveStrategySt
 function toWorkingMemory(value: unknown): PersistentWorkingMemory | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
+  const activeThread =
+    typeof record.activeThread === "string" ? record.activeThread.trim().slice(0, 120) : "";
   const currentNeed =
     typeof record.currentNeed === "string" ? record.currentNeed.trim().slice(0, 120) : "";
   const openLoop =
     typeof record.openLoop === "string" ? record.openLoop.trim().slice(0, 120) : "";
+  const doNotTouch = toStringList(record.doNotTouch, 3)
+    .map((entry) => entry.slice(0, 72));
   const sceneState =
     record.sceneState === "planning" ||
     record.sceneState === "decision" ||
@@ -461,14 +474,39 @@ function toWorkingMemory(value: unknown): PersistentWorkingMemory | undefined {
   const currentConstraints = toStringList(record.currentConstraints, 3)
     .map((entry) => entry.slice(0, 72));
   const lastUpdatedTurn = Math.max(0, Math.floor(toFiniteNumber(record.lastUpdatedTurn, 0)));
-  if (!currentNeed && !openLoop && currentConstraints.length === 0 && sceneState === "none") {
+  if (!activeThread && !currentNeed && !openLoop && currentConstraints.length === 0 && doNotTouch.length === 0 && sceneState === "none") {
     return undefined;
   }
   return {
+    activeThread,
     currentNeed,
     currentConstraints,
     openLoop,
+    doNotTouch,
     sceneState,
+    lastUpdatedTurn,
+  };
+}
+
+function toRepairState(value: unknown): PersistentRepairState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const level =
+    record.level === "minor_miss" ||
+    record.level === "trust_drop" ||
+    record.level === "rupture" ||
+    record.level === "none"
+      ? record.level
+      : "none";
+  const reason =
+    typeof record.reason === "string" ? record.reason.trim().slice(0, 160) : "";
+  const lastUpdatedTurn = Math.max(0, Math.floor(toFiniteNumber(record.lastUpdatedTurn, 0)));
+  if (level === "none" && !reason && lastUpdatedTurn === 0) {
+    return undefined;
+  }
+  return {
+    level,
+    reason,
     lastUpdatedTurn,
   };
 }
@@ -527,6 +565,7 @@ export function normalizePersistentRelationshipState(
     episodes: toEpisodes(record.episodes),
     topicThreads: toTopicThreads(record.topicThreads),
     workingMemory: toWorkingMemory(record.workingMemory),
+    repairState: toRepairState(record.repairState),
     continuityCueState: toContinuityCueState(record.continuityCueState),
     proactiveLedger: toProactiveLedger(record.proactiveLedger),
     proactiveStrategyState: toProactiveStrategyState(record.proactiveStrategyState),

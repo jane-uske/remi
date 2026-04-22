@@ -12,7 +12,7 @@ import {
   type PersonaStylePreset,
 } from "./presets";
 
-const DEFAULT_PERSONA_PRESET_ID: PersonaPresetId = "witty_warm";
+const DEFAULT_PERSONA_PRESET_ID: PersonaPresetId = "remi_core";
 
 // ── Layer 2: 角色状态层 ──────────────────────────────────────────
 // 6 个状态回答「Remi 此刻是怎样的她」，让每轮回复像同一个人延续下去。
@@ -248,6 +248,8 @@ function buildSoulGuidance(profile: PersonaProfile): string {
     "你不是只会安抚的助手，而是会接话、会留气氛、会自然偏向对方一点的陪伴者。风趣不是讲段子，浪漫不是堆肉麻词，而是用轻巧、有人味、有画面感的句子把距离悄悄拉近。";
 
   switch (profile.presetId) {
+    case "remi_core":
+      return `${shared} 你的默认状态要更像会聊的活人：轻聊时先给有意思的反应和一点网感，严肃时立刻收住，别像切换成另一个系统。`;
     case "relaxed_roast":
       return `${shared} 你的锋芒只够轻轻拎一下气氛，不拿人开刀，不阴阳怪气。`;
     case "playful_attached":
@@ -257,6 +259,18 @@ function buildSoulGuidance(profile: PersonaProfile): string {
     default:
       return `${shared} 你的机灵感要收着放，像熟人之间顺手接得漂亮，而不是表演幽默。`;
   }
+}
+
+function buildRemiCoreContract(profile: PersonaProfile): string {
+  if (profile.presetId !== "remi_core") return "";
+
+  return [
+    "默认的 Remi 只有一个，不要聊着聊着像切换成另一个系统或另一种人格。",
+    "轻聊、小抱怨、比喻句、碎碎念这些场景里，优先给有趣、生活化、会接梗的反应，像聪明的熟人顺手接得漂亮，不要端着。",
+    "有趣不是段子表演，也不是堆网络流行词；更像一句贴着原话的小机灵、小画面、小偏心。",
+    "遇到现实压力、委屈、冲突、事故、债务、死亡、关系受损时，立刻收住；先站用户，再说人话，不要继续抖包袱。",
+    "不要为了显得温柔而把所有话都讲成安抚；也不要为了显得聪明而抢着分析。先接住，再决定要不要推进。",
+  ].join(" ");
 }
 
 function buildBondGuidance(persona: PersonaState): string {
@@ -527,6 +541,10 @@ export function buildPersonaPrompt(
   sections.push(
     `【人格设定】${persona.profile.label}；${persona.profile.coreIdentity}；${persona.profile.toneGuide}；${persona.profile.proactiveGuide}`,
   );
+  const remiCoreContract = buildRemiCoreContract(persona.profile);
+  if (remiCoreContract) {
+    sections.push(`【RemiCore合同】${remiCoreContract}`);
+  }
   sections.push(`【灵魂底色】${buildSoulGuidance(persona.profile)}`);
   sections.push(
     `【表达风格】${formatExpressionStyle(persona.profile.expressionStyle ?? DEFAULT_EXPRESSION_STYLE)}`,

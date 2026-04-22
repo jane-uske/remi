@@ -187,6 +187,9 @@ describe("proactive_planner", () => {
         episodeId: "episode-care",
         ledgerKey: "episode:episode-care",
         stanceMode: "steady_companion",
+        whyNow: "这条「睡眠」还没过去，而且最近情绪仍偏沉，值得轻轻接一下",
+        relationalValue: "high",
+        intrusionRisk: "medium",
       });
     } finally {
       restore();
@@ -210,6 +213,9 @@ describe("proactive_planner", () => {
         episodeId: "episode-follow",
         ledgerKey: "episode:episode-follow",
         stanceMode: "steady_companion",
+        whyNow: "这条「健身」还没收口，现在适合低打扰地续一下",
+        relationalValue: "medium",
+        intrusionRisk: "medium",
       });
     } finally {
       restore();
@@ -280,6 +286,9 @@ describe("proactive_planner", () => {
         text: "好久没聊了，可以随意打个招呼或聊聊最近的事。",
         ledgerKey: "presence:general",
         stanceMode: "steady_companion",
+        whyNow: "现在更适合低打扰地确认一下近况",
+        relationalValue: "low",
+        intrusionRisk: "medium",
       });
     } finally {
       restore();
@@ -301,6 +310,9 @@ describe("proactive_planner", () => {
         text: "好久没聊了，可以随意打个招呼或聊聊最近的事。",
         ledgerKey: "presence:general",
         stanceMode: "steady_companion",
+        whyNow: "现在更适合低打扰地确认一下近况",
+        relationalValue: "low",
+        intrusionRisk: "medium",
       });
     } finally {
       restore();
@@ -334,6 +346,45 @@ describe("proactive_planner", () => {
         episodeId: "episode-care",
         ledgerKey: "episode:episode-care",
         stanceMode: "light_presence",
+        whyNow: "这条「睡眠」还没收口，现在适合低打扰地续一下",
+        relationalValue: "medium",
+        intrusionRisk: "high",
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps proactive outreach low-intrusion when trust has recently dropped", async () => {
+    const episode = makeEpisode({ id: "episode-trust-drop", title: "点点", mood: "焦虑" });
+    const { planner, restore } = loadPlanner({
+      episodeStore: {
+        listUnresolved: async () => [episode],
+      },
+    });
+
+    try {
+      const plan = await planner.planProactiveNudge(
+        "user-1",
+        makeSnapshot({
+          repairState: {
+            level: "trust_drop",
+            reason: "comfort_failure",
+            lastUpdatedTurn: 8,
+          },
+        }),
+      );
+
+      assert.deepEqual(plan, {
+        mode: "presence",
+        text: "好久没聊了，可以随意打个招呼或聊聊最近的事。",
+        episodeId: "episode-trust-drop",
+        ledgerKey: "episode:episode-trust-drop",
+        stanceMode: "steady_companion",
+        whyNow:
+          "这条「点点」还没收口，但现在更适合低打扰地留个口，不要像没事一样把旧线拉重",
+        relationalValue: "medium",
+        intrusionRisk: "high",
       });
     } finally {
       restore();
@@ -353,6 +404,33 @@ describe("proactive_planner", () => {
       assert.ok(userMessage.includes("系统情境"));
       assert.ok(userMessage.includes("健身"));
       assert.ok(userMessage.includes("不要显得像在催对方回复"));
+      assert.ok(userMessage.includes("现在主动的原因"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not send a generic presence nudge when there is no unresolved line and cadence is low", async () => {
+    const { planner, restore } = loadPlanner({
+      episodeStore: {
+        listUnresolved: async () => [],
+      },
+    });
+
+    try {
+      const plan = await planner.planProactiveNudge(
+        "user-1",
+        makeSnapshot({
+          relationship: {
+            familiarity: 0.2,
+            emotionalBond: 0.1,
+            turnCount: 4,
+            preferredTopics: [],
+          },
+        }),
+      );
+
+      assert.equal(plan, null);
     } finally {
       restore();
     }

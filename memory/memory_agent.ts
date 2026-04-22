@@ -8,6 +8,7 @@ import {
   classifyEmbeddingError,
   getEmbeddingHealthSnapshot,
 } from "../llm/embedding_client";
+import { toEpisodeV3View } from "./episode_v3";
 import { createLogger } from "../infra/logger";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
@@ -43,6 +44,11 @@ export interface PromptMemoryDiagnostics {
   episodeRecallIds: string[];
   episodeReferenceApplied: boolean;
   episodeRecallFallback: boolean;
+}
+
+export interface ExtractedMemoryWrite {
+  key: string;
+  value: string;
 }
 
 interface MemoryPattern {
@@ -89,6 +95,15 @@ const SYNTHETIC_MEMORY_KEYS = new Set([
   "最近共同经历",
 ]);
 
+const LIGHT_TOUCH_TURN_PATTERN =
+  /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好|睡了|嗯+|嗯嗯+|哦+|噢+|啊+|好+|好的|好哦|好哒|收到|行吧?|ok(?:ay)?|okk+)[!！?？~～。\s]*$/iu;
+
+function isLightTouchTurn(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (!trimmed || trimmed.length > 12) return false;
+  return LIGHT_TOUCH_TURN_PATTERN.test(trimmed);
+}
+
 function hasNegationBeforeMatch(msg: string, matchIndex: number): boolean {
   const beforeMatch = msg.slice(0, matchIndex);
   return NEGATION_WORDS.some((neg) => beforeMatch.includes(neg));
@@ -110,7 +125,11 @@ function touchPromptMemories(
   void Promise.allSettled(keys.map((key) => repo.touch(key)));
 }
 
-export function extractMemory(userMessage: string, repo: MemoryRepository): void {
+export function extractMemory(
+  userMessage: string,
+  repo: MemoryRepository,
+): ExtractedMemoryWrite[] {
+  const writes: ExtractedMemoryWrite[] = [];
   for (const { pattern, key, isNegative } of PATTERNS) {
     const match = userMessage.match(pattern);
     if (match?.[0] && match?.[1]) {
@@ -120,10 +139,12 @@ export function extractMemory(userMessage: string, repo: MemoryRepository): void
       const value = match[1].trim();
       if (value) {
         void repo.upsert(key, value);
+        writes.push({ key, value });
         logger.info("记住了", { key, value });
       }
     }
   }
+  return writes;
 }
 
 function buildTopicThreadPromptMemory(
@@ -210,6 +231,8 @@ type RecalledEpisode = {
   summary: string;
   layer: "active" | "core";
   status: "active" | "cooling" | "resolved";
+  structuredTitle?: string;
+  structuredSummary?: string;
 };
 
 type RecalledEpisodeSelection = {
@@ -298,8 +321,10 @@ function mapPersistentEpisodeToRecalledEpisode(
     relationship_weight: number;
     recurrence_count: number;
     topics: string[];
+    v3_event_summary?: string | null;
   },
 ): RecalledEpisode {
+  const view = toEpisodeV3View(entry);
   const status: RecalledEpisode["status"] =
     entry.status === "active" || entry.status === "cooling" || entry.status === "resolved"
       ? entry.status
@@ -307,21 +332,52 @@ function mapPersistentEpisodeToRecalledEpisode(
         ? "active"
         : "cooling";
   const layer: RecalledEpisode["layer"] =
-    entry.relationship_weight >= 0.72 ||
-    entry.recurrence_count >= 3 ||
-    (
-      (entry.topics?.length ?? 0) >= 2 &&
-      (entry.recurrence_count >= 3 || entry.relationship_weight >= 0.68)
-    )
-      ? "core"
-      : "active";
+    status === "active" &&
+    (view.domain === "relationship_with_remi" || view.unresolvedLevel >= 2)
+      ? "active"
+      : (
+          entry.relationship_weight >= 0.72 ||
+          entry.recurrence_count >= 3 ||
+          (
+            (entry.topics?.length ?? 0) >= 2 &&
+            (entry.recurrence_count >= 3 || entry.relationship_weight >= 0.68)
+          )
+        )
+        ? "core"
+        : "active";
   return {
     id: entry.id,
     title: entry.title,
     summary: entry.summary,
     layer,
     status,
+    structuredTitle: mapEpisodeV3PromptTitle(view.domain, entry.title),
+    structuredSummary: entry.v3_event_summary?.trim() || undefined,
   };
+}
+
+function mapEpisodeV3PromptTitle(
+  domain: ReturnType<typeof toEpisodeV3View>["domain"],
+  fallbackTitle: string,
+): string {
+  switch (domain) {
+    case "money":
+      return "钱和现实压力";
+    case "work":
+      return "工作压力";
+    case "pet":
+      return "宠物与照料";
+    case "relationship_with_remi":
+      return "你和 Remi 之间";
+    default:
+      return fallbackTitle;
+  }
+}
+
+function formatRecalledEpisodePromptValue(entry: RecalledEpisode): string {
+  const title = entry.structuredTitle || entry.title;
+  const summary = entry.structuredSummary || entry.summary;
+  return `${title}：${summary}`;
 }
 
 function selectEpisodeStoreEpisodes(
@@ -671,6 +727,21 @@ export async function retrievePromptMemory(
     selected.push(item.entry);
   }
 
+  const suppressNarrativeMemory =
+    Boolean(options.slowBrainSnapshot) && isLightTouchTurn(options.userMessage);
+  if (suppressNarrativeMemory) {
+    logger.debug("prompt memory kept compact for light-touch turn", {
+      userMessage: options.userMessage,
+      selected: selected.map((entry) => entry.key),
+      totalEntries: entries.length,
+    });
+    if (options.touchSelected !== false) {
+      touchPromptMemories(repo, selected);
+    }
+    options.diagnostics?.(diagnostics);
+    return selected;
+  }
+
   if (selected.length < maxEntries) {
     const hasStructuredSnapshotNarrative = Boolean(
       (options.slowBrainSnapshot?.episodes?.length ?? 0) > 0 ||
@@ -697,7 +768,7 @@ export async function retrievePromptMemory(
     if ((options.userId || hasStructuredSnapshotNarrative) && recalledEpisodes.core) {
       selected.push({
         key: "长期关系主线",
-        value: `${recalledEpisodes.core.title}：${recalledEpisodes.core.summary}`,
+        value: formatRecalledEpisodePromptValue(recalledEpisodes.core),
       });
       seenKeys.add("长期关系主线");
       structuredNarrativeAdded = true;
@@ -709,7 +780,7 @@ export async function retrievePromptMemory(
     ) {
       selected.push({
         key: "当前未完主线",
-        value: `${recalledEpisodes.active.title}：${recalledEpisodes.active.summary}`,
+        value: formatRecalledEpisodePromptValue(recalledEpisodes.active),
       });
       seenKeys.add("当前未完主线");
       structuredNarrativeAdded = true;

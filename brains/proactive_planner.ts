@@ -5,6 +5,7 @@ import type { SlowBrainSnapshot } from "./slow_brain_store";
 import { deriveRelationalStance } from "./relational_stance";
 
 export type ProactiveMode = "care" | "follow_up" | "presence";
+export type ProactiveValueLevel = "low" | "medium" | "high";
 
 export interface ProactivePlan {
   mode: ProactiveMode;
@@ -12,6 +13,9 @@ export interface ProactivePlan {
   episodeId?: string;
   ledgerKey: string;
   stanceMode?: RelationalStanceMode;
+  whyNow: string;
+  relationalValue: ProactiveValueLevel;
+  intrusionRisk: ProactiveValueLevel;
 }
 
 export function buildSilenceNudgeUserMessage(plan: ProactivePlan): string {
@@ -33,8 +37,15 @@ export function buildSilenceNudgeUserMessage(plan: ProactivePlan): string {
         : plan.stanceMode === "close_warmth"
           ? "像熟悉的人顺手接上生活线，口气可以更自然一点。"
           : "整体保持稳定陪伴感，先接住，再轻轻推进。";
+  const riskHint =
+    plan.intrusionRisk === "high"
+      ? "这次打扰风险偏高，宁可更轻、更短，也不要像提醒器。"
+      : plan.intrusionRisk === "medium"
+        ? "控制打扰感，别像在催，也别一上来就把旧话题拉满。"
+        : "打扰风险较低，但仍然只开一个小口。";
+  const timingHint = `现在主动的原因：${plan.whyNow}。`;
 
-  return `（系统情境：对方有一段时间没发消息了。请你作为 Remi，用一两句自然、温柔的中文主动开口，像在陪在身边一样；${toneDirective}${stanceHint}${topicHint}不要一次问太多问题，不要显得像在催对方回复。）`;
+  return `（系统情境：对方有一段时间没发消息了。请你作为 Remi，用一两句自然、温柔的中文主动开口，像在陪在身边一样；${toneDirective}${stanceHint}${riskHint}${timingHint}${topicHint}不要一次问太多问题，不要显得像在催对方回复。）`;
 }
 
 const MAX_UNRESOLVED_EPISODES = 5;
@@ -81,20 +92,32 @@ export async function planProactiveNudge(
 
   if (availableEpisode) {
     const mode = pickModeForEpisode(availableEpisode, snapshot, stance);
+    const metadata = buildPlanMetadata(mode, snapshot, stance, availableEpisode);
     return {
       mode,
       text: composeNudgeText(availableEpisode, mode, stance.mode),
       episodeId: availableEpisode.id,
       ledgerKey: episodeLedgerKey(availableEpisode),
       stanceMode: stance.mode,
+      whyNow: metadata.whyNow,
+      relationalValue: metadata.relationalValue,
+      intrusionRisk: metadata.intrusionRisk,
     };
   }
 
+  if (stance.proactiveCadence === "low") {
+    return null;
+  }
+
+  const metadata = buildPlanMetadata("presence", snapshot, stance);
   return {
     mode: "presence",
     text: composePresence(undefined, stance.mode),
     ledgerKey: PRESENCE_LEDGER_KEY,
     stanceMode: stance.mode,
+    whyNow: metadata.whyNow,
+    relationalValue: metadata.relationalValue,
+    intrusionRisk: metadata.intrusionRisk,
   };
 }
 
@@ -114,6 +137,9 @@ function pickModeForEpisode(
   snapshot: SlowBrainSnapshot,
   stance: ReturnType<typeof deriveRelationalStance>,
 ): ProactiveMode {
+  if (hasTrustFriction(snapshot)) {
+    return "presence";
+  }
   const retreatLevel = snapshot.proactiveStrategyState?.retreatLevel ?? 0;
   if (isNegativeMood(episode.mood)) {
     if (stance.mode === "light_presence" || retreatLevel >= 2) {
@@ -171,6 +197,71 @@ function composePresence(
     return "路过来打个招呼也行，聊聊今天的小事就好。";
   }
   return "好久没聊了，可以随意打个招呼或聊聊最近的事。";
+}
+
+function buildPlanMetadata(
+  mode: ProactiveMode,
+  snapshot: SlowBrainSnapshot,
+  stance: ReturnType<typeof deriveRelationalStance>,
+  episode?: DbEpisode,
+): {
+  whyNow: string;
+  relationalValue: ProactiveValueLevel;
+  intrusionRisk: ProactiveValueLevel;
+} {
+  const retreatLevel = snapshot.proactiveStrategyState?.retreatLevel ?? 0;
+  const recentNegativeMood = snapshot.moodTrajectory
+    .slice(-3)
+    .some((entry) => isNegativeMood(entry.mood));
+  const unresolvedEpisode = Boolean(episode?.unresolved);
+  const trustFriction = hasTrustFriction(snapshot);
+
+  const relationalValue: ProactiveValueLevel =
+    mode === "care"
+      ? "high"
+      : mode === "follow_up"
+        ? "medium"
+        : unresolvedEpisode
+          ? "medium"
+          : "low";
+
+  let intrusionRisk: ProactiveValueLevel =
+    stance.mode === "light_presence" || retreatLevel >= 2
+      ? "high"
+      : stance.proactiveCadence === "guarded"
+        ? "medium"
+        : "low";
+  if (trustFriction) {
+    intrusionRisk = "high";
+  }
+  if (mode === "presence" && !episode && intrusionRisk === "low") {
+    intrusionRisk = "medium";
+  }
+
+  let whyNow = "现在更适合低打扰地确认一下近况";
+  if (episode && unresolvedEpisode && trustFriction) {
+    whyNow = `这条「${episode.title}」还没收口，但现在更适合低打扰地留个口，不要像没事一样把旧线拉重`;
+  } else if (episode && unresolvedEpisode) {
+    whyNow =
+      mode === "care"
+        ? `这条「${episode.title}」还没过去，而且最近情绪仍偏沉，值得轻轻接一下`
+        : `这条「${episode.title}」还没收口，现在适合低打扰地续一下`;
+  } else if (trustFriction) {
+    whyNow = "这会儿关系还在回稳，只适合很轻地留个口，不适合把话题拉重";
+  } else if (recentNegativeMood) {
+    whyNow = "最近整体情绪偏沉，但没有明确未完主线，只适合很轻地在场一下";
+  }
+
+  return {
+    whyNow,
+    relationalValue,
+    intrusionRisk,
+  };
+}
+
+function hasTrustFriction(snapshot: SlowBrainSnapshot): boolean {
+  const level = snapshot.repairState?.level;
+  return level === "trust_drop" || level === "rupture";
 }
 
 function episodeLedgerKey(episode: DbEpisode): string {

@@ -7,6 +7,7 @@ import { complete, hasLlmConfig, type ChatMessage } from "../llm/qwen_client";
 import { extractMemory } from "../memory/memory_agent";
 import type { EpisodeLifecycleStatus } from "../memory/episode_store";
 import { ingest } from "../memory/episode_store";
+import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
 import {
   classifyEmbeddingError,
   getEmbeddingHealthSnapshot,
@@ -16,17 +17,30 @@ import {
   relationshipStateEnabled,
   savePersistentRelationshipState,
 } from "../memory/relationship_state";
+import { momentToEpisodeV3View, toEpisodeV3View } from "../memory/episode_v3";
 import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./slow_brain_store";
 
 const logger = createLogger("slow_brain");
 
+const LIGHT_TOUCH_TURN_PATTERN =
+  /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好|睡了|嗯+|嗯嗯+|哦+|噢+|啊+|好+|好的|好哦|好哒|收到|行吧?|ok(?:ay)?|okk+)[!！?？~～。\s]*$/iu;
+
+function isLightTouchTurn(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (!trimmed || trimmed.length > 12) return false;
+  return LIGHT_TOUCH_TURN_PATTERN.test(trimmed);
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
 export interface SlowBrainInput {
+  connId?: string;
+  turnId?: string;
+  inputSource?: "text" | "voice";
   userId: string;
   userMessage: string;
   assistantReply: string;
@@ -44,15 +58,18 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
   const { userId, userMessage, assistantReply, history, slowBrain, memoryRepo } =
     input;
   const relationshipRepo = input.relationshipRepo ?? memoryRepo;
+  const lightTouchTurn = isLightTouchTurn(userMessage);
 
   slowBrain.recordTurn();
-  extractMemory(userMessage, memoryRepo);
+  const slowMemoryWrites = !lightTouchTurn
+    ? extractMemory(userMessage, memoryRepo)
+    : [];
   localAnalysis(slowBrain, userMessage);
 
   const configured = hasLlmConfig();
   let llmAborted = false;
 
-  if (configured) {
+  if (configured && !lightTouchTurn) {
     try {
       await llmAnalysis(
         userMessage,
@@ -73,7 +90,9 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
   }
 
   updateRelationship(slowBrain, userMessage);
-  await maybeRecordSharedMoment(slowBrain, userMessage, assistantReply, userId);
+  const sharedMomentRecord = !lightTouchTurn
+    ? await maybeRecordSharedMoment(slowBrain, userMessage, assistantReply, userId)
+    : null;
 
   if (relationshipStateEnabled() && relationshipRepo) {
     try {
@@ -88,6 +107,31 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
     }
   }
 
+  if ((input.inputSource ?? "text") === "text") {
+    recordTextArchiveEntry({
+      kind: "text_archive",
+      stage: "slow_brain",
+      recordedAt: new Date().toISOString(),
+      turnId:
+        input.turnId ??
+        `text:${input.connId ?? "unknown"}:${Date.now().toString(36)}:slow`,
+      connId: input.connId,
+      userId,
+      inputSource: input.inputSource ?? "text",
+      systemTriggered: false,
+      userMessage,
+      assistantReply,
+      llmConfigured: configured,
+      llmAborted,
+      memoryWrites: slowMemoryWrites.map((entry) => ({
+        ...entry,
+        source: "slow_extract" as const,
+      })),
+      extractedMoments: sharedMomentRecord ? [sharedMomentRecord.moment] : [],
+      episodeViews: sharedMomentRecord ? [sharedMomentRecord.episodeView] : [],
+    });
+  }
+
   logger.info("分析完成", {
     duration: Date.now() - t0,
     llmAborted,
@@ -98,6 +142,7 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
 
 const TOPIC_PATTERNS: { pattern: RegExp; topic: string }[] = [
   { pattern: /工作|上班|公司|老板|同事|加班|摸鱼/, topic: "工作" },
+  { pattern: /债务|负债|花呗|贷款|网贷|还款|赔偿|赔了|月收入|月薪|工资|房租|现金流/, topic: "债务" },
   { pattern: /游戏|打游戏|电竞|手游|steam|switch/, topic: "游戏" },
   { pattern: /电影|电视|动漫|番剧|追剧|漫画/, topic: "影视动漫" },
   { pattern: /吃|美食|餐厅|做饭|烹饪|外卖/, topic: "美食" },
@@ -301,15 +346,18 @@ async function maybeRecordSharedMoment(
   userMessage: string,
   assistantReply: string,
   userId: string,
-): Promise<void> {
-  if (!episodeMemoryEnabled()) return;
+): Promise<{
+  moment: import("../memory/episode_store").MomentInput;
+  episodeView: ReturnType<typeof toEpisodeV3View>;
+} | null> {
+  if (!episodeMemoryEnabled()) return null;
 
   const trimmedUser = userMessage.trim();
   const trimmedReply = assistantReply.trim();
-  if (!trimmedUser || !trimmedReply) return;
-  if (trimmedUser.length < 8) return;
+  if (!trimmedUser || !trimmedReply) return null;
+  if (trimmedUser.length < 8) return null;
   if (/^(继续说|继续刚才|刚才说到哪|接着说|然后呢|嗯|哦|好吧)$/i.test(trimmedUser)) {
-    return;
+    return null;
   }
 
   const topic = detectSharedMomentTopic(trimmedUser, store);
@@ -317,13 +365,21 @@ async function maybeRecordSharedMoment(
   const kind = detectSharedMomentKind(trimmedUser, topic, mood);
   const unresolved = detectSharedMomentUnresolved(trimmedUser, assistantReply, kind);
   const statusHint = detectSharedMomentStatus(trimmedUser, assistantReply, kind, unresolved);
-  const looksMeaningful =
-    Boolean(topic) ||
-    /今天|昨天|昨晚|最近|刚刚|第一次|一直|因为|结果|开心|难过|焦虑|累|失眠|散步|跑步|工作|朋友|家人/.test(trimmedUser);
-  if (!looksMeaningful) return;
+  const looksMeaningful = detectMeaningfulMomentSignal(trimmedUser, trimmedReply, topic, kind);
+  if (!looksMeaningful) return null;
 
   const summary = buildSharedMomentSummary(trimmedUser, topic);
   const salience = estimateSharedMomentSalience(trimmedUser, mood, kind);
+  const moment = {
+    userId,
+    summary,
+    topic,
+    mood,
+    kind,
+    salience,
+    unresolved,
+    statusHint,
+  } satisfies import("../memory/episode_store").MomentInput;
 
   store.recordSharedMoment({
     summary,
@@ -335,17 +391,11 @@ async function maybeRecordSharedMoment(
     unresolved,
   });
 
+  let episodeView = momentToEpisodeV3View(moment);
+
   try {
-    await ingest({
-      userId,
-      summary,
-      topic,
-      mood,
-      kind,
-      salience,
-      unresolved,
-      statusHint,
-    });
+    const storedEpisode = await ingest(moment);
+    episodeView = toEpisodeV3View(storedEpisode);
   } catch (err) {
     const health = getEmbeddingHealthSnapshot();
     logger.warn("episodeStore.ingest degraded; shared moment kept only in snapshot", {
@@ -361,6 +411,10 @@ async function maybeRecordSharedMoment(
       embeddingModel: health.model ?? undefined,
     });
   }
+  return {
+    moment,
+    episodeView,
+  };
 }
 
 function detectSharedMomentTopic(
@@ -406,14 +460,42 @@ function detectSharedMomentKind(
     return "joy";
   }
   if (
-    /委屈|焦虑|崩溃|烦|难过|失眠|睡不着|误解|冲突|吵架|压力/u.test(userMessage) ||
+    /委屈|焦虑|崩溃|烦|难过|失眠|睡不着|误解|冲突|吵架|压力|欠|负债|赔偿|房租|还款|还到什么时候|喘不过气/u.test(userMessage) ||
     mood === "焦虑" ||
     mood === "难过" ||
     mood === "疲惫/烦躁"
   ) {
-    return topic === "工作" || topic === "感情" ? "stress" : "support";
+    return topic === "工作" || topic === "感情" || topic === "债务" ? "stress" : "support";
   }
   return "routine";
+}
+
+function detectMeaningfulMomentSignal(
+  userMessage: string,
+  assistantReply: string,
+  topic: string,
+  kind: "support" | "stress" | "joy" | "goal" | "routine" | "bond",
+): boolean {
+  if (topic) return true;
+
+  const temporalOrEmotional =
+    /今天|昨天|昨晚|最近|刚刚|第一次|一直|因为|结果|开心|难过|焦虑|累|失眠|散步|跑步|工作|朋友|家人/u;
+  if (temporalOrEmotional.test(userMessage)) return true;
+
+  const realWorldPressure =
+    /欠|负债|花呗|贷款|网贷|还款|赔偿|赔了|月收入|月薪|工资|房租|现金|现金流|存款|手里只剩|还到啥时候|还到什么时候|压得|喘不过气/u;
+  if (realWorldPressure.test(userMessage)) return true;
+
+  if (kind === "stress" || kind === "support") {
+    if (/后来|现在|最近|一直|又|还|没过去|卡住|压着/u.test(userMessage)) {
+      return true;
+    }
+    if (/慢慢来|先别急|继续看看|一步一步/u.test(assistantReply)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function detectSharedMomentUnresolved(

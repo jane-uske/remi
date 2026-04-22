@@ -25,6 +25,25 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("松弛吐槽"));
   });
 
+  it("injects a RemiCore runtime contract for the default persona", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "今天开会又开成工伤了",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【RemiCore合同】"));
+    assert.ok(system.includes("默认的 Remi 只有一个"));
+    assert.ok(system.includes("轻聊、小抱怨、比喻句、碎碎念"));
+    assert.ok(system.includes("有趣不是段子表演"));
+    assert.ok(system.includes("现实压力、委屈、冲突、事故、债务、死亡、关系受损时，立刻收住"));
+  });
+
   it("includes richer happy expression and speech rhythm hints", () => {
     const messages = buildPrompt({
       memory: [],
@@ -331,6 +350,24 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("不是只会安抚的助手"));
     assert.ok(system.includes("偏爱感"));
     assert.ok(system.includes("别直接掉回安抚+追问"));
+  });
+
+  it("makes remi_core soul guidance explicitly combine fun light-chat with same-person seriousness", () => {
+    const persona = createDefaultPersona();
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "你好呀",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("更像会聊的活人"));
+    assert.ok(system.includes("轻聊时先给有意思的反应和一点网感"));
+    assert.ok(system.includes("严肃时立刻收住"));
+    assert.ok(system.includes("别像切换成另一个系统"));
   });
 
   it("keeps romantic guidance light when closeness is still early", () => {

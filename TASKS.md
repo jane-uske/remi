@@ -80,8 +80,19 @@
 
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
   - 当前状态：主链路已接通，但真实样本不足；继续围绕 `audit / hygiene` 扩工具，只会得到低信号 proxy 结论
-  - 当前边界：保留现有 readiness，不再为“验证而验证”扩脚本或规则
+  - 当前真实判断：
+    - 热层方向对，但 `working memory / current focus` 还没收成稳定、极薄的层
+    - 温层主链路已通，但 `episode` 事件表达还太粗
+    - 冷层还没真正成型，当前仍缺 archive / replay / offline 治理底座
+  - 当前边界：
+    - 保留现有 readiness，不再为“验证而验证”扩脚本或规则
+    - 不继续把真实 bad case 直接补进 runtime 主逻辑
+    - 不继续扩越来越厚的 topic / keyword / case-specific 特判
   - 解锁条件：出现新的真实 `episodes` 样本，或出现足够多样的真实用户对话可供抽样人工复核
+  - 下一阶段最小动作：
+    - `M-ARCH-01` 收硬 Layer 2 边界：只保“当前主线 / 当前约束 / 不要踩的点”
+    - `M-ARCH-02` 升级 warm-layer schema：让 `episode` 能表达 `pressure_source / relational_impact / user_stance / unresolved_level`
+    - `M-ARCH-03` 补最小 cold-layer：archive ledger / replay / offline re-extract / audit
 
 - [ ] **I-001** iOS v0（文本）5 人内测闭环
   - 当前状态：文本基线、鉴权、缓存隔离骨架已具备

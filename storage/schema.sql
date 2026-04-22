@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS episodes (
   status TEXT NOT NULL DEFAULT 'active'
 );
 
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_domain TEXT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_pressure_source TEXT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_relational_impact TEXT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_user_stance TEXT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_unresolved_level INT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_event_summary TEXT;
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_evidence_turns TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_last_user_position TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_episodes_user_id ON episodes (user_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_user_status_updated
   ON episodes (user_id, status, last_seen_at DESC);

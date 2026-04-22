@@ -265,6 +265,95 @@ describe("routeMessage with session memory overlay", () => {
     }
   });
 
+  it("keeps pure greeting turns from pulling heavy narrative memory into prompt memory", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_PROACTIVE_PROMPT_ENABLED: "1",
+      REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: "1",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-light-greeting");
+    const { repo } = createPersistentRepo([
+      {
+        key: "名字",
+        value: "小满",
+        importance: 0.9,
+        accessCount: 0,
+        createdAt: 100,
+        lastAccessedAt: 300,
+      },
+      {
+        key: "城市",
+        value: "杭州",
+        importance: 0.7,
+        accessCount: 0,
+        createdAt: 110,
+        lastAccessedAt: 290,
+      },
+      {
+        key: "债务来源及金额",
+        value: "点点追电瓶车碰到他人，家里赔了十几万。",
+        importance: 0.96,
+        accessCount: 0,
+        createdAt: 130,
+        lastAccessedAt: 380,
+      },
+      {
+        key: "对Remi安慰能力的评价",
+        value: "觉得Remi不会安慰人。",
+        importance: 0.92,
+        accessCount: 0,
+        createdAt: 140,
+        lastAccessedAt: 370,
+      },
+    ]);
+    ctx.memory.attachPersistent(repo);
+    await ctx.memory.hydrateFromPersistent(12);
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.bumpRelationship({ familiarityDelta: 0.55, emotionalBondDelta: 0.46 });
+    ctx.slowBrain.setConversationSummary("点点闯祸后的赔偿和还债压力一直压着你。");
+    ctx.slowBrain.setProactiveTopics(["点点那件事后来怎么样了"]);
+    ctx.slowBrain.recordSharedMoment({
+      summary: "上次你提到点点闯祸赔了十几万，现在一想到那笔债心里就堵得慌。",
+      topic: "债务",
+      mood: "疲惫/烦躁",
+      hook: "点点那件事后来怎么样了",
+      createdAt: 620,
+      unresolved: true,
+    });
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        memory: input.memory.map((entry) => ({ ...entry })),
+        strategyHints: input.strategyHints,
+      });
+      yield "我在。";
+    });
+
+    try {
+      const chunks = [];
+      for await (const chunk of routeMessage(ctx, "你好呀", "neutral")) {
+        chunks.push(chunk);
+      }
+
+      assert.deepEqual(chunks, ["我在。"]);
+      assert.equal(captured.length, 1);
+      assert.deepEqual(
+        captured[0].memory.map((entry) => entry.key),
+        ["名字", "城市"],
+      );
+      assert.equal(captured[0].strategyHints.includes("【实时连续性】"), false);
+      assert.equal(captured[0].strategyHints.includes("【主动提起候选】"), false);
+      assert.equal(captured[0].strategyHints.includes("【共同经历提醒】"), false);
+      assert.equal(captured[0].strategyHints.includes("【当前未完主线】"), false);
+      assert.equal(captured[0].strategyHints.includes("【对话摘要】"), false);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
   it("does not repeat the same proactive or shared-moment cue on back-to-back turns", async () => {
     const restoreEnv = applyEnv({
       REMI_SLOW_BRAIN_ENABLED: "0",
@@ -469,6 +558,72 @@ describe("routeMessage with session memory overlay", () => {
     }
   });
 
+  it("suppresses heavy relationship recall on lightweight greetings", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      MAX_PROMPT_MEMORY_ENTRIES: "5",
+    });
+    const ctx = new RemiSessionContext("memory-overlay-light-greeting");
+    const { repo } = createPersistentRepo([
+      {
+        key: "名字",
+        value: "小满",
+        importance: 0.9,
+        accessCount: 0,
+        createdAt: 100,
+        lastAccessedAt: 300,
+      },
+      {
+        key: "城市",
+        value: "杭州",
+        importance: 0.7,
+        accessCount: 0,
+        createdAt: 110,
+        lastAccessedAt: 290,
+      },
+    ]);
+    ctx.memory.attachPersistent(repo);
+    await ctx.memory.hydrateFromPersistent(12);
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.recordTurn();
+    ctx.slowBrain.bumpRelationship({ familiarityDelta: 0.5, emotionalBondDelta: 0.46 });
+    ctx.slowBrain.setConversationSummary("最近主要在聊点点闯祸后的赔偿压力和还债。");
+    ctx.slowBrain.setProactiveTopics(["点点那件事后来缓一点了吗"]);
+    ctx.slowBrain.recordSharedMoment({
+      summary: "上次你提到点点追电瓶车导致赔偿，现在还在还债。",
+      topic: "债务",
+      mood: "疲惫/烦躁",
+      hook: "点点那件事后来缓一点了吗",
+      createdAt: 620,
+      unresolved: true,
+      kind: "stress",
+      salience: 0.88,
+    });
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        memory: input.memory.map((entry) => ({ ...entry })),
+      });
+      yield "我在。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "你好呀", "neutral")) {
+        // consume
+      }
+
+      assert.equal(captured.length, 1);
+      assert.deepEqual(
+        captured[0].memory.map((entry) => entry.key),
+        ["名字", "城市"],
+      );
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
   it("applies llm-first style intent into the live override and stores only weak cross-session notes", async () => {
     const restoreEnv = applyEnv({
       REMI_SLOW_BRAIN_ENABLED: "0",
@@ -624,6 +779,7 @@ describe("routeMessage with session memory overlay", () => {
         inputSource: "text",
         structuredAnalysis: {
           interpretation: {
+            sceneType: "practical_judgment",
             userAct: "decision_seek",
             answerObligation: "answer_then_followup",
             responseMode: "answer_first",
@@ -650,7 +806,7 @@ describe("routeMessage with session memory overlay", () => {
             shouldMirrorEmotion: true,
             shouldGiveJudgment: true,
             shouldUpdateDecisionContext: true,
-            bans: ["no_assistantese"],
+            bans: ["no_assistantese", "no_topic_pivot", "no_shallow_reassurance"],
           },
           source: "llm_structured",
           latencyMs: 120,
@@ -664,13 +820,58 @@ describe("routeMessage with session memory overlay", () => {
 
       assert.equal(captured.length, 1);
       assert.ok(captured[0].currentContext.includes("【当前上下文】"));
+      assert.ok(captured[0].currentContext.includes("当前主线"));
       assert.ok(captured[0].currentContext.includes("当前需求"));
       assert.ok(captured[0].currentContext.includes("现实约束"));
+      assert.ok(captured[0].currentContext.includes("不要做"));
 
       const snapshot = ctx.slowBrain.getSnapshot();
       assert.ok(snapshot.workingMemory);
       assert.equal(snapshot.workingMemory.sceneState, "decision");
       assert.equal(snapshot.workingMemory.currentConstraints.length > 0, true);
+    } finally {
+      restore();
+      restoreEnv();
+    }
+  });
+
+  it("keeps current working memory on short practical follow-ups instead of dropping back to fast-path small talk", async () => {
+    const restoreEnv = applyEnv({
+      REMI_SLOW_BRAIN_ENABLED: "0",
+      REMI_WORKING_MEMORY_ENABLED: "1",
+      REMI_STRUCTURED_TURN_INTERPRETER: "on",
+      key: undefined,
+      base_url: undefined,
+      model: undefined,
+    });
+    const ctx = new RemiSessionContext("memory-overlay-practical-followup");
+
+    const captured = [];
+    const { routeMessage, restore } = loadMockedRouteMessage(async function* (input) {
+      captured.push({
+        userMessage: input.userMessage,
+        currentContext: input.currentContext,
+      });
+      yield "先按这个来。";
+    });
+
+    try {
+      for await (const _ of routeMessage(ctx, "我每个月挣三千，得还到啥时候啊", "neutral", undefined, {
+        inputSource: "text",
+      })) {
+        // consume
+      }
+      for await (const _ of routeMessage(ctx, "你帮我算算", "neutral", undefined, {
+        inputSource: "text",
+      })) {
+        // consume
+      }
+
+      assert.equal(captured.length, 2);
+      assert.ok(captured[0].currentContext.includes("【当前上下文】"));
+      assert.ok(captured[1].currentContext.includes("【当前上下文】"));
+      assert.ok(captured[1].currentContext.includes("当前主线"));
+      assert.ok(captured[1].currentContext.includes("不要轻飘安慰或无依据粗算"));
     } finally {
       restore();
       restoreEnv();
