@@ -9,6 +9,7 @@ COPY server/ ./server/
 COPY agents/ ./agents/
 COPY brain/ ./brain/
 COPY brains/ ./brains/
+COPY cold_layer/ ./cold_layer/
 COPY capabilities/ ./capabilities/
 COPY emotion/ ./emotion/
 COPY llm/ ./llm/
