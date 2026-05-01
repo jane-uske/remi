@@ -20,7 +20,6 @@ import {
 } from "./useRemiChatTurnState";
 import {
   arrayBufferToBase64,
-  buildClientContextPayload,
   encodePcmAudioFrame,
   INITIAL_BROWSER_IDENTITY,
   isListeningFallbackText,
@@ -69,6 +68,15 @@ import {
   selectThinkingHint,
   toLegacyRemState,
 } from "@/runtime/remiRuntimeSelectors";
+import {
+  createInitialRemiRuntimeState,
+  RemiRuntimeClient,
+  selectRemiAvatarRuntimeModel,
+  toClientContextPayload,
+  type RemiAvatarRuntimeModel,
+  type RemiRuntimeState,
+  type RemiRuntimeTransport,
+} from "../../../runtime";
 
 /** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」） */
 const WS_CONNECT_TIMEOUT_MS = 12_000;
@@ -82,6 +90,20 @@ const STT_USER_MERGE_WINDOW_MS = 2200;
 const MIC_TX_LOG_INTERVAL_MS = 900;
 const CHAT_END_PLAYBACK_GRACE_MS = 220;
 const CLIENT_MIC_PRE_GATE_ENABLED = process.env.NEXT_PUBLIC_REMI_CLIENT_MIC_PRE_GATE === "1";
+const REMI_RUNTIME_SHADOW_ENABLED = process.env.NEXT_PUBLIC_REMI_RUNTIME_SHADOW === "1";
+
+const WEB_RUNTIME_SHADOW_CAPABILITIES = {
+  textInput: true,
+  audioInput: true,
+  audioOutput: true,
+  streamingAudio: true,
+  avatar2d: true,
+  avatar3d: true,
+  lipSync: true,
+  worldEvents: false,
+  backgroundPresence: false,
+  notifications: false,
+} as const;
 
 type HistoryCursor = {
   id: string;
@@ -118,6 +140,9 @@ export function useRemiChat() {
     message: "",
   });
   const [runtimeClock, setRuntimeClock] = useState(0);
+  const [sdkRuntimeState, setSdkRuntimeState] = useState<RemiRuntimeState>(
+    () => createInitialRemiRuntimeState(),
+  );
   const [streamingText, setStreamingText] = useState("");
   const [sttPartialText, setSttPartialText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -154,7 +179,7 @@ export function useRemiChat() {
     [historyMessages, liveMessages],
   );
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<RemiRuntimeClient | null>(null);
   const waitingRef = useRef(false);
   const duplexRef = useRef(false);
   const pcmRef = useRef<PcmCapture | null>(null);
@@ -410,7 +435,7 @@ export function useRemiChat() {
       }
       if (ws && ws.readyState === WebSocket.OPEN) {
         try {
-          ws.send(JSON.stringify({ type: "duplex_stop" }));
+          ws.stopDuplex();
         } catch {
           /* ignore */
         }
@@ -553,21 +578,13 @@ export function useRemiChat() {
   const handlePlaybackStart = useCallback((generationId: number | null) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const payload: Record<string, unknown> = { type: "playback_start" };
-    if (typeof generationId === "number") {
-      payload.generationId = generationId;
-    }
-    ws.send(JSON.stringify(payload));
+    ws.notifyPlaybackStart(generationId);
   }, []);
 
   const handlePlaybackEnd = useCallback((generationId: number | null) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const payload: Record<string, unknown> = { type: "playback_end" };
-    if (typeof generationId === "number") {
-      payload.generationId = generationId;
-    }
-    ws.send(JSON.stringify(payload));
+    ws.notifyPlaybackEnd(generationId);
   }, []);
 
   const {
@@ -665,6 +682,10 @@ export function useRemiChat() {
   const avatarRenderModel = useMemo(
     () => buildAvatarRenderModel(runtimeState),
     [runtimeState],
+  );
+  const sdkAvatarRuntimeModel = useMemo<RemiAvatarRuntimeModel>(
+    () => selectRemiAvatarRuntimeModel(sdkRuntimeState),
+    [sdkRuntimeState],
   );
   const listeningHint = useMemo(
     () => selectListeningHint(runtimeState, sttPartialText),
@@ -951,16 +972,10 @@ export function useRemiChat() {
             if (ws.readyState === WebSocket.OPEN) {
               const frame = encodePcmAudioFrame(chunk, pcmSampleRate);
               try {
-                ws.send(frame);
+                ws.sendAudioFrame(frame);
               } catch {
                 // Compatibility fallback for servers that only parse JSON audio_stream.
-                ws.send(
-                  JSON.stringify({
-                    type: "audio_stream",
-                    audio: arrayBufferToBase64(chunk),
-                    sampleRate: pcmSampleRate,
-                  }),
-                );
+                ws.sendAudioStreamBase64(arrayBufferToBase64(chunk), pcmSampleRate);
               }
             }
           }
@@ -978,7 +993,7 @@ export function useRemiChat() {
       pcmSampleRate = capture.sampleRate;
 
       pcmRef.current = capture;
-      ws.send(JSON.stringify({ type: "duplex_start", sampleRate: capture.sampleRate }));
+      ws.startDuplex(capture.sampleRate);
       pushAvatarDevtoolsLog("system", "duplex capture start", {
         sampleRate: capture.sampleRate,
       });
@@ -1049,7 +1064,7 @@ export function useRemiChat() {
     micTxGateRef.current = null;
     resumeDuplexAfterReconnectRef.current = options?.preserveAutoResume ?? false;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "duplex_stop" }));
+      ws.stopDuplex();
     }
     setSttPartialText("");
     clearGenerationState();
@@ -1114,7 +1129,33 @@ export function useRemiChat() {
       return;
     }
 
-    const ws = new WebSocket(url);
+    const clientContext = toClientContextPayload({
+      surface: "web",
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      locale: navigator.language,
+      capabilities: WEB_RUNTIME_SHADOW_CAPABILITIES,
+    });
+    const ws = new RemiRuntimeClient({
+      url,
+      clientContext,
+      createTransport: (targetUrl) => new WebSocket(targetUrl) as unknown as RemiRuntimeTransport,
+      onRuntimeEvent: (event, state) => {
+        setSdkRuntimeState(state);
+        if (REMI_RUNTIME_SHADOW_ENABLED) {
+          pushAvatarDevtoolsLog("runtime", `shadow:${event.type}`, {
+            connection: state.connection,
+            phase: state.phase,
+            phaseReason: state.phaseReason,
+            generationId: state.assistant.activeGenerationId ?? state.turn.generationId,
+            streamingTextLength: state.assistant.streamingText.length,
+            finalTextLength: state.assistant.finalText.length,
+            audioActive: state.assistant.audioActive,
+            lipSyncCueCount: state.speech.lipSyncCues.length,
+            error: state.error,
+          });
+        }
+      },
+    });
     pushAvatarDevtoolsLog("system", "ws connecting", { url });
     clearGenerationState();
     wsRef.current = ws;
@@ -1139,8 +1180,15 @@ export function useRemiChat() {
       setConnectionPhase("open");
       setReconnectDeadline(null);
       setConnLabel("在线");
-      ws.send(JSON.stringify(buildClientContextPayload()));
       pushAvatarDevtoolsLog("system", "ws open", { url });
+      if (REMI_RUNTIME_SHADOW_ENABLED) {
+        pushAvatarDevtoolsLog("runtime", "shadow:client_context", {
+          surface: clientContext.surface,
+          timeZone: clientContext.timeZone,
+          locale: clientContext.locale,
+          capabilities: clientContext.capabilities,
+        });
+      }
       if (!hasAnnouncedConnectedRef.current) {
         hasAnnouncedConnectedRef.current = true;
         appendLiveMessage({ id: uid(), role: "sys", text: "已连接，和 Remi 聊聊吧" });
@@ -1749,6 +1797,7 @@ export function useRemiChat() {
       window.clearTimeout(connectTimer);
       pushAvatarDevtoolsLog("system", "ws error");
     };
+    ws.connect();
     })();
   };
 
@@ -1873,7 +1922,7 @@ export function useRemiChat() {
         interruptedGeneration,
         contentLength: trimmed.length,
       });
-      ws.send(JSON.stringify({ type: "chat", content: trimmed }));
+      ws.sendText(trimmed);
       waitingRef.current = true;
       setWaiting(true);
       setTyping(true);
@@ -2009,6 +2058,8 @@ export function useRemiChat() {
     thinkingHint,
     waiting,
     runtimeState,
+    sdkRuntimeState,
+    sdkAvatarRuntimeModel,
     avatarRenderModel,
     avatarAction,
     inputPlaceholder,

@@ -25,7 +25,9 @@ export interface AudioQueueOptions {
   onPlaybackEnd?: (generationId: number | null) => void;
 }
 
-const PCM_BATCH_TARGET_MS = 72;
+const PCM_BATCH_TARGET_MS = 120;
+const PCM_IDLE_GRACE_MS = 700;
+const PCM_OUTPUT_GAIN = 0.86;
 
 function isBrokenAudioContextState(state: string): boolean {
   return state === "closed" || state === "interrupted";
@@ -51,6 +53,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const stopFallbackRef = useRef<(() => void) | null>(null);
   const audioGraphRetryAfterRef = useRef(0);
   const pcmFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pcmKeepAliveUntilRef = useRef(0);
   const pendingPcmChunksRef = useRef<Float32Array[]>([]);
   const pendingPcmSamplesRef = useRef(0);
   const pendingPcmSampleRateRef = useRef(24000);
@@ -129,8 +132,8 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     [],
   );
 
-  const notifyPlaybackEnd = useCallback(() => {
-    const generationId = activeServerGenerationRef.current;
+  const notifyPlaybackEnd = useCallback((fallbackGenerationId?: number | null) => {
+    const generationId = activeServerGenerationRef.current ?? fallbackGenerationId ?? null;
     if (!playbackNotifiedRef.current && generationId == null) return;
     playbackNotifiedRef.current = false;
     activeServerGenerationRef.current = null;
@@ -279,6 +282,14 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     idleTimerRef.current = setTimeout(() => {
       if (activeSourcesRef.current.size > 0) return;
       if (pendingPcmSamplesRef.current > 0 || pcmFlushTimerRef.current) return;
+      const pcmKeepAliveMs = pcmKeepAliveUntilRef.current - Date.now();
+      if (pcmKeepAliveMs > 0) {
+        idleTimerRef.current = setTimeout(() => {
+          idleTimerRef.current = null;
+          scheduleIdleCheck();
+        }, pcmKeepAliveMs + 20);
+        return;
+      }
       const now = audioContextRef.current?.currentTime ?? 0;
       if (now + 0.01 < nextStartTimeRef.current) return;
       playingRef.current = false;
@@ -295,10 +306,16 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       serverGenerationId: number | null,
     ) => {
       const ctx = await ensureAudioGraph();
-      if (!ctx) return;
+      if (!ctx) {
+        notifyPlaybackEnd(serverGenerationId);
+        return;
+      }
       if (generationRef.current !== generationAtCall) return;
       const analyser = analyserRef.current;
-      if (!analyser) return;
+      if (!analyser) {
+        notifyPlaybackEnd(serverGenerationId);
+        return;
+      }
 
       const now = ctx.currentTime;
       const startAt = Math.max(now + 0.01, nextStartTimeRef.current || now + 0.01);
@@ -335,6 +352,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     [
       activateLipTimeline,
       ensureAudioGraph,
+      notifyPlaybackEnd,
       runEnvelopeLoop,
       scheduleIdleCheck,
       stopEnvelopeLoop,
@@ -348,6 +366,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       const generationAtCall = generationRef.current;
       const floats = pcm16Base64ToFloat32(pcmBase64);
       if (!floats) return;
+      pcmKeepAliveUntilRef.current = Date.now() + PCM_IDLE_GRACE_MS;
       const ctxRate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 24000;
 
       const flushPending = () => {
@@ -362,7 +381,13 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         clearPendingPcm();
         void (async () => {
           const ctx = await ensureAudioGraph();
-          if (!ctx || generationRef.current !== generationAtCall) return;
+          if (!ctx) {
+            if (generationRef.current === generationAtCall) {
+              notifyPlaybackEnd(serverGeneration);
+            }
+            return;
+          }
+          if (generationRef.current !== generationAtCall) return;
           const buf = ctx.createBuffer(1, totalSamples, rate);
           const channel = buf.getChannelData(0);
           let offset = 0;
@@ -416,7 +441,13 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         }, Math.max(12, PCM_BATCH_TARGET_MS - bufferedMs));
       }
     },
-    [clearPendingPcm, ensureAudioGraph, queuedAheadMs, scheduleAudioBuffer],
+    [
+      clearPendingPcm,
+      ensureAudioGraph,
+      notifyPlaybackEnd,
+      queuedAheadMs,
+      scheduleAudioBuffer,
+    ],
   );
 
   const decodeBase64ToAudioBuffer = useCallback(
@@ -505,7 +536,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
             cleanup();
             if (generationRef.current === generationAtCall) {
               playingRef.current = false;
-              notifyPlaybackEnd();
+              notifyPlaybackEnd(serverGenerationId);
               stopEnvelopeLoop();
               sync();
             }
@@ -544,7 +575,14 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         });
       })();
     },
-    [activateLipTimeline, runEnvelopeLoop, stopEnvelopeLoop, sync, updateLipSignal],
+    [
+      activateLipTimeline,
+      notifyPlaybackEnd,
+      runEnvelopeLoop,
+      stopEnvelopeLoop,
+      sync,
+      updateLipSignal,
+    ],
   );
 
   const enqueueBase64 = useCallback(
@@ -571,6 +609,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const clearQueue = useCallback(() => {
     generationRef.current += 1;
     clearPendingPcm();
+    pcmKeepAliveUntilRef.current = 0;
 
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);
@@ -668,7 +707,7 @@ function pcm16Base64ToFloat32(base64: string): Float32Array | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let i = 0; i < sampleCount; i++) {
     const s = view.getInt16(i * 2, true);
-    out[i] = s < 0 ? s / 0x8000 : s / 0x7fff;
+    out[i] = (s < 0 ? s / 0x8000 : s / 0x7fff) * PCM_OUTPUT_GAIN;
   }
   return out;
 }

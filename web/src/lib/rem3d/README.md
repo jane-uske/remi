@@ -21,6 +21,12 @@
 - 消费 `face` 和 `lipSync`
 - 向 devtools 发布运行时快照
 
+5. `/vrm` 是真实链路 VRM 验证页：
+- 继续走 `useRemiChat` / WS / LLM / TTS 主链路
+- 强制使用 VRM 渲染，不走默认入口的 Live2D fallback
+- 读取 `runtime/selectRemiAvatarRuntimeModel()` 的平台无关 avatar 投影
+- 只用于验证 LLM 高层 intent、动作、表情和 TTS 口型输入是否能到达 VRM 表现层
+
 ## 模块职责
 
 - `avatarIntent.ts`
@@ -37,6 +43,9 @@
 
 - `devtoolsStore.ts`
   共享环形日志存储，以及最新的运行时快照。
+
+- `runtime/avatar_model.ts`
+  位于仓库根 `runtime/`，不是 Web 专属模块。它只输出平台无关的 avatar runtime model，供 Web `/vrm` 和 World 共同消费。
 
 ## 后续修改规则
 
