@@ -33,6 +33,13 @@ export type MicTxGateOptions = {
   assistantStartFramesBoost?: number;
   assistantEnergyMultiplier?: number;
   assistantMinActiveRatioBoost?: number;
+  noiseFloorFrames?: number;
+  noiseFloorMultiplier?: number;
+  noiseFloorMargin?: number;
+  stationaryNoiseFrames?: number;
+  stationaryNoiseMaxRelativeRmsDelta?: number;
+  stationaryNoiseMinRmsRatio?: number;
+  stationaryNoiseMaxZcr?: number;
 };
 
 const DEFAULT_PRE_ROLL_FRAMES = 12;
@@ -49,6 +56,13 @@ const DEFAULT_CONTINUE_MIN_ACTIVE_RATIO = 0.14;
 const DEFAULT_ASSISTANT_START_FRAMES_BOOST = 2;
 const DEFAULT_ASSISTANT_ENERGY_MULTIPLIER = 1.28;
 const DEFAULT_ASSISTANT_MIN_ACTIVE_RATIO_BOOST = 0.05;
+const DEFAULT_NOISE_FLOOR_FRAMES = 40;
+const DEFAULT_NOISE_FLOOR_MULTIPLIER = 1.8;
+const DEFAULT_NOISE_FLOOR_MARGIN = 0.006;
+const DEFAULT_STATIONARY_NOISE_FRAMES = 3;
+const DEFAULT_STATIONARY_NOISE_MAX_RELATIVE_RMS_DELTA = 0.12;
+const DEFAULT_STATIONARY_NOISE_MIN_RMS_RATIO = 0.7;
+const DEFAULT_STATIONARY_NOISE_MAX_ZCR = 0.012;
 
 function cloneBuffer(buf: ArrayBuffer): ArrayBuffer {
   return buf.slice(0);
@@ -120,8 +134,16 @@ export class MicTxGate {
   private readonly assistantStartFramesBoost: number;
   private readonly assistantEnergyMultiplier: number;
   private readonly assistantMinActiveRatioBoost: number;
+  private readonly noiseFloorFrames: number;
+  private readonly noiseFloorMultiplier: number;
+  private readonly noiseFloorMargin: number;
+  private readonly stationaryNoiseFrames: number;
+  private readonly stationaryNoiseMaxRelativeRmsDelta: number;
+  private readonly stationaryNoiseMinRmsRatio: number;
+  private readonly stationaryNoiseMaxZcr: number;
 
   private preRoll: ArrayBuffer[] = [];
+  private closedRmsWindow: number[] = [];
   private transmitting = false;
   private speechCount = 0;
   private silentCount = 0;
@@ -145,6 +167,31 @@ export class MicTxGate {
       options.assistantEnergyMultiplier ?? DEFAULT_ASSISTANT_ENERGY_MULTIPLIER;
     this.assistantMinActiveRatioBoost =
       options.assistantMinActiveRatioBoost ?? DEFAULT_ASSISTANT_MIN_ACTIVE_RATIO_BOOST;
+    this.noiseFloorFrames = Math.max(
+      2,
+      Math.floor(options.noiseFloorFrames ?? DEFAULT_NOISE_FLOOR_FRAMES),
+    );
+    this.noiseFloorMultiplier = Math.max(
+      1,
+      options.noiseFloorMultiplier ?? DEFAULT_NOISE_FLOOR_MULTIPLIER,
+    );
+    this.noiseFloorMargin = Math.max(0, options.noiseFloorMargin ?? DEFAULT_NOISE_FLOOR_MARGIN);
+    this.stationaryNoiseFrames = Math.max(
+      2,
+      Math.floor(options.stationaryNoiseFrames ?? DEFAULT_STATIONARY_NOISE_FRAMES),
+    );
+    this.stationaryNoiseMaxRelativeRmsDelta = Math.max(
+      0,
+      options.stationaryNoiseMaxRelativeRmsDelta ?? DEFAULT_STATIONARY_NOISE_MAX_RELATIVE_RMS_DELTA,
+    );
+    this.stationaryNoiseMinRmsRatio = Math.max(
+      0,
+      options.stationaryNoiseMinRmsRatio ?? DEFAULT_STATIONARY_NOISE_MIN_RMS_RATIO,
+    );
+    this.stationaryNoiseMaxZcr = Math.max(
+      0,
+      options.stationaryNoiseMaxZcr ?? DEFAULT_STATIONARY_NOISE_MAX_ZCR,
+    );
   }
 
   isTransmitting(): boolean {
@@ -153,9 +200,39 @@ export class MicTxGate {
 
   reset(): void {
     this.preRoll = [];
+    this.closedRmsWindow = [];
     this.transmitting = false;
     this.speechCount = 0;
     this.silentCount = 0;
+  }
+
+  private observeClosedRms(rms: number): void {
+    this.closedRmsWindow.push(rms);
+    if (this.closedRmsWindow.length > this.noiseFloorFrames) {
+      this.closedRmsWindow.splice(0, this.closedRmsWindow.length - this.noiseFloorFrames);
+    }
+  }
+
+  private estimatedNoiseFloorRms(): number {
+    if (!this.closedRmsWindow.length) return 0;
+    const sorted = [...this.closedRmsWindow].sort((a, b) => a - b);
+    return sorted[Math.floor((sorted.length - 1) / 2)] ?? 0;
+  }
+
+  private hasStationaryClosedNoise(staticThreshold: number, zcr: number): boolean {
+    if (zcr > this.stationaryNoiseMaxZcr) return false;
+    if (this.closedRmsWindow.length < this.stationaryNoiseFrames) return false;
+    const recent = this.closedRmsWindow.slice(-this.stationaryNoiseFrames);
+    const mean = recent.reduce((sum, value) => sum + value, 0) / recent.length;
+    if (mean < staticThreshold * this.stationaryNoiseMinRmsRatio) return false;
+    const maxDelta = recent.reduce((max, value) => Math.max(max, Math.abs(value - mean)), 0);
+    return maxDelta / Math.max(mean, 1e-6) <= this.stationaryNoiseMaxRelativeRmsDelta;
+  }
+
+  private startEnergyThreshold(staticThreshold: number, zcr: number): number {
+    if (!this.hasStationaryClosedNoise(staticThreshold, zcr)) return staticThreshold;
+    const floor = this.estimatedNoiseFloorRms();
+    return Math.max(staticThreshold, floor * this.noiseFloorMultiplier + this.noiseFloorMargin);
   }
 
   feed(frame: ArrayBuffer, context: MicTxGateContext = {}): MicTxGateFeedResult {
@@ -169,8 +246,13 @@ export class MicTxGate {
       const assistantSpeaking = context.assistantSpeaking === true;
       const requiredStartFrames =
         this.minStartFrames + (assistantSpeaking ? this.assistantStartFramesBoost : 0);
-      const startEnergyThreshold =
+      const staticStartEnergyThreshold =
         this.energyThreshold * (assistantSpeaking ? this.assistantEnergyMultiplier : 1);
+      this.observeClosedRms(analysis.rms);
+      const startEnergyThreshold = this.startEnergyThreshold(
+        staticStartEnergyThreshold,
+        analysis.zcr,
+      );
       const startActiveRatio =
         this.minActiveRatio + (assistantSpeaking ? this.assistantMinActiveRatioBoost : 0);
       const isSpeechStart =
@@ -183,6 +265,7 @@ export class MicTxGate {
 
       if (this.speechCount >= requiredStartFrames) {
         this.transmitting = true;
+        this.closedRmsWindow = [];
         this.silentCount = 0;
         const framesToSend = this.preRoll;
         this.preRoll = [];
@@ -219,6 +302,7 @@ export class MicTxGate {
     const closed = this.silentCount >= this.stopFrames;
     if (closed) {
       this.transmitting = false;
+      this.closedRmsWindow = [];
       this.speechCount = 0;
       this.silentCount = 0;
       this.preRoll = [];

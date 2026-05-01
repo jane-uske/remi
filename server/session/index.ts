@@ -65,6 +65,9 @@ import {
   duplexIdleGuardMinRms,
   duplexIdleGuardMinSpeechMs,
   duplexIdleGuardMinStrongRatio,
+  duplexIdleGuardNoPreviewMinRms,
+  duplexIdleGuardNoPreviewMinSpeechMs,
+  duplexIdleGuardNoPreviewMinStrongRatio,
   duplexInterruptMinSpeechMs,
   duplexFallbackInterruptMinPreviewChars,
   duplexFallbackInterruptMinRms,
@@ -1311,10 +1314,16 @@ export class ConnectionSession {
     const preview = getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText);
     if (preview.length >= duplexIdleGuardMeaningfulPreviewChars()) return true;
     const strongRatio = strongFrameRatio(this.utteranceFrameCount, this.utteranceStrongFrames);
+    const minSpeech = Math.max(duplexIdleGuardMinSpeechMs(), duplexIdleGuardNoPreviewMinSpeechMs());
+    const minRms = Math.max(duplexIdleGuardMinRms(), duplexIdleGuardNoPreviewMinRms());
+    const minStrongRatio = Math.max(
+      duplexIdleGuardMinStrongRatio(),
+      duplexIdleGuardNoPreviewMinStrongRatio(),
+    );
     return (
-      speechDurationMs >= duplexIdleGuardMinSpeechMs() &&
-      this.utteranceMaxRms >= duplexIdleGuardMinRms() &&
-      strongRatio >= duplexIdleGuardMinStrongRatio()
+      speechDurationMs >= minSpeech &&
+      this.utteranceMaxRms >= minRms &&
+      strongRatio >= minStrongRatio
     );
   }
 

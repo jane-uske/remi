@@ -296,6 +296,54 @@ describe("duplex ws+pcm regression", () => {
     }
   });
 
+  it("keeps stronger no-preview idle environment noise out of stt and turn state", async () => {
+    const captureLogs = [];
+    const { ws, session, restore } = loadSessionHarness({
+      transcript: "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
+      captureLogs,
+    });
+    try {
+      emitDuplexStart(ws);
+
+      const idleSince = Date.now() - 12_000;
+      session.lastMeaningfulSpeechAt = idleSince;
+      session.lastAcceptedSpeechAt = idleSince;
+      session.lastConfirmedInterruptAt = 0;
+      session.duplexRxStartedAt = idleSince;
+      session.duplexSampleRate = 16_000;
+      session.lastVadStartMode = "strict";
+      session.speechBuffer = [Buffer.concat(repeatFrames(makeSineFrame(0.059), 54))];
+      session.speechBufferBytes = session.speechBuffer[0].length;
+      session.utteranceFrameCount = 31;
+      session.utteranceStrongFrames = 9;
+      session.utteranceMaxRms = 0.059;
+      session.utteranceMaxPeak = 0.097;
+      session.lastMeaningfulPartialText = "";
+      session.lastPreviewText = "";
+
+      session.vad.emit("speech_end");
+      await new Promise((resolve) => setTimeout(resolve, 260));
+
+      const messages = ws.parsedMessages();
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "stt_final"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+      assert.equal(
+        messages.some((msg) => msg && msg.type === "turn_state" && msg.state === "assistant_entering"),
+        false,
+        `messages=${JSON.stringify(messages)}`,
+      );
+      assert.ok(
+        captureLogs.some((entry) => entry.message === "[Duplex] idle noise rejected before stt"),
+        `logs=${JSON.stringify(captureLogs)}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("falls back to stop-time STT when audio arrived but VAD never fired", async () => {
     const { ws, session, restore } = loadSessionHarness({ transcript: "我在按住说话。" });
     try {
