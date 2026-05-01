@@ -511,7 +511,7 @@ describe("routeMessage with session memory overlay", () => {
     }
   });
 
-  it("keeps ordinary text fast-path priority context compact", async () => {
+  it("keeps ordinary text fast-path priority context compact without unrelated proactive callbacks", async () => {
     const restoreEnv = applyEnv({
       REMI_SLOW_BRAIN_ENABLED: "0",
       REMI_PROACTIVE_PROMPT_ENABLED: "1",
@@ -549,7 +549,8 @@ describe("routeMessage with session memory overlay", () => {
 
       assert.equal(captured.length, 1);
       assert.ok(captured[0].strategyHints.includes("【语气合同】"));
-      assert.ok(captured[0].strategyHints.includes("【主动提起候选】"));
+      assert.equal(captured[0].strategyHints.includes("【主动提起候选】"), false);
+      assert.equal(captured[0].strategyHints.includes("【共同经历提醒】"), false);
       assert.equal(captured[0].strategyHints.includes("【关系表达风格】"), false);
       assert.equal(Boolean(captured[0].slowBrainContext), false);
     } finally {

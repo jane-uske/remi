@@ -111,6 +111,27 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("不要像全新话题重开"));
   });
 
+  it("guides callback turns as contextual continuation instead of fixed memory openers", () => {
+    const persona = createDefaultPersona();
+    persona.liveState.proactiveIntent = "callback";
+    persona.liveState.topicPull = "工作那件事";
+
+    const messages = buildPrompt({
+      memory: [],
+      emotion: "neutral",
+      history: [],
+      userMessage: "还没缓过来",
+      persona,
+    });
+
+    const system = messages[0].content;
+    assert.ok(system.includes("【本轮承接】"));
+    assert.ok(system.includes("只有当对方当前这句话"));
+    assert.ok(system.includes("不要用“对了”“说起来”“你之前”“上次你说”"));
+    assert.equal(system.includes("像随口想起"), false);
+    assert.equal(system.includes("轻轻提起之前没说完的话题"), false);
+  });
+
   it("includes priority relationship context even when persona mode is enabled", () => {
     const persona = createDefaultPersona();
 
