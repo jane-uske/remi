@@ -88,6 +88,62 @@ describe("adult_mode", () => {
     });
   });
 
+  it("keeps soft adult-coded lead-in turns in flirt instead of resetting to none", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      let state = createAdultSceneState();
+
+      state = advanceAdultSceneState(state, {
+        userMessage: "Remi，突然好想听你用软软的声音跟我撒娇……",
+      }).nextState;
+      assert.equal(state.mode, "flirt");
+      assert.equal(state.allowedExplicit, false);
+
+      state = advanceAdultSceneState(state, {
+        userMessage: "Remi，我好想摸摸你……你会害羞吗？",
+      }).nextState;
+      assert.equal(state.mode, "flirt");
+      assert.equal(state.allowedExplicit, false);
+    });
+  });
+
+  it("treats direct arousal-check questions as explicit user invites", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      const decision = advanceAdultSceneState(createAdultSceneState(), {
+        userMessage: "Remi，乖，告诉主人，你现在下面有没有一点点湿？",
+      });
+
+      assert.equal(decision.intent, "sexual_invite");
+      assert.equal(decision.reason, "explicit_user_invite");
+      assert.equal(decision.nextState.mode, "explicit");
+      assert.equal(decision.nextState.allowedExplicit, true);
+      assert.equal(decision.nextState.initiatedByUser, true);
+    });
+  });
+
+  it("treats explicit sound requests as sexual invites", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      const decision = advanceAdultSceneState(createAdultSceneState(), {
+        userMessage: "你能不能骚叫一下",
+      });
+
+      assert.equal(decision.intent, "sexual_invite");
+      assert.equal(decision.nextState.mode, "explicit");
+      assert.equal(decision.nextState.allowedExplicit, true);
+    });
+  });
+
+  it("keeps ambiguous stimulation asks as flirt without allowing explicit yet", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      const decision = advanceAdultSceneState(createAdultSceneState(), {
+        userMessage: "Remi，我最近想玩点刺激的……你敢不敢陪我？",
+      });
+
+      assert.equal(decision.intent, "flirt_tease");
+      assert.equal(decision.nextState.mode, "flirt");
+      assert.equal(decision.nextState.allowedExplicit, false);
+    });
+  });
+
   it("keeps explicit scenes alive on continuation and exits on boundaries or topic shifts", () => {
     withEnv({ REMI_ADULT_MODE: "1" }, () => {
       const entered = advanceAdultSceneState(createAdultSceneState(), {
@@ -105,6 +161,25 @@ describe("adult_mode", () => {
       assert.equal(cooled.mode, "none");
       assert.equal(cooled.allowedExplicit, false);
       assert.equal(cooled.cooldownOrBoundaryHit, true);
+    });
+  });
+
+  it("keeps explicit scenes alive on in-scene toy and body-fluid continuation", () => {
+    withEnv({ REMI_ADULT_MODE: "1" }, () => {
+      const entered = advanceAdultSceneState(createAdultSceneState(), {
+        userMessage: "把腿张开一点，告诉我你骚逼现在是什么感觉？",
+      }).nextState;
+      const continued = advanceAdultSceneState(entered, {
+        userMessage: "跳蛋已经塞进去了是吧？现在去阳台，描述你下面流成什么样了。",
+      });
+
+      assert.equal(entered.mode, "explicit");
+      assert.equal(entered.allowedExplicit, true);
+      assert.equal(continued.intent, "explicit_scene_continue");
+      assert.equal(continued.reason, "explicit_scene_continue");
+      assert.equal(continued.nextState.mode, "explicit");
+      assert.equal(continued.nextState.allowedExplicit, true);
+      assert.equal(continued.nextState.cooldownOrBoundaryHit, false);
     });
   });
 
