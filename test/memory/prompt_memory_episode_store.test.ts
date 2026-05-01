@@ -149,11 +149,11 @@ describe("prompt memory retrieval with episode store", () => {
       assert.deepEqual(memories, [
         {
           key: "长期关系主线",
-          value: "工作压力：工作：那次被误解之后，这条线一直拖着。",
+          value: "工作压力：那次被误解之后，这条线一直拖着。",
         },
         {
           key: "当前未完主线",
-          value: "睡眠：睡眠：最近这条线还没过去。",
+          value: "睡眠：最近这条线还没过去。",
         },
       ]);
     } finally {
@@ -271,7 +271,7 @@ describe("prompt memory retrieval with episode store", () => {
       assert.deepEqual(memories, [
         {
           key: "当前未完主线",
-          value: "睡眠：睡眠：昨晚又没睡好。",
+          value: "睡眠：昨晚又没睡好。",
         },
       ]);
       assert.deepEqual(referenced, ["episode-2"]);
@@ -341,7 +341,7 @@ describe("prompt memory retrieval with episode store", () => {
       assert.deepEqual(memories, [
         {
           key: "当前未完主线",
-          value: "钱和现实压力：游戏：上次你提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
+          value: "钱和现实压力：用户提到「我手里差不多有两年半积蓄，但还欠花呗两万五。」",
         },
       ]);
       assert.deepEqual(referenced, ["episode-2"]);
@@ -408,6 +408,114 @@ describe("prompt memory retrieval with episode store", () => {
           value: "你和 Remi 之间：你说我根本不会安慰人，也不想再重复解释点点那件事。",
         },
       ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps filler acknowledgements from promoting episode-store callbacks", async () => {
+    const referenced = [];
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode({
+              id: "episode-game",
+              title: "游戏",
+              summary: "游戏：上次你提到「带宠物联机小游戏的Codex开发执行稿」，我们在继续聊游戏。",
+              topics: ["游戏", "SDK"],
+              recurrence_count: 2,
+              relationship_weight: 0.64,
+              unresolved: false,
+              status: "cooling",
+            }),
+            score: 0.99,
+          },
+        ],
+        markReferenced: async (episodeId) => {
+          referenced.push(episodeId);
+        },
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      let diagnostics = null;
+      const memories = await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "OK OK 我知道了。",
+        slowBrainSnapshot: makeSnapshot({
+          relationship: {
+            familiarity: 0.8,
+            emotionalBond: 0.7,
+            turnCount: 32,
+            preferredTopics: ["游戏", "SDK"],
+          },
+        }),
+        maxEntries: 2,
+        diagnostics: (meta) => {
+          diagnostics = meta;
+        },
+      });
+      await Promise.resolve();
+
+      assert.deepEqual(memories, []);
+      assert.deepEqual(referenced, []);
+      assert.deepEqual(diagnostics, {
+        episodeRecallSource: "none",
+        episodeRecallIds: [],
+        episodeReferenceApplied: false,
+        episodeRecallFallback: false,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("sanitizes callback phrasing from prompt-facing episode summaries", async () => {
+    const { memoryAgent, restore } = loadMemoryAgent({
+      episodeStore: {
+        findRelevant: async () => [
+          {
+            episode: makeEpisode({
+              id: "episode-game",
+              title: "游戏",
+              summary: "游戏：上次你提到「带宠物联机小游戏的Codex开发执行稿」，我们在继续聊游戏。",
+              topics: ["游戏", "SDK"],
+              recurrence_count: 3,
+              relationship_weight: 0.82,
+              unresolved: false,
+              status: "cooling",
+            }),
+            score: 0.95,
+          },
+        ],
+        markReferenced: async () => {},
+      },
+    });
+
+    try {
+      const repo = new InMemoryRepository();
+      const memories = await memoryAgent.retrievePromptMemory(repo, {
+        userId: "user-1",
+        userMessage: "SDK 接入后还能正常回复吗？",
+        slowBrainSnapshot: makeSnapshot({
+          relationship: {
+            familiarity: 0.8,
+            emotionalBond: 0.7,
+            turnCount: 32,
+            preferredTopics: ["游戏", "SDK"],
+          },
+        }),
+        maxEntries: 1,
+      });
+
+      assert.equal(memories.length, 1);
+      assert.equal(memories[0].key, "长期关系主线");
+      assert.equal(memories[0].value.includes("上次"), false);
+      assert.equal(memories[0].value.includes("你之前"), false);
+      assert.equal(memories[0].value.includes("我们在继续聊"), false);
+      assert.ok(memories[0].value.includes("宠物联机小游戏"));
     } finally {
       restore();
     }

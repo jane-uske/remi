@@ -19,10 +19,15 @@ import {
   extractKeywords,
   getLongHorizonThreadCandidates,
   getSnapshotEpisodeCandidates,
+  hasDirectTextOverlap,
+  isExplicitMemoryRecallRequest,
+  isLightAcknowledgementTurn,
+  isVolatileMemoryKey,
   keywordOverlapScore,
   normalizeText,
   parseBooleanFlag,
   parsePositiveInt,
+  sanitizeMemoryEvidenceText,
 } from "./prompt_memory_support";
 
 const logger = createLogger("memory_agent");
@@ -100,8 +105,8 @@ const LIGHT_TOUCH_TURN_PATTERN =
 
 function isLightTouchTurn(userMessage: string): boolean {
   const trimmed = userMessage.trim();
-  if (!trimmed || trimmed.length > 12) return false;
-  return LIGHT_TOUCH_TURN_PATTERN.test(trimmed);
+  if (!trimmed) return false;
+  return isLightAcknowledgementTurn(trimmed) || (trimmed.length <= 12 && LIGHT_TOUCH_TURN_PATTERN.test(trimmed));
 }
 
 function hasNegationBeforeMatch(msg: string, matchIndex: number): boolean {
@@ -376,8 +381,21 @@ function mapEpisodeV3PromptTitle(
 
 function formatRecalledEpisodePromptValue(entry: RecalledEpisode): string {
   const title = entry.structuredTitle || entry.title;
-  const summary = entry.structuredSummary || entry.summary;
+  const summary = sanitizeMemoryEvidenceText(entry.structuredSummary || entry.summary, entry.title);
   return `${title}：${summary}`;
+}
+
+function shouldSuppressNarrativeRecall(userMessage: string): boolean {
+  return isLightTouchTurn(userMessage) && !isExplicitMemoryRecallRequest(userMessage);
+}
+
+function shouldKeepPromptMemoryEntry(
+  item: { entry: Memory; score: number; importance: number; lastAccessedAt: number; createdAt: number },
+  userMessage: string,
+): boolean {
+  if (!isVolatileMemoryKey(item.entry.key)) return true;
+  if (isExplicitMemoryRecallRequest(userMessage)) return true;
+  return hasDirectTextOverlap(item.entry.value, userMessage);
 }
 
 function selectEpisodeStoreEpisodes(
@@ -668,7 +686,7 @@ function buildEpisodePromptMemory(
     .slice(0, episodeLimit)
     .map((item, index) => ({
       key: index === 0 ? "最近共同经历" : `共同经历${index + 1}`,
-      value: item.entry.summary,
+      value: sanitizeMemoryEvidenceText(item.entry.summary, item.entry.topic),
     }));
 }
 
@@ -706,16 +724,18 @@ export async function retrievePromptMemory(
   const userText = normalizeText(options.userMessage);
   const userKeywords = extractKeywords(options.userMessage);
   const relationship = buildRelationshipTexts(options.slowBrainSnapshot);
-  const relevantCandidates = entries.map((item) => ({
-    ...item,
-    score: scoreMemoryEntry(
-      item.entry,
-      userText,
-      userKeywords,
-      normalizeText(relationship.combinedText),
-      relationship.keywords,
-    ),
-  }));
+  const relevantCandidates = entries
+    .map((item) => ({
+      ...item,
+      score: scoreMemoryEntry(
+        item.entry,
+        userText,
+        userKeywords,
+        normalizeText(relationship.combinedText),
+        relationship.keywords,
+      ),
+    }))
+    .filter((item) => shouldKeepPromptMemoryEntry(item, options.userMessage));
 
   const coreFacts = relevantCandidates
     .filter(({ entry }) => CORE_FACT_KEYS.has(entry.key))
@@ -728,7 +748,7 @@ export async function retrievePromptMemory(
   }
 
   const suppressNarrativeMemory =
-    Boolean(options.slowBrainSnapshot) && isLightTouchTurn(options.userMessage);
+    Boolean(options.slowBrainSnapshot) && shouldSuppressNarrativeRecall(options.userMessage);
   if (suppressNarrativeMemory) {
     logger.debug("prompt memory kept compact for light-touch turn", {
       userMessage: options.userMessage,

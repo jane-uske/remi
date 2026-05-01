@@ -56,6 +56,9 @@
     - 口型、音频、表情、turn state 不互相打架
     - 打断时不出现明显错位
   - 已有基础：4.19 已接通 `tts_lip_sync`、lip timeline、`MicTxGate`
+  - 新增 SDK 接入：`useRemiChat` 的 WebSocket 创建、`client_context`、原始消息镜像、runtime reducer、`sendText`、语音协议出口（duplex start/stop、audio frame/fallback、playback start/end）已通过 `runtime/RemiRuntimeClient` 进入 SDK 边界；Web 仍保留 UI、麦克风采集、音频播放、口型、history 和 avatar 执行
+  - 新增 World SDK bridge：`world/src/remiWorldBridge.ts` 复用 `RemiRuntimeClient`，提供 World client_context、runtime state mirror、`sendText`、WorldEvent -> RemiWorldEvent 转换；`world_event` 默认不发后端，等待专用 server route
+  - 5.1 新增 `/vrm` 真实链路验证页与 SDK avatar projection：`runtime/selectRemiAvatarRuntimeModel()` 统一输出 emotion / avatarIntent / avatarFrame / lipSync / phase；真实浏览器已验证 LLM intent、TTS cue 与 playback 收口能进入同一个 SDK model，Web `/vrm` 与 World bridge 可共用；这仍是验证入口，不等于完整 3D 表演成熟
   - 验收标准：从视觉和听感上，角色状态已经明显比当前更像“有人在”
 
 - [ ] **W-PRES-04** 10 分钟体验压测

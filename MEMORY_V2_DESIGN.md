@@ -4,7 +4,7 @@
 >
 > 前置状态：Memory V1 已完成（per-user relationship state 持久化、episode 分层召回、proactive ledger、关系风格槽位）。
 >
-> **当前状态说明（2026-04-18）**：Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本写路径都已完成单路径验收。当前阶段不再是“准备切读路径”，而是“保留 fallback 的前提下做质量观察、前端 spot-check 和运行时治理补强”。
+> **当前状态说明（2026-05-01）**：Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实 WS 文本写路径都已完成单路径验收。当前阶段不再是“准备切读路径”，而是“保留 fallback 的前提下做质量观察、前端 spot-check 和运行时治理补强”。
 >
 > **当前落地约束（更新）**：
 > - Postgres + pgvector 仍然是 V2 的目标运行前提。
@@ -14,6 +14,8 @@
 > - 当前应把 Memory V2 理解成“热层的一部分 + 温层主链路”，而不是“整个记忆架构已经成熟完成”；冷层 archive / replay / offline 治理仍未成型。
 > - `episodes.status='archived'` 现已开始承担最小存量治理语义：被归档的历史脏 episode 默认不再参与相似 episode 搜索与 prompt recall，但数据仍保留，便于后续人工复核或规则回滚。
 > - 当前质量补强的主方向不是继续往 runtime 里补 case-specific 规则；坏样本应优先进 eval / replay / acceptance，runtime 只保少量硬边界。
+> - 2026-05-01 补充：prompt-facing 记忆召回必须经过表达门控。普通短确认、新话题、明确换话题、严肃压力场景不应被 episode callback 打断；`当前状态 / 当前诉求 / 当前行为` 等 volatile fact 只在直接相关或用户显式问起时进入 prompt。
+> - 2026-05-01 补充：旧 episode summary 中类似“上次你提到 / 你之前 / 我们在继续聊”的 wording 不作为回复开场素材暴露给模型；当前采用读时 sanitizer 兜底，不做历史数据 backfill。
 > - 这份文档描述的是 Memory V2 的目标设计与当前迁移现实，不再等同于“一步切完、不留旧路径”的执行说明。
 
 ---
@@ -143,6 +145,15 @@ flowchart LR
   - 预期：OpenAI `text-embedding-3-small` 约 30-80ms，本地 nomic-embed-text ~20ms
   - 若延迟不可接受，**退路**：先发 LLM 再并行 embed+召回，下一轮注入（接受一轮滞后）
 - **关系权重排序不是纯 cosine**：`score = 0.6 * cosine + 0.2 * salience + 0.1 * recency + 0.1 * unresolved_boost`
+- **表达门控先于显性召回**：
+  - `OK / 好 / 知道了 / 嗯` 这类低信号确认句不触发 narrative episode recall。
+  - 直接技术问题、当前新话题、用户明确说“别转移话题”时，记忆只能作为背景，不应变成“对了 / 你之前 / 上次”式新问题。
+  - `当前状态 / 当前诉求 / 当前行为` 等 volatile fact 默认视为短期上下文；除非当前输入直接命中或用户显式问记忆，否则不注入 prompt。
+  - 显式 recall 仍然允许，例如“我们之前聊了什么”“你还记得点点现在谁在照顾吗”。
+- **prompt-facing summary 必须中性化**：
+  - `episodes.summary` / `sharedMoment.summary` 可保留历史原文，但进入 prompt 前要移除 callback 式 wording。
+  - 示例：`上次你提到「...」，我们在继续聊X。` 在 prompt 中应变成 `用户围绕X提到「...」。`
+  - 这只是表达层 sanitizer，不等同于修复 episode 聚类质量；聚类、噪声和过期事实仍需要 observation / replay / hygiene 继续治理。
 
 ### 4.3 主动开口决策（新增 proactive_planner）
 
