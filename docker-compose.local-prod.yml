@@ -1,5 +1,6 @@
 services:
   app:
+    image: remi-ai-app
     build:
       context: .
       args:
@@ -58,4 +59,8 @@ services:
 
 volumes:
   rem_local_prod_pgdata:
+    name: ${REMI_LOCAL_PROD_PG_VOLUME:-remi-ai_rem_local_prod_pgdata}
+    external: true
   rem_local_prod_redisdata:
+    name: ${REMI_LOCAL_PROD_REDIS_VOLUME:-remi-ai_rem_local_prod_redisdata}
+    external: true

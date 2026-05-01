@@ -20,6 +20,7 @@ COPY avatar/ ./avatar/
 COPY storage/ ./storage/
 COPY infra/ ./infra/
 COPY persona/ ./persona/
+COPY runtime/ ./runtime/
 RUN npx tsc
 
 # Stage 2: Build frontend
@@ -46,6 +47,7 @@ COPY web/package.json ./web/package.json
 RUN npm ci
 COPY web/ ./web/
 COPY avatar/ ./avatar/
+COPY runtime/ ./runtime/
 RUN npm run build --prefix web
 
 # Stage 3: Production
@@ -54,6 +56,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY web/package.json ./web/package.json
 RUN npm ci --omit=dev
+RUN apk add --no-cache ffmpeg
 COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/web/.next ./web/.next
 COPY --from=frontend-build /app/web/package.json ./web/package.json

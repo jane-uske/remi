@@ -5,6 +5,7 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
 ENV_FILE=$(node ./scripts/env_files.cjs dev)
+COMPOSE_PROJECT=$(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveComposeProjectName } = require('./scripts/env_files.cjs'); process.stdout.write(resolveComposeProjectName('dev'));" "$ENV_FILE")
 DEV_PORT=$(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveDevPort } = require('./scripts/env_files.cjs'); process.stdout.write(String(resolveDevPort(process.env)));" "$ENV_FILE")
 
 PROFILE_ARGS=""
@@ -37,7 +38,13 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-REMI_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f docker-compose.dev.yml $PROFILE_ARGS up -d $SERVICES
+for volume in $(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveDevVolumeNames } = require('./scripts/env_files.cjs'); process.stdout.write(resolveDevVolumeNames().join('\n'));" "$ENV_FILE"); do
+  if ! docker volume inspect "$volume" >/dev/null 2>&1; then
+    docker volume create "$volume" >/dev/null
+  fi
+done
+
+REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.dev.yml $PROFILE_ARGS up -d $SERVICES
 
 echo "Remote dev services started."
 echo "Storage:     postgres=127.0.0.1:5432 redis=127.0.0.1:6379"

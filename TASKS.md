@@ -36,6 +36,9 @@
 - [ ] **W-PRES-01** 默认人格稳定
   - 目标：先把“同一个默认人格”做稳，而不是继续扩 persona preset 数量
   - 当前重点：收口口气、亲近方式、边界感、追问方式、安慰方式
+  - 4.29 修正：收紧记忆 callback 触发边界，避免普通新话题里反复用“对了 / 你之前 / 上次你说”式开场硬拉旧记忆；仍保留睡眠/压力等真实相关未完线的自然承接
+  - 4.30 修正：记忆召回改为先过表达门控；低信号确认句不再触发 episode recall，prompt-facing episode/shared moment 文案去除“上次你提到”式话术，`当前状态/当前诉求/当前行为` 等 volatile 记忆只在直接相关或显式 recall 时进入 prompt
+  - 修复后手测清单：见 [docs/MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md](docs/MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md)，重点验收记忆显性化、话题边界、过期 current state、严肃场景不被轻松 callback 打断
   - 当前不做：大而全 persona presets 扩展、free-form persona authoring、额外风格玩法
   - 验收标准：轻松闲聊 / 睡前陪聊 / 普通碎聊时，不再频繁出现“像客服 / 像老师 / 像另一个系统”的漂移
 
@@ -46,6 +49,7 @@
     - 情绪误判
     - 场景切换失败
     - 严肃时刻轻浮
+    - 交付物请求必须直接在当前聊天输出正文，不能编造附件、压缩包、收件框或“已发送”
   - 当前边界：优先通过 `TurnInterpretation -> ResponsePolicy`、`tone contract`、默认人格提示和坏样本回归收口
   - 验收标准：用户从轻松聊切到现实压力、财务压力、自责、委屈时，Remi 明显更稳，不再轻飘飘错位
 
@@ -56,6 +60,7 @@
     - 口型、音频、表情、turn state 不互相打架
     - 打断时不出现明显错位
   - 已有基础：4.19 已接通 `tts_lip_sync`、lip timeline、`MicTxGate`
+  - 4.29 试改：`MicTxGate` 增加稳定环境噪声自适应底噪门控，服务端 no-preview idle guard 加严；已过单测/duplex 回归，仍需真实浏览器噪声场景验收
   - 新增 SDK 接入：`useRemiChat` 的 WebSocket 创建、`client_context`、原始消息镜像、runtime reducer、`sendText`、语音协议出口（duplex start/stop、audio frame/fallback、playback start/end）已通过 `runtime/RemiRuntimeClient` 进入 SDK 边界；Web 仍保留 UI、麦克风采集、音频播放、口型、history 和 avatar 执行
   - 新增 World SDK bridge：`world/src/remiWorldBridge.ts` 复用 `RemiRuntimeClient`，提供 World client_context、runtime state mirror、`sendText`、WorldEvent -> RemiWorldEvent 转换；`world_event` 默认不发后端，等待专用 server route
   - 5.1 新增 `/vrm` 真实链路验证页与 SDK avatar projection：`runtime/selectRemiAvatarRuntimeModel()` 统一输出 emotion / avatarIntent / avatarFrame / lipSync / phase；真实浏览器已验证 LLM intent、TTS cue 与 playback 收口能进入同一个 SDK model，Web `/vrm` 与 World bridge 可共用；这仍是验证入口，不等于完整 3D 表演成熟
