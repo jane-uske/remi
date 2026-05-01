@@ -18,6 +18,7 @@ import {
   savePersistentRelationshipState,
 } from "../memory/relationship_state";
 import { momentToEpisodeV3View, toEpisodeV3View } from "../memory/episode_v3";
+import { isLightAcknowledgementTurn } from "../memory/prompt_memory_support";
 import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./slow_brain_store";
@@ -29,8 +30,8 @@ const LIGHT_TOUCH_TURN_PATTERN =
 
 function isLightTouchTurn(userMessage: string): boolean {
   const trimmed = userMessage.trim();
-  if (!trimmed || trimmed.length > 12) return false;
-  return LIGHT_TOUCH_TURN_PATTERN.test(trimmed);
+  if (!trimmed) return false;
+  return isLightAcknowledgementTurn(trimmed) || (trimmed.length <= 12 && LIGHT_TOUCH_TURN_PATTERN.test(trimmed));
 }
 
 function clamp01(value: number): number {
@@ -355,6 +356,7 @@ async function maybeRecordSharedMoment(
   const trimmedUser = userMessage.trim();
   const trimmedReply = assistantReply.trim();
   if (!trimmedUser || !trimmedReply) return null;
+  if (isLightAcknowledgementTurn(trimmedUser)) return null;
   if (trimmedUser.length < 8) return null;
   if (/^(继续说|继续刚才|刚才说到哪|接着说|然后呢|嗯|哦|好吧)$/i.test(trimmedUser)) {
     return null;
@@ -561,9 +563,9 @@ function estimateSharedMomentSalience(
 function buildSharedMomentSummary(userMessage: string, topic: string): string {
   const clipped = clipText(userMessage, 38);
   if (topic) {
-    return `上次你提到「${clipped}」，我们在继续聊${topic}。`;
+    return `${topic}：用户围绕这个主题提到「${clipped}」。`;
   }
-  return `上次你提到「${clipped}」，我们顺着那个话题聊了下去。`;
+  return `用户提到「${clipped}」。`;
 }
 
 function buildSharedMomentHook(
@@ -577,8 +579,8 @@ function buildSharedMomentHook(
     return entry.includes(topic) || userMessage.includes(topic);
   });
   if (relevant) return relevant;
-  if (topic) return `上次聊到的${topic}，后来怎么样了？`;
-  return snapshot.proactiveTopics[0] ?? "上次那个情况，后来有新进展吗？";
+  if (topic) return `${topic}这条线后来怎么样了？`;
+  return snapshot.proactiveTopics[0] ?? "那条未完情况后来有新进展吗？";
 }
 
 function clipText(text: string, maxChars: number): string {

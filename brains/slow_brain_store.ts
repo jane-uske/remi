@@ -2,6 +2,7 @@
 // 每条 WebSocket 连接独立一份（C1）。
 
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
+import { sanitizeMemoryEvidenceText } from "../memory/prompt_memory_support";
 import { detectAnswerNowSignal, detectDecisionSeekingSignal } from "../brain/tone_policy";
 import {
   buildPolicyToneContract,
@@ -1097,7 +1098,7 @@ export class SlowBrainStore {
 
     if (this.proactiveTopics.length > 0) {
       sections.push(
-        `【可以主动聊的话题】${this.proactiveTopics.join("、")}（在合适时机自然提起）`,
+        `【可以主动聊的话题】${this.proactiveTopics.join("、")}（只在用户话少、主动问起或当前话题相关时自然承接，不要突然翻旧账）`,
       );
     }
 
@@ -1287,7 +1288,7 @@ export class SlowBrainStore {
     );
     if (filteredProactiveTopics.length > 0 && familiarity > 0.35 && !suppressProactive) {
       lines.push(
-        `若用户话少或冷场，可从这些方向自然接话：${filteredProactiveTopics.slice(0, 2).join("、")}。`,
+        `若用户话少、主动问起或话题相关，可从这些方向自然接话：${filteredProactiveTopics.slice(0, 2).join("、")}；不要在新话题里突然翻旧账。`,
       );
     }
 
@@ -1297,7 +1298,7 @@ export class SlowBrainStore {
           silenceNudge: false,
         });
     if (proactiveCandidate) {
-      lines.push(`【主动提起候选】如果这轮适合自然续聊，可轻轻接回：${proactiveCandidate.text}`);
+      lines.push(`【主动提起候选】仅当本轮和它相关或明显冷场时，才轻轻接回：${sanitizeMemoryEvidenceText(proactiveCandidate.text)}；不要用“对了/你之前/上次你说”开场。`);
     }
 
     const sharedMomentCandidate = suppressProactive
@@ -1306,7 +1307,7 @@ export class SlowBrainStore {
           silenceNudge: false,
         });
     if (sharedMomentCandidate) {
-      lines.push(`【共同经历提醒】若用户提到相关线索，可自然承接：${sharedMomentCandidate}`);
+      lines.push(`【共同经历提醒】若用户提到相关线索，可自然承接：${sanitizeMemoryEvidenceText(sharedMomentCandidate)}；不要无关时主动翻出来。`);
     }
 
     return {
@@ -1745,9 +1746,9 @@ export class SlowBrainStore {
     });
     const topicHint =
       sharedMomentCandidate
-        ? `如果自然，就轻轻接一下你们上次聊过的这件事：${sharedMomentCandidate}。`
+        ? `如果自然，就轻轻接一下这条曾经聊过、现在仍适合回访的线：${sanitizeMemoryEvidenceText(sharedMomentCandidate)}。`
         : proactiveCandidate
-          ? `如果自然，就从这个方向接话：${proactiveCandidate.text}。`
+          ? `如果自然，就从这个方向接话：${sanitizeMemoryEvidenceText(proactiveCandidate.text)}。`
           : snap.proactiveTopics.length > 0
             ? `可以参考的轻松方向：${snap.proactiveTopics.slice(0, 3).join("、")}。`
             : "不必硬找话题，一句问候或分享小事也可以。";

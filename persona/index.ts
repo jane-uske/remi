@@ -483,8 +483,8 @@ function proactiveIntentGuidance(
       return "【本轮追问】顺着情绪、计划或困难轻问一句，别刻意。";
     case "callback":
       return topicPull
-        ? `【本轮回钩】自然带起「${topicPull}」，像随口想起。`
-        : "【本轮回钩】轻轻提起之前没说完的话题。";
+        ? `【本轮承接】只有当对方当前这句话和「${topicPull}」有关，才把它当作已经在聊的线自然接住；不要用“对了”“说起来”“你之前”“上次你说”这种固定开场，也不要突然翻旧账。`
+        : "【本轮承接】只有当对方明显在续接未完话题时，才贴着当下自然接住；不要主动另起旧话题。";
     case "preference":
       return "【本轮偏好】可以带一点你自己的倾向或看法。";
     default:
@@ -593,7 +593,9 @@ export function buildPersonaPrompt(
 
   // 7. 用户信息
   if (options.memoryStr) {
-    sections.push(`用户信息：\n${options.memoryStr}`);
+    sections.push(
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说“我记得/你之前/上次”，也不要用它另起旧话题。\n${options.memoryStr}`,
+    );
   }
 
   return sections.join("\n\n");

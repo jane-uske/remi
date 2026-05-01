@@ -11,6 +11,7 @@ import {
   detectDecisionSeekingSignal,
 } from "../brain/tone_policy";
 import type { TurnAnalysisBundle } from "../brain/turn_interpreter";
+import { sanitizeMemoryEvidenceText } from "../memory/prompt_memory_support";
 import {
   deriveTopicSignalsFromSharedMoments,
   extractKeywords,
@@ -151,6 +152,8 @@ export function pickProactiveCue(
         return {
           ...candidate,
           isCoolingDown: true,
+          textScore: 0,
+          affectAnchor: false,
           score: -100,
         };
       }
@@ -173,11 +176,14 @@ export function pickProactiveCue(
         (sum, keyword) => sum + (messageKeywords.has(keyword) ? 1 : 0),
         0,
       );
+      const affectAnchor = candidate.unresolved && hasNegativeMoodCue(snap, message);
       return {
         ...candidate,
         isCoolingDown:
           candidate.text === snap.continuityCueState.lastProactiveHook &&
           snap.relationship.turnCount - snap.continuityCueState.lastProactiveTurn < cooldownTurns,
+        textScore,
+        affectAnchor,
         score: relationBoost + textScore,
       };
     })
@@ -192,11 +198,14 @@ export function pickProactiveCue(
     return null;
   }
 
-  if (ranked[0]?.score > 0) {
+  if (
+    ranked[0]?.score > 0 &&
+    (options.silenceNudge || ranked[0].textScore > 0 || ranked[0].affectAnchor)
+  ) {
     return { key: ranked[0].key, text: ranked[0].text };
   }
 
-  return options.silenceNudge || message.length <= 12
+  return options.silenceNudge || isLowSignalTurn(message)
     ? ranked[0]
       ? { key: ranked[0].key, text: ranked[0].text }
       : null
@@ -218,11 +227,13 @@ export function pickSharedMomentCue(
     .filter((entry) => !topicViolatesBoundary(`${entry.summary} ${entry.topic} ${entry.hook}`, snap))
     .map((entry) => {
       const text = `${entry.summary} ${entry.topic} ${entry.hook}`.trim();
+      const textScore = extractKeywords(text).reduce(
+        (sum, keyword) => sum + (messageKeywords.has(keyword) ? 1 : 0),
+        0,
+      );
+      const affectAnchor = entry.unresolved && hasNegativeMoodCue(snap, userMessage);
       const score =
-        extractKeywords(text).reduce(
-          (sum, keyword) => sum + (messageKeywords.has(keyword) ? 1 : 0),
-          0,
-        ) +
+        textScore +
         Math.round((entry.salience ?? 0.35) * 5) +
         Math.min(4, entry.recurrenceCount ?? 1) +
         (entry.unresolved ? 4 : 0) +
@@ -230,6 +241,8 @@ export function pickSharedMomentCue(
         (entry.lastReferencedAt > 0 ? 2 : 0);
       return {
         entry,
+        textScore,
+        affectAnchor,
         score,
         isCoolingDown:
           entry.summary === snap.continuityCueState.lastSharedMomentSummary &&
@@ -246,11 +259,15 @@ export function pickSharedMomentCue(
     return null;
   }
 
-  if (moments[0]?.score && moments[0].score > 0) {
+  if (
+    moments[0]?.score &&
+    moments[0].score > 0 &&
+    (options.silenceNudge || moments[0].textScore > 0 || moments[0].affectAnchor)
+  ) {
     return moments[0].entry.summary;
   }
 
-  return options.silenceNudge || userMessage.trim().length <= 10
+  return options.silenceNudge || isContinuationLike(userMessage.trim()) || isLowSignalTurn(userMessage)
     ? moments[0]?.entry.summary ?? null
     : null;
 }
@@ -272,7 +289,7 @@ export function buildRealtimeContinuityHint(
 
   const sharedMoment = pickSharedMomentCue(snap, trimmed, { silenceNudge: false });
   if (sharedMoment) {
-    return `【实时连续性】如果对方是在接上文，优先顺着这段共同经历接回：${sharedMoment}`;
+    return `【实时连续性】如果对方是在接上文，优先顺着这段共同经历接回：${formatMemoryCueForPrompt(sharedMoment)}`;
   }
 
   const activeSignal = getCurrentOpenTopicSignal(snap);
@@ -505,7 +522,7 @@ export function buildProactiveToneDirective(
   }
   if (mode === "follow_up") {
     return stage === "亲密稳定期"
-      ? "这次主动开口可以像熟人间轻轻续上次那条线，别太正式；"
+      ? "这次主动开口可以像熟人间轻轻续那条线，别太正式；"
       : "这次主动开口更像自然 follow-up，温柔提一下近况，不要连续追问；";
   }
   return "这次主动开口更像一句轻轻在场的问候，不要一下子问深；";
@@ -706,7 +723,7 @@ function buildEpisodeRecallHook(entry: Episode): string {
     return `前阵子一直牵着你的这条线，最近有变一点吗？`;
   }
   if (entry.status === "active") {
-    return `上次那件还没完全过去的事，这两天有缓一点吗？`;
+    return `那件还没完全过去的事，这两天有缓一点吗？`;
   }
   if (entry.layer === "core") {
     return `${entry.title}这条线最近有新变化吗？`;
@@ -760,15 +777,15 @@ function isLedgerCandidateEligible(
 function buildEpisodeFollowUpHook(entry: SharedMoment): string {
   if (entry.hook) return entry.hook;
   if (entry.kind === "joy") {
-    return entry.topic ? `上次聊到的${entry.topic}，后来有延续下去吗？` : "上次那个让你开心的事，后来还有后续吗？";
+    return entry.topic ? `${entry.topic}那件让你开心的事，后来有延续下去吗？` : "那件让你开心的事，后来还有后续吗？";
   }
   if (entry.kind === "goal") {
-    return entry.topic ? `上次你想推进的${entry.topic}，后来有动一点吗？` : "上次你说想做的那件事，后来有往前走一点吗？";
+    return entry.topic ? `${entry.topic}这件你想推进的事，后来有动一点吗？` : "你想做的那件事，后来有往前走一点吗？";
   }
   if (entry.unresolved || entry.kind === "support" || entry.kind === "stress") {
-    return entry.topic ? `上次聊到的${entry.topic}，后来有缓一点吗？` : "上次那个让你挂心的事，后来有缓一点吗？";
+    return entry.topic ? `${entry.topic}这件让你挂心的事，后来有缓一点吗？` : "那件让你挂心的事，后来有缓一点吗？";
   }
-  return entry.topic ? `上次聊到的${entry.topic}，后来怎么样了？` : "上次那个情况，后来怎么样了？";
+  return entry.topic ? `${entry.topic}这条线后来怎么样了？` : "那个情况后来怎么样了？";
 }
 
 function buildSharedMomentLedgerKey(entry: SharedMoment): string {
@@ -810,7 +827,11 @@ function buildTopicThreadFollowUpHook(thread: TopicThread): string {
   if ((thread.episodeCount ?? 1) >= 3 || thread.recurrenceCount >= 3) {
     return `最近我们一直会聊到${thread.topic}，这条线最近有什么新变化吗？`;
   }
-  return `前阵子聊到的${thread.topic}，后来怎么样了？`;
+  return `${thread.topic}这条线后来怎么样了？`;
+}
+
+function formatMemoryCueForPrompt(summary: string): string {
+  return sanitizeMemoryEvidenceText(summary);
 }
 
 function shouldSuppressFreshContinuityReuse(
@@ -852,13 +873,13 @@ function isQuestionLike(text: string): boolean {
 function isLowSignalTurn(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
-  if (trimmed.length <= 10) return true;
-  return /^(嗯|哦|啊|欸|诶|是啊|对啊|然后呢|继续|还有吗|我在想)/u.test(trimmed);
+  if (trimmed.length <= 2) return true;
+  return /^(嗯+|哦+|啊+|欸+|诶+|是啊|对啊|好吧|还行|不知道|没事|随便聊聊|然后呢|继续|还有吗|我在想)$/u.test(trimmed);
 }
 
 function hasNegativeMoodCue(snap: SlowBrainSnapshot, text: string): boolean {
   const current = `${text}${snap.moodTrajectory.slice(-3).map((entry) => entry.mood).join("")}`;
-  return /烦|累|难过|委屈|焦虑|崩溃|失眠|睡不着|想哭|低落/u.test(current);
+  return /烦|累|难过|委屈|焦虑|崩溃|失眠|睡不着|没睡好|睡不好|想哭|低落/u.test(current);
 }
 
 function shouldOfferProactiveCue(snap: SlowBrainSnapshot, userMessage: string): boolean {
@@ -872,14 +893,14 @@ function shouldOfferProactiveCue(snap: SlowBrainSnapshot, userMessage: string): 
   if (
     topicSignals.some((entry) =>
       entry.unresolvedCount > 0 &&
-      (entry.salience >= 0.7 || extractKeywords(text).some((keyword) => entry.summary.includes(keyword))),
+      extractKeywords(text).some((keyword) => entry.summary.includes(keyword) || entry.topic.includes(keyword)),
     )
   ) {
     return true;
   }
   if (hasNegativeMoodCue(snap, text) && text.length <= 28) return true;
   if (isQuestionLike(text) && text.length > 8) return false;
-  return text.length <= 16;
+  return isLowSignalTurn(text) && snap.relationship.familiarity > 0.55;
 }
 
 function shouldOfferSharedMomentCue(snap: SlowBrainSnapshot, userMessage: string): boolean {

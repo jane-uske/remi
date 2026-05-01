@@ -215,7 +215,9 @@ function buildSystemPrompt(
       .slice(0, maxMemoryEntries)
       .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
       .join("\n");
-    sections.push(`用户信息：\n${memoryLines}`);
+    sections.push(
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说“我记得/你之前/上次”，也不要用它另起旧话题。\n${memoryLines}`,
+    );
   }
 
   return sections.join("\n\n");

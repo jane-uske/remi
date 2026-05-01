@@ -106,6 +106,57 @@ describe("prompt memory retrieval", () => {
     assert.deepEqual(memories.map((entry) => entry.key), ["名字", "城市", "收藏歌手"]);
   });
 
+  it("keeps stale current-state memories out of unrelated ordinary turns", async () => {
+    const repo = await seedRepo([
+      {
+        key: "当前行为",
+        value: "咨询 Codex SDK 接入相关问题",
+        importance: 1,
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+        lastAccessedAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+      },
+      {
+        key: "当前诉求",
+        value: "确认 Codex 开发执行稿的存放位置",
+        importance: 1,
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
+        lastAccessedAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
+      },
+      {
+        key: "正在推进的项目",
+        value: "带宠物联机小游戏开发",
+        importance: 1,
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+        lastAccessedAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+      },
+    ]);
+
+    const memories = await retrievePromptMemory(repo, {
+      userMessage: "我刚起床，今天先不弄项目。",
+      slowBrainSnapshot: {
+        userProfile: {
+          facts: new Map(),
+          interests: [],
+          personalityNotes: [],
+        },
+        relationship: {
+          familiarity: 0.8,
+          emotionalBond: 0.72,
+          turnCount: 32,
+          preferredTopics: ["游戏", "SDK"],
+        },
+        topicHistory: [],
+        moodTrajectory: [],
+        conversationSummary: "最近聊过宠物联机小游戏和 SDK 接入。",
+        proactiveTopics: [],
+        sharedMoments: [],
+      },
+      maxEntries: 3,
+    });
+
+    assert.deepEqual(memories, []);
+  });
+
   it("can explicitly recall one core episode and one active episode from the structured layer", async () => {
     const recalled = await recallEpisodes(
       {
@@ -315,7 +366,7 @@ describe("prompt memory retrieval", () => {
     assert.deepEqual(memories, [
       {
         key: "最近共同经历",
-        value: "上次你提到失眠反复醒来，我们还聊到睡前散步会不会好一点。",
+        value: "用户提到失眠反复醒来，我们还聊到睡前散步会不会好一点。",
       },
     ]);
   });
@@ -378,7 +429,7 @@ describe("prompt memory retrieval", () => {
     assert.deepEqual(memories, [
       {
         key: "最近共同经历",
-        value: "上次你提到和同事起冲突后一直很委屈，我们还聊到你其实更在意被误解。",
+        value: "用户提到和同事起冲突后一直很委屈，我们还聊到你其实更在意被误解。",
       },
     ]);
   });
