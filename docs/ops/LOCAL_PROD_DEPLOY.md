@@ -31,6 +31,8 @@
 
 `REMI_AUTH_MODE=disabled` 不应作为这套“本机生产化”基线使用；它只适合本机开发直连。
 
+生产镜像会内置 `ffmpeg`，用于 Edge TTS 流式音频解码；宿主机不需要单独安装。
+
 ## 3. Start / stop
 
 ```bash
@@ -52,6 +54,11 @@ npm run prod:local:stop
 
 服务编排文件：`docker-compose.local-prod.yml`
 
+Compose 隔离：
+- local-prod 脚本固定使用 compose project：`remi-ai-local-prod`
+- dev stack 脚本固定使用 compose project：`remi-ai-dev`
+- 这样 app / postgres / redis 不会因为默认 project name 相同而互相复用容器
+
 端口职责：
 - `localhost:3000`：local-prod / tunnel 入口
 - `localhost:3001`：本地开发入口（`npm run dev`）
@@ -69,8 +76,10 @@ npm run prod:local:stop
 - `__rem_relationship_state_v1`：关系状态连续性
 
 只要不删 Docker volume，数据会一直保留：
-- `rem_local_prod_pgdata`
-- `rem_local_prod_redisdata`
+- `remi-ai_rem_local_prod_pgdata`
+- `remi-ai_rem_local_prod_redisdata`
+
+注意：compose 文件里的逻辑卷名仍是 `rem_local_prod_pgdata` / `rem_local_prod_redisdata`，但物理 Docker volume 名已显式固定为上面的 `remi-ai_*` 名称，用来避免 compose project 隔离后误切到空新卷。
 
 ## 5. Capacity reality for 2-3 users
 
