@@ -107,6 +107,15 @@ const FOLLOWUP_TRIGGERS = [
   "最近", "一直", "好久", "每天", "今天",
 ];
 
+function isCallbackOpeningTurn(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/^(嗯+|哦+|啊+|欸+|诶+|好吧|还行|不知道|没事|随便聊聊|继续|然后呢|还有吗|你说)[。！？!?~～\s]*$/u.test(trimmed)) {
+    return true;
+  }
+  return /(?:刚才|刚刚|上次|之前|那个|那件事|这件事|后来|最近|还).{0,10}(?:呢|怎么样|咋样|怎么说|继续)?[。！？!?~～\s]*$/u.test(trimmed);
+}
+
 function deriveProactiveIntent(
   userMessage: string,
   topicPull: string,
@@ -144,10 +153,10 @@ function deriveProactiveIntent(
     return "followup";
   }
 
-  // 回钩：有未完话题牵引，且距上次提起超过 3 轮
+  // 回钩：只在用户话少、主动续接，或明显把话留给 Remi 时触发。
   if (topicPull) {
     const lastProactive = snapshot.continuityCueState?.lastProactiveTurn ?? -100;
-    if (turnCount - lastProactive >= 3) {
+    if (turnCount - lastProactive >= 6 && isCallbackOpeningTurn(msg)) {
       return "callback";
     }
   }

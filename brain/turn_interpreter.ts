@@ -49,6 +49,7 @@ export type StructuredAnalysisSource = "llm_structured" | "heuristic_fallback";
 export type StructuredInterpreterMode = "off" | "shadow" | "on";
 export type TurnSceneType =
   | "light_chat"
+  | "deliverable_request"
   | "relational_recall"
   | "practical_judgment"
   | "high_risk_distress";
@@ -98,6 +99,7 @@ export interface ResponsePolicy {
     | "no_topic_pivot"
     | "no_speculative_memory"
     | "no_shallow_reassurance"
+    | "no_external_delivery_claim"
   >;
 }
 
@@ -195,6 +197,7 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 判定规则：
 - 用户在要判断、建议、明确意见时，userAct=decision_seek，answerObligation 至少是 must_answer。
 - 用户在催你别老问、要求你直接说时，userAct=answer_now，必须直接回答。
+- 用户要求你生成、整理、设计、写出或补发交付物（执行稿、方案、设计稿、文档、代码、脚本、清单、总结、报告等）时，userAct=answer_now，answerObligation=must_answer，responseMode=answer_first，followupPermission=none；必须在当前聊天直接输出正文，不能声称已发送到附件、压缩包、收件框或其他外部位置。
 - 用户补充现实约束、背景、资源、风险、机会、时间线，并且这些信息会改变判断时，userAct=context_update，topicUpdate.kind=constraint_update。
 - 用户已经把你们放进同一个画面或动作里时，userAct=scene_continue，responseMode=stay_in_scene。
 - adultIntent 只描述成人场景信号，不等于一定放行 explicit。普通闲聊不要标成 sexual_invite。
@@ -353,6 +356,35 @@ function detectStyleIntentLike(text: string): boolean {
   );
 }
 
+function detectDeliverableRequest(text: string, history: PromptMessage[]): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  const deliverableNoun =
+    /(?:codex)?(?:开发)?执行稿|方案|设计稿|文档|计划书|计划|prompt|提示词|代码|脚本|清单|总结|报告|大纲|PRD|需求文档|流程图/iu;
+  const createOrShowVerb =
+    /生成|写|设计|整理|做|输出|列|给我|发我|发一下|发过来|贴出来|给我看|看看|怎么设计|来设计/iu;
+  const deliveryAsk =
+    /发我|发一下|发过来|给我看|贴出来|直接(?:放|贴|发|写|输出).*(?:聊天|这里|当前)|放在聊天|聊天记录|在哪里|在哪|没看到|没发/iu;
+  const fakeExternalDelivery =
+    /(?:已|已经).{0,12}(?:发|发送|放|上传|整理好|调整好)|附件|压缩包|收件框|最后一页|打开翻到/iu;
+
+  if (deliverableNoun.test(trimmed) && createOrShowVerb.test(trimmed)) {
+    return true;
+  }
+
+  const recent = history
+    .slice(-6)
+    .map((entry) => entry.content)
+    .join(" ");
+  if (!recent) return false;
+
+  return (
+    deliveryAsk.test(trimmed) &&
+    (deliverableNoun.test(recent) || fakeExternalDelivery.test(recent))
+  );
+}
+
 function deriveStyleIntent(text: string): StyleIntentSignal | undefined {
   const humorBoost = /有趣点|风趣点|幽默点|机灵点|会接梗/u.test(text);
   const teasingLevel = /毒舌一点|嘴贫一点|损一点|嘴毒一点/u.test(text) ? "light" : "off";
@@ -470,6 +502,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
   const highRiskDistress = detectHighRiskDistressSignal(trimmed);
   const practicalDistress = detectPracticalDistressSignal(trimmed);
   const question = isQuestionLike(trimmed);
+  const deliverableRequest = detectDeliverableRequest(trimmed, input.history);
   const practicalFollowup = detectPracticalFollowupContext(trimmed, input.history, input.slowBrainSnapshot);
   const constraintCarry = detectConstraintCarryContext(trimmed, input.history, input.slowBrainSnapshot);
   const relationalRecall =
@@ -492,6 +525,12 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     userAct = "emotional_share";
     answerObligation = "must_answer";
     responseMode = "attune_then_answer";
+    followupPermission = "none";
+    posture = "serious";
+  } else if (deliverableRequest) {
+    userAct = "answer_now";
+    answerObligation = "must_answer";
+    responseMode = "answer_first";
     followupPermission = "none";
     posture = "serious";
   } else if (practicalDistress) {
@@ -604,7 +643,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     followupPermission,
     styleIntent: deriveStyleIntent(trimmed),
     confidence:
-      answerNow || decision || scene || veto || contextUpdate || practicalDistress || practicalFollowup || constraintCarry
+      deliverableRequest || answerNow || decision || scene || veto || contextUpdate || practicalDistress || practicalFollowup || constraintCarry
         ? 0.72
         : 0.46,
   };
@@ -766,6 +805,7 @@ function deriveSceneType(
 ): TurnSceneType {
   const text = userMessage.trim();
   if (detectHighRiskDistressSignal(text)) return "high_risk_distress";
+  if (detectDeliverableRequest(text, history)) return "deliverable_request";
   if (
     detectRelationalRecallSignal(text) ||
     (interpretation.userAct === "direct_question" && detectRelationalRecallContext(history))
@@ -794,6 +834,8 @@ function composeResponsePolicy(
 
   if (interpretation.sceneType === "high_risk_distress") {
     bans.push("no_repeat_user_question", "no_jokes", "no_topic_pivot", "no_speculative_memory");
+  } else if (interpretation.sceneType === "deliverable_request") {
+    bans.push("no_repeat_user_question", "no_topic_pivot", "no_external_delivery_claim");
   } else if (interpretation.sceneType === "relational_recall") {
     bans.push("no_topic_pivot", "no_speculative_memory");
   } else if (interpretation.sceneType === "practical_judgment") {
@@ -830,7 +872,7 @@ function composeResponsePolicy(
     interpretation.userAct === "context_update" || interpretation.topicUpdate?.kind === "constraint_update";
 
   let openingMove: ResponsePolicy["openingMove"] = "gentle_attunement";
-  if (interpretation.sceneType === "relational_recall") {
+  if (interpretation.sceneType === "deliverable_request" || interpretation.sceneType === "relational_recall") {
     openingMove = "direct_answer";
   } else if (interpretation.responseMode === "stay_in_scene") {
     openingMove = "scene_ack";
@@ -982,6 +1024,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   const decisionLike = detectDecisionSeekingSignal(text) || detectAnswerNowSignal(text);
   const highRiskDistressLike = detectHighRiskDistressSignal(text);
   const practicalDistressLike = detectPracticalDistressSignal(text);
+  const deliverableRequestLike = detectDeliverableRequest(text, input.history);
   const practicalFollowupLike = detectPracticalFollowupContext(text, input.history, input.slowBrainSnapshot);
   const constraintCarryLike = detectConstraintCarryContext(text, input.history, input.slowBrainSnapshot);
   const relationalRecallLike = detectRelationalRecallSignal(text);
@@ -999,6 +1042,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
       decisionLike ||
       highRiskDistressLike ||
       practicalDistressLike ||
+      deliverableRequestLike ||
       practicalFollowupLike ||
       constraintCarryLike ||
       relationalRecallLike ||
@@ -1017,6 +1061,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
     decisionLike ||
     highRiskDistressLike ||
     practicalDistressLike ||
+    deliverableRequestLike ||
     practicalFollowupLike ||
     constraintCarryLike ||
     relationalRecallLike ||
@@ -1100,6 +1145,9 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   const { interpretation, policy } = bundle;
   if (interpretation.sceneType === "high_risk_distress") {
     return "这是高风险现实场景。第一句先确认用户此刻是不是安全的；第二句明确别让他一个人硬扛；第三句只给一个最小下一步。不要开玩笑，不要把话题拉回宠物或轻松梗，也不要立刻抛一串赚钱点子。";
+  }
+  if (interpretation.sceneType === "deliverable_request") {
+    return "这是交付物请求。必须把正文直接输出在当前聊天框；如果没有真实文件/附件/收件箱工具，就明确说只能贴在聊天里。禁止说已发送、已上传、放进附件、压缩包、收件框或最后一页。先给正文，不要把话题拉回宠物、游戏梗或轻松闲聊。";
   }
   if (interpretation.sceneType === "relational_recall") {
     return "这是关系连续性校验。先直接回答你记得的部分；记不准就直接承认，不要靠猜，也不要把问题丢回用户或换成轻松话题。";
@@ -1231,6 +1279,9 @@ export function buildPolicyToneContract(
   const extra: string[] = [];
   if (interpretation.sceneType === "high_risk_distress") {
     extra.push("这是高风险现实场景：禁玩笑、禁轻飘安慰、禁把话题拉回宠物梗、禁猜测式记忆。");
+  }
+  if (interpretation.sceneType === "deliverable_request") {
+    extra.push("这是交付物请求：正文直接贴在当前聊天里，不要编造已发送、附件、压缩包、收件框、最后一页或其他外部交付渠道。");
   }
   if (interpretation.sceneType === "relational_recall") {
     extra.push("这是关系连续性校验：先回答你记得的部分，记不准就直接承认，不要靠猜。");

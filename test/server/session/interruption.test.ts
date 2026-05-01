@@ -64,6 +64,27 @@ describe("interruption handling", () => {
     assert.ok(ctx.persona.liveState.lastTopicSummary.length > 0);
   });
 
+  it("does not mark memory callback intent on unrelated ordinary text", () => {
+    const ctx = new RemiSessionContext("test-conn");
+    for (let i = 0; i < 8; i += 1) ctx.slowBrain.recordTurn();
+    ctx.slowBrain.bumpRelationship({ familiarityDelta: 0.6, emotionalBondDelta: 0.5 });
+    ctx.slowBrain.setProactiveTopics(["工作那件事后来缓一点了吗"]);
+    ctx.slowBrain.recordSharedMoment({
+      summary: "上次你提到工作上被误解后一直很委屈。",
+      topic: "工作",
+      mood: "委屈",
+      hook: "工作那件事后来缓一点了吗",
+      createdAt: 620,
+      unresolved: true,
+    });
+
+    ctx.updateLiveState("neutral", "我今天中午吃了面", "嗯");
+    assert.notEqual(ctx.persona.liveState.proactiveIntent, "callback");
+
+    ctx.updateLiveState("neutral", "继续", "嗯");
+    assert.equal(ctx.persona.liveState.proactiveIntent, "callback");
+  });
+
   it("only marks a real interruption, not slow brain cancellation", () => {
     const ctx = new RemiSessionContext("test-conn");
     ctx.beginSlowBrain();

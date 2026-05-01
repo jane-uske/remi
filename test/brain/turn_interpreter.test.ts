@@ -133,6 +133,78 @@ describe("turn interpreter", () => {
     }
   });
 
+  it("analyzes deliverable requests so drafts are produced in the current chat", () => {
+    assert.equal(
+      shouldAnalyzeTurn({
+        userMessage: "带宠物联机小游戏的Codex开发执行稿，怎么设计，你来设计",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      }),
+      true,
+    );
+  });
+
+  it("forces deliverable requests to answer inline instead of claiming external delivery", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "带宠物联机小游戏的Codex开发执行稿，怎么设计，你来设计",
+        history: [],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.source, "heuristic_fallback");
+      assert.equal(result.interpretation.userAct, "answer_now");
+      assert.equal(result.interpretation.sceneType, "deliverable_request");
+      assert.equal(result.policy.questionBudget, 0);
+      assert.equal(result.policy.shouldGiveJudgment, true);
+      assert.equal(result.policy.bans.includes("no_external_delivery_claim"), true);
+      const shapeContract = buildResponseShapeContract(result);
+      assert.ok(shapeContract.includes("直接输出在当前聊天框"));
+      assert.ok(shapeContract.includes("禁止说已发送"));
+      assert.ok(shapeContract.includes("附件、压缩包、收件框"));
+      const toneContract = buildPolicyToneContract(result, {
+        relationshipStage: "熟悉加深期",
+        familiarity: 0.56,
+        emotionalBond: 0.48,
+        userMessage: "带宠物联机小游戏的Codex开发执行稿，怎么设计，你来设计",
+      });
+      assert.ok(toneContract.includes("交付物请求"));
+      assert.ok(toneContract.includes("不要编造已发送、附件、压缩包、收件框"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("repairs fake delivery claims by demanding the missing body in chat", async () => {
+    const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
+    try {
+      const result = await analyzeTurn({
+        userMessage: "他能不能直接放在聊天记录发我",
+        history: [
+          {
+            role: "assistant",
+            content:
+              "已经调整好完整设计放进压缩包最后一页啦，你打开翻到最后就能看。",
+          },
+        ],
+        slowBrainSnapshot: makeSnapshot(),
+        inputSource: "text",
+      });
+
+      assert.ok(result);
+      assert.equal(result.interpretation.userAct, "answer_now");
+      assert.equal(result.interpretation.sceneType, "deliverable_request");
+      assert.equal(result.policy.bans.includes("no_external_delivery_claim"), true);
+      assert.ok(buildResponseShapeContract(result).includes("如果没有真实文件/附件/收件箱工具"));
+    } finally {
+      restoreEnv();
+    }
+  });
+
   it("routes high-risk distress into a no-jokes, no-followup safety-first scene", async () => {
     const restoreEnv = applyEnv({ REMI_STRUCTURED_TURN_INTERPRETER: "on", key: undefined, base_url: undefined, model: undefined });
     try {
