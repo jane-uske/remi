@@ -4,7 +4,7 @@
 
 Remi World is an independent Babylon.js prototype inside `world/`.
 
-It is not connected to the main Remi session runtime, voice chain, Memory V2, or Remi NPC brain. The current build is a local first-person island slice: it can render a cozy island, move the player, place and remove small decoration objects, expand and remove empty shoreline land patches, save those local changes in browser localStorage, and show a small checklist for a short shoreline-shaping loop. It now has an optional Runtime SDK bridge for client context, runtime snapshots, text send, shared avatar projection, and local WorldEvent normalization, but `world_event` is not sent to the backend by default.
+It is not connected to the main Remi session runtime, voice chain, Memory V2, or Remi NPC brain. The current build is a local first-person island slice: it can render a cozy island, move the player, place and remove small decoration objects, expand and remove empty shoreline land patches, save those local changes in browser localStorage, and show a small checklist for a short shoreline-shaping loop. It now has an optional local World bridge for client context, runtime snapshots, text send, avatar projection, and local WorldEvent normalization, but `world_event` is not sent to the backend by default.
 
 Current maturity: demo usable / early V1 slice. It is still not a real sandbox, not a production game, and not a real Remi integration. The direction is worth continuing because the island now reads as a place and the first manual expansion/editing loop works, but the 3-5 minute repeatable experience is still prototype-grade.
 
@@ -407,16 +407,16 @@ Acceptance:
 
 ### Phase 7: Remi Runtime Bridge
 
-Status: SDK bridge connected locally; backend ingestion not connected.
+Status: local World bridge connected; backend ingestion not connected.
 
 Goal: prepare the boundary through which Remi can observe world actions without coupling World to Web, session, voice, or memory internals.
 
 Current boundary:
 
 - `worldObservationAdapter.ts` can turn local `WorldEvent` records into Remi-observable candidate objects.
-- `world/src/remiWorldBridge.ts` reuses the shared Runtime SDK for World `client_context`, connection/runtime state, `sendText`, shared avatar projection, and WorldEvent -> RemiWorldEvent conversion.
+- `world/src/remiWorldBridge.ts` uses a local lightweight runtime client for World `client_context`, connection/runtime state, `sendText`, avatar projection, and WorldEvent -> RemiWorldEvent conversion.
 - World events are normalized locally but are not sent by default because the server still lacks a dedicated `world_event` route.
-- This bridge is not wired to Remi memory, session internals, voice, NPC behavior, or backend event acknowledgement yet.
+- This bridge is not wired to Remi memory, session internals, voice, NPC behavior, root app runtime SDK, or backend event acknowledgement yet.
 
 ### Phase 8: Remi NPC Prototype
 
@@ -435,11 +435,20 @@ Prerequisites:
 
 Short term: procedural Babylon primitives with a strict style guide.
 
-Medium term: author small `.glb` assets using Blender, Blockbench, or MagicaVoxel once the scene language is clear.
+Medium term: validate a small `.glb` pipeline using Blender, Blockbench,
+MagicaVoxel, or AI-generated first-pass props after cleanup. See
+[ASSET_PIPELINE.md](ASSET_PIPELINE.md).
 
 Current style guide:
 
 - See `ART_STYLE_GUIDE.md`.
+
+Asset pipeline judgment:
+
+- AI tools can generate useful first-pass props, but direct high-poly imports are not runtime-ready.
+- The 2026-05-01 Meshy character test was roughly 641k triangles / 320k vertices, which is reference/sculpt density, not a browser-game NPC asset.
+- Generate or author single props first: lantern, garden sign, flower cluster.
+- Do not import a full generated island scene or a generated Remi character directly into runtime.
 
 Avoid for now:
 
@@ -469,5 +478,5 @@ Do not parallelize:
 1. Browser product check: verify whether the expansion loop feels understandable without explanation.
 2. Object/land editing controller split: extract placement/removal mutation out of `worldScene.ts` before adding more edit modes.
 3. Land editing 0.3: decide whether to add explicit undo history, land hover highlight, or selected-cell UI before adding more terrain rules.
-4. Visual pass 0.4: replace the safe purple sky fallback with a proper dusk skybox/shader, then tune shoreline blending and object readability within the primitive style guide.
+4. Asset Pipeline Spike 0.1: load cleaned `.glb` versions of a lantern, garden sign, and flower cluster; verify scale, lighting, collision, build, and console health.
 5. Remi NPC pre-design: only start after the world loop survives a product check.

@@ -2,7 +2,7 @@
 
 ## Current Scope
 
-This guide covers the V1 primitive style only. It is for Babylon.js boxes, cylinders, spheres, planes, and small generated materials. It is not a final asset bible and does not require `.glb`, VRM, Blockbench, MagicaVoxel, or external asset packs.
+This guide covers the V1 primitive style only. It is for Babylon.js boxes, cylinders, spheres, planes, and small generated materials. It is not a final asset bible and does not require `.glb`, VRM, Blockbench, MagicaVoxel, or external asset packs. Future `.glb` pipeline rules live in [ASSET_PIPELINE.md](ASSET_PIPELINE.md).
 
 ## Visual Target
 
@@ -79,20 +79,26 @@ The style should feel intentionally simple, not like placeholder debug geometry.
 
 ## Asset Pipeline Boundary
 
-Do not import external `.glb` assets until these conditions are met:
+Do not replace the scene with external `.glb` assets until these conditions are met:
 
 - the 3-minute island loop is comfortable
 - placement and land editing rules are stable
 - the object categories are clear enough to avoid wasted asset work
 
-Likely first authored assets later:
+The next valid exception is a small asset-pipeline spike, not a broad art pass.
+Likely first spike assets:
+
+- lantern variants
+- garden sign
+- flower cluster
+
+Likely authored assets later:
 
 - cottage prop set
 - flower/grass variants
-- lantern variants
 - fence/path kit
 - shore stones and wood planks
 
-Remi character assets are a separate pipeline because they need idle, blink, look-at, animation compatibility, and later voice/memory integration.
+Remi character assets are a separate pipeline because they need idle, blink, look-at, animation compatibility, and later voice/memory integration. High-poly AI character output should be treated as reference until it is retopologized, rigged, and performance-checked.
 Visual Rescue v0.2 does not change that boundary. The current Remi shape is only
 a composition stand-in, not a character asset or Remi NPC integration.
