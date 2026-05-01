@@ -46,6 +46,38 @@ describe("MicTxGate", () => {
     expect(gate.isTransmitting()).to.equal(false);
   });
 
+  it("keeps transmission closed for sustained environment hum above the static threshold", () => {
+    const gate = new MicTxGate({
+      preRollFrames: 6,
+      minStartFrames: 3,
+      stopFrames: 6,
+    });
+
+    let sentFrames = 0;
+    for (let i = 0; i < 24; i++) {
+      const result = gate.feed(makeSineFrame(0.05, 90));
+      sentFrames += result.framesToSend.length;
+    }
+
+    expect(sentFrames).to.equal(0);
+    expect(gate.isTransmitting()).to.equal(false);
+  });
+
+  it("opens for immediate steady speech-like frames", () => {
+    const gate = new MicTxGate({
+      preRollFrames: 6,
+      minStartFrames: 3,
+      stopFrames: 6,
+    });
+
+    gate.feed(makeSineFrame(0.08, 220));
+    gate.feed(makeSineFrame(0.08, 220));
+    const result = gate.feed(makeSineFrame(0.08, 220));
+
+    expect(result.opened).to.equal(true);
+    expect(gate.isTransmitting()).to.equal(true);
+  });
+
   it("opens transmission after speech-like frames and flushes pre-roll", () => {
     const gate = new MicTxGate({
       preRollFrames: 5,

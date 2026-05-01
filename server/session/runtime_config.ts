@@ -229,6 +229,22 @@ export function duplexIdleGuardMinStrongRatio(): number {
   return Math.max(0, Math.min(1, n));
 }
 
+export function duplexIdleGuardNoPreviewMinSpeechMs(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_SPEECH_MS, 900);
+}
+
+export function duplexIdleGuardNoPreviewMinRms(): number {
+  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_RMS, 0.06);
+}
+
+export function duplexIdleGuardNoPreviewMinStrongRatio(): number {
+  const raw = process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_STRONG_RATIO;
+  if (raw === undefined || raw === "") return 0.38;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0.38;
+  return Math.max(0, Math.min(1, n));
+}
+
 export function fallbackNoiseSuppressMaxMs(): number {
   return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SUPPRESS_MS, 900);
 }
