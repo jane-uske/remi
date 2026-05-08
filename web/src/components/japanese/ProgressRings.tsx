@@ -1,5 +1,7 @@
 "use client";
 
+import type { SkillProgress } from "@/types/japanese";
+
 interface RingProps {
   value: number;
   label: string;
@@ -50,11 +52,21 @@ function Ring({ value, label, color, size = 100 }: RingProps) {
   );
 }
 
-export function ProgressRings() {
+const DEFAULT_PROGRESS: SkillProgress = {
+  listening: 42,
+  reading: 68,
+  grammar: 39,
+};
+
+interface ProgressRingsProps {
+  progress?: SkillProgress;
+}
+
+export function ProgressRings({ progress = DEFAULT_PROGRESS }: ProgressRingsProps) {
   const rings = [
-    { value: 42, label: "听力", color: "#0066cc" },
-    { value: 68, label: "阅读", color: "#34c759" },
-    { value: 39, label: "语法", color: "#ff9500" },
+    { value: progress.listening, label: "听力", color: "#0066cc" },
+    { value: progress.reading, label: "阅读", color: "#34c759" },
+    { value: progress.grammar, label: "语法", color: "#ff9500" },
   ];
 
   return (

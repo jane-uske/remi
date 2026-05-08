@@ -1,7 +1,24 @@
 "use client";
 
-export function AssessmentCard() {
-  const score = 86;
+import type { Assessment } from "@/types/japanese";
+
+const DEFAULT_ASSESSMENT: Assessment = {
+  score: 86,
+  total: 100,
+  categories: [
+    { label: "词汇", score: 90 },
+    { label: "语法", score: 78 },
+    { label: "听力", score: 85 },
+    { label: "阅读", score: 92 },
+  ],
+};
+
+interface AssessmentCardProps {
+  assessment?: Assessment;
+}
+
+export function AssessmentCard({ assessment = DEFAULT_ASSESSMENT }: AssessmentCardProps) {
+  const { score, total, categories } = assessment;
 
   return (
     <div className="rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]">
@@ -33,7 +50,7 @@ export function AssessmentCard() {
               stroke="var(--jp-primary)"
               strokeWidth={10}
               strokeDasharray={2 * Math.PI * 52}
-              strokeDashoffset={2 * Math.PI * 52 * (1 - score / 100)}
+              strokeDashoffset={2 * Math.PI * 52 * (1 - score / total)}
               strokeLinecap="round"
               className="transition-all duration-700 ease-out"
             />
@@ -48,17 +65,12 @@ export function AssessmentCard() {
             >
               {score}
             </span>
-            <span className="text-[12px] text-[var(--jp-ink-48)]">/100</span>
+            <span className="text-[12px] text-[var(--jp-ink-48)]">/{total}</span>
           </div>
         </div>
 
         <div className="flex-1 space-y-3">
-          {[
-            { label: "词汇", score: 90 },
-            { label: "语法", score: 78 },
-            { label: "听力", score: 85 },
-            { label: "阅读", score: 92 },
-          ].map((item) => (
+          {categories.map((item) => (
             <div key={item.label}>
               <div className="mb-1 flex justify-between text-[12px]">
                 <span className="text-[var(--jp-ink-80)]">{item.label}</span>

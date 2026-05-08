@@ -1,8 +1,12 @@
 "use client";
 
-export function MasteryGauge() {
-  const mastery = 43;
+const DEFAULT_MASTERY = 43;
 
+interface MasteryGaugeProps {
+  mastery?: number;
+}
+
+export function MasteryGauge({ mastery = DEFAULT_MASTERY }: MasteryGaugeProps) {
   return (
     <div className="rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]">
       <h3
@@ -32,7 +36,7 @@ export function MasteryGauge() {
             />
           </div>
           <p className="mt-2 text-[12px] text-[var(--jp-ink-48)]">
-            距离 N3 还需提升 17%
+            距离 N3 还需提升 {Math.max(0, 60 - mastery)}%
           </p>
         </div>
       </div>

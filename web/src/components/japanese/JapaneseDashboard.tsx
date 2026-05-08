@@ -12,6 +12,7 @@ import { LearningCalendar } from "./LearningCalendar";
 import { CapabilityGrid } from "./CapabilityGrid";
 import { MiniChat } from "./MiniChat";
 import { RemiAvatar } from "./RemiAvatar";
+import { RemiCharacterSection } from "./RemiCharacterSection";
 
 /* Map nav IDs to display labels (must match Sidebar NAV_ITEMS) */
 const NAV_LABELS: Record<NavId, string> = {
@@ -121,6 +122,9 @@ export function JapaneseDashboard() {
 
         {/* Row 4: Capability grid */}
         <CapabilityGrid />
+
+        {/* Remi character showcase */}
+        <RemiCharacterSection />
       </div>
 
       {/* Dark-mode tile: AI 学習路径 */}

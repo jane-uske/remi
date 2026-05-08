@@ -1,7 +1,9 @@
 "use client";
 
-function generateCalendarData() {
-  const data: { date: string; level: number }[] = [];
+import type { CalendarDay } from "@/types/japanese";
+
+function generateCalendarData(): CalendarDay[] {
+  const data: CalendarDay[] = [];
   const today = new Date();
   for (let i = 89; i >= 0; i--) {
     const d = new Date(today);
@@ -22,12 +24,16 @@ const LEVEL_COLORS = [
   "bg-[var(--jp-primary)]",
 ];
 
-const calendarData = generateCalendarData();
+const DEFAULT_CALENDAR = generateCalendarData();
 
-export function LearningCalendar() {
-  const weeks: { date: string; level: number }[][] = [];
-  for (let i = 0; i < calendarData.length; i += 7) {
-    weeks.push(calendarData.slice(i, i + 7));
+interface LearningCalendarProps {
+  calendar?: CalendarDay[];
+}
+
+export function LearningCalendar({ calendar = DEFAULT_CALENDAR }: LearningCalendarProps) {
+  const weeks: CalendarDay[][] = [];
+  for (let i = 0; i < calendar.length; i += 7) {
+    weeks.push(calendar.slice(i, i + 7));
   }
 
   return (

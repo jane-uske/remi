@@ -1,13 +1,19 @@
 "use client";
 
-const GOALS = [
+import type { DailyGoal } from "@/types/japanese";
+
+const DEFAULT_GOALS: DailyGoal[] = [
   { id: "vocab", title: "背诵 30 个 N3 词汇", progress: 73, icon: "📖" },
   { id: "grammar", title: "完成 て形 语法练习", progress: 45, icon: "✏️" },
   { id: "listen", title: "听力精听 15 分钟", progress: 60, icon: "🎧" },
   { id: "speak", title: "与 Remi 对话 10 分钟", progress: 20, icon: "🗣️" },
 ];
 
-export function DailyGoals() {
+interface DailyGoalsProps {
+  goals?: DailyGoal[];
+}
+
+export function DailyGoals({ goals = DEFAULT_GOALS }: DailyGoalsProps) {
   return (
     <div className="rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]">
       <div className="mb-4 flex items-center justify-between">
@@ -21,11 +27,11 @@ export function DailyGoals() {
           每日学习目标
         </h3>
         <span className="text-[12px] text-[var(--jp-ink-48)]">
-          {GOALS.filter((g) => g.progress >= 100).length}/{GOALS.length} 已完成
+          {goals.filter((g) => g.progress >= 100).length}/{goals.length} 已完成
         </span>
       </div>
       <div className="space-y-3">
-        {GOALS.map((goal) => (
+        {goals.map((goal) => (
           <div
             key={goal.id}
             className="flex items-center gap-3 rounded-[var(--jp-radius-sm)] bg-[var(--jp-parchment)] p-3"
