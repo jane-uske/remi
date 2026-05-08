@@ -1,0 +1,55 @@
+/* Apple DESIGN.md — Japanese Mode tokens */
+
+.jp-scope {
+  --jp-primary: #0066cc;
+  --jp-primary-focus: #0071e3;
+  --jp-primary-on-dark: #2997ff;
+
+  --jp-ink: #1d1d1f;
+  --jp-ink-80: #333333;
+  --jp-ink-48: #7a7a7a;
+  --jp-body-on-dark: #ffffff;
+  --jp-body-muted: #cccccc;
+
+  --jp-canvas: #ffffff;
+  --jp-parchment: #f5f5f7;
+  --jp-pearl: #fafafc;
+  --jp-tile-1: #272729;
+  --jp-tile-2: #2a2a2c;
+  --jp-tile-3: #252527;
+  --jp-black: #000000;
+  --jp-chip-translucent: rgba(210, 210, 215, 0.64);
+
+  --jp-hairline: #e0e0e0;
+  --jp-divider: #f0f0f0;
+
+  --jp-font-display: "SF Pro Display", system-ui, -apple-system, "Inter",
+    sans-serif;
+  --jp-font-text: "SF Pro Text", system-ui, -apple-system, "Inter", sans-serif;
+
+  --jp-radius-none: 0px;
+  --jp-radius-xs: 5px;
+  --jp-radius-sm: 8px;
+  --jp-radius-md: 11px;
+  --jp-radius-lg: 18px;
+  --jp-radius-pill: 9999px;
+
+  --jp-space-xxs: 4px;
+  --jp-space-xs: 8px;
+  --jp-space-sm: 12px;
+  --jp-space-md: 17px;
+  --jp-space-lg: 24px;
+  --jp-space-xl: 32px;
+  --jp-space-xxl: 48px;
+  --jp-space-section: 80px;
+
+  --jp-shadow-product: 3px 5px 30px rgba(0, 0, 0, 0.22);
+
+  font-family: var(--jp-font-text);
+  color: var(--jp-ink);
+  background-color: var(--jp-canvas);
+}
+
+.jp-scope *::selection {
+  background-color: rgba(0, 102, 204, 0.2);
+}
