@@ -36,11 +36,6 @@ const CAPABILITIES = [
     desc: "日本文化、礼仪、日常用语",
     icon: "🏯",
   },
-  {
-    title: "AI 学习路径",
-    desc: "智能规划 N5→N1 学习计划",
-    icon: "🗺️",
-  },
 ];
 
 export function CapabilityGrid() {
@@ -55,14 +50,20 @@ export function CapabilityGrid() {
       >
         Remi 可覆盖能力
       </h3>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-[var(--jp-space-sm)] sm:grid-cols-4">
         {CAPABILITIES.map((cap) => (
           <button
             key={cap.title}
-            className="group flex flex-col items-center gap-2 rounded-[var(--jp-radius-md)] border border-[var(--jp-hairline)] bg-[var(--jp-parchment)] px-3 py-4 text-center transition-colors hover:border-[var(--jp-primary)] hover:bg-blue-50 active:scale-95"
+            className="group flex flex-col items-center gap-2 rounded-[var(--jp-radius-md)] border border-[var(--jp-hairline)] bg-[var(--jp-parchment)] px-3 py-4 text-center hover:border-[var(--jp-primary)] hover:bg-white active:scale-95"
           >
             <span className="text-2xl">{cap.icon}</span>
-            <p className="text-[14px] font-semibold text-[var(--jp-ink)]">
+            <p
+              className="text-[14px] font-semibold text-[var(--jp-ink)]"
+              style={{
+                fontFamily: "var(--jp-font-display)",
+                letterSpacing: "-0.224px",
+              }}
+            >
               {cap.title}
             </p>
             <p className="text-[12px] leading-[1.3] text-[var(--jp-ink-48)]">

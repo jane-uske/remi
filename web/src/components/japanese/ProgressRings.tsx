@@ -68,7 +68,7 @@ export function ProgressRings() {
       >
         学习进度
       </h3>
-      <div className="flex items-center justify-around">
+      <div className="flex flex-wrap items-center justify-around gap-4">
         {rings.map((r) => (
           <Ring key={r.label} {...r} />
         ))}

@@ -29,6 +29,13 @@ export function DailyGoals() {
           <div
             key={goal.id}
             className="flex items-center gap-3 rounded-[var(--jp-radius-sm)] bg-[var(--jp-parchment)] p-3"
+            style={{ transition: "background-color 200ms ease" }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.backgroundColor = "var(--jp-divider)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.backgroundColor = "var(--jp-parchment)")
+            }
           >
             <span className="text-lg">{goal.icon}</span>
             <div className="flex-1">

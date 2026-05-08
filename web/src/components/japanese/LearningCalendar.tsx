@@ -49,6 +49,9 @@ export function LearningCalendar() {
                 key={day.date}
                 className={`h-3 w-3 rounded-[2px] ${LEVEL_COLORS[day.level]}`}
                 title={`${day.date}: Level ${day.level}`}
+                style={{ transition: "opacity 200ms ease" }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
               />
             ))}
           </div>

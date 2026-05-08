@@ -45,9 +45,21 @@
 
   --jp-shadow-product: 3px 5px 30px rgba(0, 0, 0, 0.22);
 
+  --jp-transition: 200ms ease;
+
   font-family: var(--jp-font-text);
   color: var(--jp-ink);
   background-color: var(--jp-canvas);
+}
+
+/* Smooth hover transitions on all interactive elements */
+.jp-scope a,
+.jp-scope button {
+  transition: background-color var(--jp-transition),
+    color var(--jp-transition),
+    border-color var(--jp-transition),
+    transform var(--jp-transition),
+    opacity var(--jp-transition);
 }
 
 .jp-scope *::selection {
