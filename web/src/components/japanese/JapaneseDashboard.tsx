@@ -13,11 +13,13 @@ import { CapabilityGrid } from "./CapabilityGrid";
 import { MiniChat } from "./MiniChat";
 import { RemiCharacterSection } from "./RemiCharacterSection";
 import { PersonaCard } from "./PersonaCard";
+import { CourseView } from "./CourseView";
 import { useJapaneseProgress } from "@/hooks/useJapaneseProgress";
 
 /* Map nav IDs to display labels (must match Sidebar NAV_ITEMS) */
 const NAV_LABELS: Record<NavId, string> = {
   overview: "学习总览",
+  courses: "课程",
   daily: "每日目标",
   progress: "学习进度",
   capability: "能力地图",
@@ -187,8 +189,8 @@ export function JapaneseDashboard() {
 
           {/* CTA buttons */}
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link
-              href="/"
+            <button
+              onClick={() => setActiveNav("courses")}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -202,11 +204,13 @@ export function JapaneseDashboard() {
                 fontFamily: "var(--jp-font-text)",
                 letterSpacing: "-0.3px",
                 lineHeight: 1,
+                border: "none",
+                cursor: "pointer",
               }}
               className="active:scale-95"
             >
               开始今日课程
-            </Link>
+            </button>
             <button
               onClick={() => setActiveNav("practice")}
               style={{
@@ -408,6 +412,15 @@ export function JapaneseDashboard() {
     </>
   );
 
+  const renderCourses = () => (
+    <>
+      <SectionTitle label={NAV_LABELS.courses} />
+      <div className="mx-auto max-w-[1200px] p-4 sm:p-6 lg:px-8 lg:py-10">
+        <CourseView />
+      </div>
+    </>
+  );
+
   const renderDaily = () => (
     <>
       <SectionTitle label={NAV_LABELS.daily} />
@@ -577,6 +590,8 @@ export function JapaneseDashboard() {
     switch (activeNav) {
       case "overview":
         return renderOverview();
+      case "courses":
+        return renderCourses();
       case "daily":
         return renderDaily();
       case "progress":

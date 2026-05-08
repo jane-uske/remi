@@ -5,6 +5,7 @@ import type { JlptLevel } from "@/types/japanese";
 
 const NAV_ITEMS = [
   { id: "overview", label: "学习总览", icon: "📊" },
+  { id: "courses", label: "课程", icon: "📖" },
   { id: "daily", label: "每日目标", icon: "🎯" },
   { id: "progress", label: "学习进度", icon: "📈" },
   { id: "capability", label: "能力地图", icon: "🗺️" },

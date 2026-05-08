@@ -41,3 +41,25 @@ export interface JapaneseProgressData {
   dailyGoals: DailyGoal[];
   calendar: CalendarDay[];
 }
+
+/* ---------- Course / Curriculum types ---------- */
+
+export type LessonType = "grammar" | "vocabulary" | "conversation" | "reading" | "listening";
+export type LessonStatus = "completed" | "in_progress" | "available" | "locked";
+
+export interface Lesson {
+  id: string;
+  title: string;
+  type: LessonType;
+  durationMin: number;
+  status: LessonStatus;
+  xp: number;
+  desc?: string;
+}
+
+export interface CourseUnit {
+  id: string;
+  title: string;
+  level: JlptLevel;
+  lessons: Lesson[];
+}
