@@ -1,65 +1,85 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-
-interface Message {
-  id: string;
-  role: "user" | "remi";
-  text: string;
-}
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
+import type { ChatMessage } from "@/types/chat";
 
 interface MiniChatProps {
   onClose: () => void;
 }
 
+/* ── Connection status helpers ── */
+
+function connectionStatusText(
+  phase: RemiConnectionPhase,
+  reconnectInSec: number | null,
+): string {
+  switch (phase) {
+    case "connecting":
+      return "接続中…";
+    case "open":
+      return "オンライン";
+    case "closed":
+      if (reconnectInSec != null && reconnectInSec > 0) {
+        return `切断・${reconnectInSec}秒後に再接続`;
+      }
+      if (reconnectInSec === 0) return "再接続中…";
+      return "オフライン";
+  }
+}
+
+function connectionDotColor(phase: RemiConnectionPhase): string {
+  switch (phase) {
+    case "connecting":
+      return "var(--jp-ink-48)";
+    case "open":
+      return "#34c759";
+    case "closed":
+      return "#ff3b30";
+  }
+}
+
 export function MiniChat({ onClose }: MiniChatProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "remi",
-      text: "こんにちは！一緒に日本語を練習しましょう。何か話したいことはありますか？",
-    },
-  ]);
+  const {
+    connectionPhase,
+    reconnectInSec,
+    connected,
+    messages: chatMessages,
+    streamingText,
+    typing,
+    waiting,
+    sendText,
+  } = useRemiChat();
+
   const [input, setInput] = useState("");
-  const [pending, setPending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  /* auto-scroll when messages change */
+  /* Filter to user/rem messages for the mini chat view */
+  const visibleMessages = useMemo(
+    () => chatMessages.filter((m: ChatMessage) => m.role === "user" || m.role === "rem"),
+    [chatMessages],
+  );
+
+  const isBusy = typing || waiting;
+
+  /* auto-scroll when messages or streaming text change */
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [visibleMessages, streamingText]);
 
   /* focus input on mount */
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const send = useCallback(() => {
+  const send = () => {
     const text = input.trim();
-    if (!text || pending) return;
-
-    const userMsg: Message = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      text,
-    };
-    setMessages((prev) => [...prev, userMsg]);
+    if (!text || !connected) return;
+    sendText(text);
     setInput("");
-    setPending(true);
-
-    /* mock response after 500ms */
-    setTimeout(() => {
-      const remiMsg: Message = {
-        id: `r-${Date.now()}`,
-        role: "remi",
-        text: "Remi: 让我想想...",
-      };
-      setMessages((prev) => [...prev, remiMsg]);
-      setPending(false);
-    }, 500);
-  }, [input, pending]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.nativeEvent.isComposing) {
@@ -67,6 +87,9 @@ export function MiniChat({ onClose }: MiniChatProps) {
       send();
     }
   };
+
+  const statusText = connectionStatusText(connectionPhase, reconnectInSec);
+  const dotColor = connectionDotColor(connectionPhase);
 
   return (
     <div
@@ -79,15 +102,25 @@ export function MiniChat({ onClose }: MiniChatProps) {
     >
       {/* ---- header ---- */}
       <div className="flex items-center justify-between border-b border-[var(--jp-hairline)] px-4 py-3">
-        <span
-          className="text-[15px] font-semibold text-[var(--jp-ink)]"
-          style={{
-            fontFamily: "var(--jp-font-display)",
-            letterSpacing: "-0.224px",
-          }}
-        >
-          与 Remi 对话练习
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[15px] font-semibold text-[var(--jp-ink)]"
+            style={{
+              fontFamily: "var(--jp-font-display)",
+              letterSpacing: "-0.224px",
+            }}
+          >
+            与 Remi 对话练习
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] text-[var(--jp-ink-48)]">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: dotColor }}
+              aria-hidden
+            />
+            {statusText}
+          </span>
+        </div>
         <button
           onClick={onClose}
           className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--jp-ink-48)] transition-colors hover:bg-[var(--jp-parchment)]"
@@ -109,7 +142,7 @@ export function MiniChat({ onClose }: MiniChatProps) {
 
       {/* ---- message list ---- */}
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {messages.map((msg) => (
+        {visibleMessages.map((msg: ChatMessage) => (
           <div
             key={msg.id}
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -126,10 +159,24 @@ export function MiniChat({ onClose }: MiniChatProps) {
           </div>
         ))}
 
-        {pending && (
+        {/* streaming response in progress */}
+        {streamingText && (
+          <div className="flex justify-start">
+            <div className="max-w-[75%] rounded-[var(--jp-radius-lg)] bg-[#e8f0fe] px-3.5 py-2.5 text-[14px] leading-[1.43] text-[var(--jp-ink)]">
+              {streamingText}
+            </div>
+          </div>
+        )}
+
+        {/* thinking/waiting indicator (only when no streaming text yet) */}
+        {isBusy && !streamingText && (
           <div className="flex justify-start">
             <div className="max-w-[75%] rounded-[var(--jp-radius-lg)] bg-[#e8f0fe] px-3.5 py-2.5 text-[14px] leading-[1.43] text-[var(--jp-ink-48)]">
-              ...
+              <span className="inline-flex gap-1">
+                <span className="animate-pulse">·</span>
+                <span className="animate-pulse" style={{ animationDelay: "150ms" }}>·</span>
+                <span className="animate-pulse" style={{ animationDelay: "300ms" }}>·</span>
+              </span>
             </div>
           </div>
         )}
@@ -144,16 +191,17 @@ export function MiniChat({ onClose }: MiniChatProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息..."
-            className="flex-1 rounded-[var(--jp-radius-pill)] border border-[var(--jp-hairline)] bg-[var(--jp-parchment)] px-4 py-2 text-[14px] text-[var(--jp-ink)] outline-none placeholder:text-[var(--jp-ink-48)] focus:border-[var(--jp-primary)]"
+            placeholder={connected ? "メッセージを入力…" : "接続待ち…"}
+            disabled={!connected}
+            className="flex-1 rounded-[var(--jp-radius-pill)] border border-[var(--jp-hairline)] bg-[var(--jp-parchment)] px-4 py-2 text-[14px] text-[var(--jp-ink)] outline-none placeholder:text-[var(--jp-ink-48)] focus:border-[var(--jp-primary)] disabled:opacity-50"
             style={{ fontFamily: "var(--jp-font-text)" }}
           />
           <button
             onClick={send}
-            disabled={!input.trim() || pending}
+            disabled={!input.trim() || !connected}
             className="flex h-[36px] items-center justify-center rounded-[var(--jp-radius-pill)] bg-[var(--jp-primary)] px-4 text-[14px] font-medium text-white transition-opacity disabled:opacity-40"
           >
-            发送
+            送信
           </button>
         </div>
       </div>
