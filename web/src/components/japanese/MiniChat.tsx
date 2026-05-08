@@ -49,7 +49,15 @@ export function MiniChat({ onClose }: MiniChatProps) {
     typing,
     waiting,
     sendText,
+    updatePersonaPreset,
   } = useRemiChat();
+
+  /* Activate japanese_sensei persona on mount, restore on unmount */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    updatePersonaPreset("japanese_sensei");
+    return () => { updatePersonaPreset("remi_core"); };
+  }, []);
 
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);

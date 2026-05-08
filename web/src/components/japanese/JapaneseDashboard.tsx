@@ -11,8 +11,9 @@ import { DailyGoals } from "./DailyGoals";
 import { LearningCalendar } from "./LearningCalendar";
 import { CapabilityGrid } from "./CapabilityGrid";
 import { MiniChat } from "./MiniChat";
-import { RemiAvatar } from "./RemiAvatar";
 import { RemiCharacterSection } from "./RemiCharacterSection";
+import { PersonaCard } from "./PersonaCard";
+import { useJapaneseProgress } from "@/hooks/useJapaneseProgress";
 
 /* Map nav IDs to display labels (must match Sidebar NAV_ITEMS) */
 const NAV_LABELS: Record<NavId, string> = {
@@ -45,6 +46,7 @@ function SectionTitle({ label }: { label: string }) {
 }
 
 export function JapaneseDashboard() {
+  const { data: progressData } = useJapaneseProgress();
   const [activeNav, setActiveNav] = useState<NavId>("overview");
   const [chatOpen, setChatOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -61,44 +63,171 @@ export function JapaneseDashboard() {
 
   const renderOverview = () => (
     <>
-      {/* Welcome header section */}
-      <section className="bg-[var(--jp-canvas)] px-4 pb-10 pt-10 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1200px] flex-col items-start gap-6 sm:flex-row sm:items-center">
-          <RemiAvatar size={72} />
-          <div>
-            <h2
-              className="text-[28px] font-semibold text-[var(--jp-ink)] sm:text-[34px]"
+      {/* Hero section — Apple-style large statement */}
+      <section
+        className="px-4 pb-16 pt-16 sm:px-6 sm:pb-20 sm:pt-20 lg:px-8"
+        style={{ background: "var(--jp-hero-gradient)" }}
+      >
+        <div className="mx-auto max-w-[900px] text-center">
+          {/* Level badge */}
+          <div className="mb-6 flex justify-center">
+            <span
               style={{
-                fontFamily: "var(--jp-font-display)",
-                letterSpacing: "-0.374px",
-                lineHeight: 1.1,
-              }}
-            >
-              おかえりなさい。
-            </h2>
-            <p
-              className="mt-2 text-[17px] text-[var(--jp-ink-48)]"
-              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                borderRadius: "9999px",
+                border: "1px solid var(--jp-primary-border)",
+                background: "var(--jp-primary-subtle)",
+                padding: "6px 16px",
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "var(--jp-primary)",
                 fontFamily: "var(--jp-font-text)",
-                lineHeight: 1.47,
-                letterSpacing: "-0.374px",
+                letterSpacing: "-0.1px",
               }}
             >
-              今日の学習を始めましょう。Remi があなたの日本語力を次のレベルへ導きます。
-            </p>
+              <span
+                style={{
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--jp-primary)",
+                  opacity: 0.7,
+                  display: "inline-block",
+                }}
+              />
+              JLPT {progressData?.currentLevel ?? "N4"} · 学习进行中
+            </span>
           </div>
-          <div className="shrink-0 sm:ml-auto">
+
+          {/* Main headline */}
+          <h2
+            style={{
+              fontFamily: "var(--jp-font-display)",
+              fontSize: "clamp(44px, 7vw, 72px)",
+              fontWeight: 800,
+              letterSpacing: "-1.5px",
+              lineHeight: 1.02,
+              color: "var(--jp-ink)",
+            }}
+          >
+            おかえりなさい。
+          </h2>
+          <p
+            style={{
+              fontFamily: "var(--jp-font-text)",
+              fontSize: "19px",
+              lineHeight: 1.5,
+              letterSpacing: "-0.3px",
+              color: "var(--jp-ink-48)",
+              marginTop: "16px",
+            }}
+            className="mx-auto max-w-[480px]"
+          >
+            今日の学習を始めましょう。
+            <br className="hidden sm:block" />
+            Remi があなたの日本語力を次のレベルへ導きます。
+          </p>
+
+          {/* Stat tiles */}
+          <div className="mx-auto mt-10 grid max-w-[560px] grid-cols-3 gap-3">
+            {[
+              { n: "7", u: "天", l: "连续打卡" },
+              { n: "1,234", u: "词", l: "词汇量" },
+              { n: "32", u: "小时", l: "累计学习" },
+            ].map(({ n, u, l }) => (
+              <div
+                key={l}
+                style={{
+                  borderRadius: "16px",
+                  background: "rgba(255,255,255,0.85)",
+                  backdropFilter: "blur(16px)",
+                  WebkitBackdropFilter: "blur(16px)",
+                  border: "1px solid rgba(0,0,0,0.05)",
+                  padding: "16px 8px",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "var(--jp-font-display)",
+                    fontSize: "clamp(22px, 4vw, 30px)",
+                    fontWeight: 700,
+                    letterSpacing: "-0.8px",
+                    color: "var(--jp-ink)",
+                    lineHeight: 1,
+                  }}
+                >
+                  {n}
+                  <span
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      color: "var(--jp-ink-48)",
+                      marginLeft: "1px",
+                    }}
+                  >
+                    {u}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "var(--jp-ink-48)",
+                    marginTop: "4px",
+                    fontFamily: "var(--jp-font-text)",
+                    letterSpacing: "-0.1px",
+                  }}
+                >
+                  {l}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA buttons */}
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 rounded-[9999px] bg-[var(--jp-primary)] px-7 py-3 text-[17px] font-normal text-white active:scale-95"
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "9999px",
+                background: "var(--jp-primary)",
+                padding: "14px 32px",
+                fontSize: "17px",
+                fontWeight: 500,
+                color: "white",
                 fontFamily: "var(--jp-font-text)",
-                letterSpacing: "-0.374px",
+                letterSpacing: "-0.3px",
                 lineHeight: 1,
               }}
+              className="active:scale-95"
             >
-              开始对话练习
+              开始今日课程
             </Link>
+            <button
+              onClick={() => setActiveNav("practice")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "9999px",
+                background: "rgba(255,255,255,0.85)",
+                border: "1px solid var(--jp-primary-border)",
+                padding: "14px 32px",
+                fontSize: "17px",
+                fontWeight: 500,
+                color: "var(--jp-primary)",
+                fontFamily: "var(--jp-font-text)",
+                letterSpacing: "-0.3px",
+                lineHeight: 1,
+              }}
+              className="active:scale-95"
+            >
+              和 Remi 对话
+            </button>
           </div>
         </div>
       </section>
@@ -109,84 +238,144 @@ export function JapaneseDashboard() {
 
         {/* Row 2: Progress + Mastery + Assessment */}
         <div className="grid grid-cols-1 gap-4 sm:gap-[var(--jp-space-lg)] md:grid-cols-2 lg:grid-cols-3">
-          <ProgressRings />
-          <MasteryGauge />
-          <AssessmentCard />
+          <ProgressRings progress={progressData?.progress} />
+          <MasteryGauge mastery={progressData?.mastery} currentLevel={progressData?.currentLevel} />
+          <AssessmentCard assessment={progressData?.assessment} />
         </div>
 
         {/* Row 3: Daily Goals + Calendar */}
         <div className="grid grid-cols-1 gap-4 sm:gap-[var(--jp-space-lg)] md:grid-cols-2">
-          <DailyGoals />
-          <LearningCalendar />
+          <DailyGoals goals={progressData?.dailyGoals} />
+          <LearningCalendar calendar={progressData?.calendar} />
         </div>
 
         {/* Row 4: Capability grid */}
-        <CapabilityGrid />
+        <CapabilityGrid onNavigate={setActiveNav} />
 
-        {/* Remi character showcase */}
-        <RemiCharacterSection />
+        {/* Row 5: Remi character + Persona card */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-[var(--jp-space-lg)] lg:grid-cols-[1fr_360px]">
+          <RemiCharacterSection />
+          <PersonaCard />
+        </div>
       </div>
 
       {/* Dark-mode tile: AI 学習路径 */}
       <section
         className="px-4 sm:px-6 lg:px-8"
         style={{
-          backgroundColor: "var(--jp-tile-1)",
+          background: "linear-gradient(160deg, #0a0a0f 0%, #1a1a2e 50%, #0d0d1a 100%)",
           paddingTop: "var(--jp-space-section)",
           paddingBottom: "var(--jp-space-section)",
         }}
       >
-        <div className="mx-auto max-w-[1200px] text-center">
+        <div className="mx-auto max-w-[1100px] text-center">
+          {/* Section badge */}
+          <div className="mb-6 flex justify-center">
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                borderRadius: "9999px",
+                border: "1px solid rgba(41,151,255,0.3)",
+                background: "rgba(41,151,255,0.08)",
+                padding: "6px 16px",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "var(--jp-primary-on-dark)",
+                fontFamily: "var(--jp-font-text)",
+                letterSpacing: "0.5px",
+                textTransform: "uppercase",
+              }}
+            >
+              AI POWERED
+            </span>
+          </div>
+
           <h2
-            className="text-[28px] font-semibold text-white sm:text-[40px]"
             style={{
               fontFamily: "var(--jp-font-display)",
-              lineHeight: 1.1,
-              letterSpacing: "0",
+              fontSize: "clamp(36px, 5vw, 52px)",
+              fontWeight: 800,
+              lineHeight: 1.05,
+              letterSpacing: "-1px",
+              color: "white",
             }}
           >
             AI 学習路径
           </h2>
           <p
-            className="mx-auto mt-4 max-w-[600px] text-[17px]"
+            className="mx-auto mt-4 max-w-[560px]"
             style={{
               fontFamily: "var(--jp-font-text)",
-              lineHeight: 1.47,
-              letterSpacing: "-0.374px",
-              color: "var(--jp-body-muted)",
+              fontSize: "17px",
+              lineHeight: 1.5,
+              letterSpacing: "-0.3px",
+              color: "#86868b",
             }}
           >
-            Remi が蓄積した学習データを基に、あなただけの N5 から N1 への最短ルートを自動設計。
-            弱点を重点的に補強し、効率的にレベルアップ。
+            Remi が蓄積した学習データを基に、N5 から N1 への
+            <br className="hidden sm:block" />
+            最短ルートを自動設計。弱点を集中的に補強します。
           </p>
-          <div className="mx-auto mt-8 grid max-w-[800px] grid-cols-1 gap-6 sm:grid-cols-3">
+
+          {/* Steps */}
+          <div className="mx-auto mt-12 grid max-w-[860px] grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
             {[
-              { step: "01", title: "現在地を診断", desc: "AIが語彙・文法・聴解を総合分析" },
-              { step: "02", title: "最適な計画を生成", desc: "目標レベルまでの学習プランを自動作成" },
-              { step: "03", title: "毎日アダプティブ調整", desc: "進捗に合わせてリアルタイムに最適化" },
-            ].map((item) => (
-              <div key={item.step} className="text-left">
+              { n: "01", title: "現在地を診断", desc: "AI が語彙・文法・聴解を総合的に分析します" },
+              { n: "02", title: "最適な計画を生成", desc: "目標レベルまでの学習プランを自動作成します" },
+              { n: "03", title: "毎日アダプティブ", desc: "進捗に合わせリアルタイムに最適化します" },
+            ].map((item, i) => (
+              <div
+                key={item.n}
+                style={{
+                  borderRadius: "16px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  padding: "24px 20px",
+                  textAlign: "left",
+                  position: "relative",
+                  backdropFilter: "blur(12px)",
+                }}
+              >
                 <span
-                  className="text-[14px] font-semibold"
-                  style={{ color: "var(--jp-primary-on-dark)" }}
+                  style={{
+                    display: "inline-flex",
+                    width: "32px",
+                    height: "32px",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: "9999px",
+                    background: "rgba(41,151,255,0.15)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "var(--jp-primary-on-dark)",
+                    fontFamily: "var(--jp-font-display)",
+                    marginBottom: "14px",
+                  }}
                 >
-                  {item.step}
+                  {i + 1}
                 </span>
                 <h3
-                  className="mt-2 text-[17px] font-semibold text-white"
                   style={{
                     fontFamily: "var(--jp-font-display)",
-                    letterSpacing: "-0.374px",
+                    fontSize: "18px",
+                    fontWeight: 700,
+                    letterSpacing: "-0.4px",
+                    color: "white",
+                    lineHeight: 1.2,
+                    marginBottom: "8px",
                   }}
                 >
                   {item.title}
                 </h3>
                 <p
-                  className="mt-1 text-[14px]"
                   style={{
-                    lineHeight: 1.43,
-                    letterSpacing: "-0.224px",
-                    color: "var(--jp-body-muted)",
+                    fontFamily: "var(--jp-font-text)",
+                    fontSize: "14px",
+                    lineHeight: 1.5,
+                    letterSpacing: "-0.1px",
+                    color: "#86868b",
                   }}
                 >
                   {item.desc}
@@ -194,16 +383,21 @@ export function JapaneseDashboard() {
               </div>
             ))}
           </div>
+
           <div className="mt-10">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 rounded-[9999px] px-7 py-3 text-[17px] font-normal active:scale-95"
+              className="inline-flex items-center gap-2 active:scale-95"
               style={{
+                borderRadius: "9999px",
+                padding: "14px 32px",
+                fontSize: "17px",
+                fontWeight: 500,
                 fontFamily: "var(--jp-font-text)",
-                letterSpacing: "-0.374px",
+                letterSpacing: "-0.3px",
                 lineHeight: 1,
-                color: "var(--jp-tile-1)",
-                backgroundColor: "var(--jp-primary-on-dark)",
+                color: "#0a0a0f",
+                background: "var(--jp-primary-on-dark)",
               }}
             >
               学習プランを作成
@@ -218,7 +412,7 @@ export function JapaneseDashboard() {
     <>
       <SectionTitle label={NAV_LABELS.daily} />
       <div className="mx-auto max-w-[1200px] p-4 sm:p-6 lg:px-8 lg:py-10">
-        <DailyGoals />
+        <DailyGoals goals={progressData?.dailyGoals} />
       </div>
     </>
   );
@@ -228,11 +422,11 @@ export function JapaneseDashboard() {
       <SectionTitle label={NAV_LABELS.progress} />
       <div className="mx-auto max-w-[1200px] space-y-[var(--jp-space-xl)] p-4 sm:p-6 lg:px-8 lg:py-10">
         <div className="grid grid-cols-1 gap-4 sm:gap-[var(--jp-space-lg)] md:grid-cols-2 lg:grid-cols-3">
-          <ProgressRings />
-          <MasteryGauge />
-          <AssessmentCard />
+          <ProgressRings progress={progressData?.progress} />
+          <MasteryGauge mastery={progressData?.mastery} currentLevel={progressData?.currentLevel} />
+          <AssessmentCard assessment={progressData?.assessment} />
         </div>
-        <LearningCalendar />
+        <LearningCalendar calendar={progressData?.calendar} />
       </div>
     </>
   );
@@ -241,7 +435,7 @@ export function JapaneseDashboard() {
     <>
       <SectionTitle label={NAV_LABELS.capability} />
       <div className="mx-auto max-w-[1200px] p-4 sm:p-6 lg:px-8 lg:py-10">
-        <CapabilityGrid />
+        <CapabilityGrid onNavigate={setActiveNav} />
       </div>
     </>
   );
@@ -260,32 +454,124 @@ export function JapaneseDashboard() {
     </>
   );
 
-  const renderReview = () => (
-    <>
-      <SectionTitle label={NAV_LABELS.review} />
-      <div className="mx-auto max-w-[1200px] p-4 sm:p-6 lg:px-8 lg:py-10">
-        <div className="flex flex-col items-center justify-center rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white px-6 py-20 text-center">
-          <span className="text-[48px]">📝</span>
-          <p
-            className="mt-4 text-[21px] font-semibold text-[var(--jp-ink)]"
-            style={{ fontFamily: "var(--jp-font-display)" }}
-          >
-            日志复盘 — 即将上线
-          </p>
-          <p
-            className="mt-2 text-[15px] text-[var(--jp-ink-48)]"
+  const renderReview = () => {
+    const goals = progressData?.dailyGoals ?? [];
+    const completed = goals.filter((g) => g.progress >= 100).length;
+    const mastery = progressData?.mastery ?? 43;
+    const level = progressData?.currentLevel ?? "N4";
+
+    return (
+      <>
+        <SectionTitle label={NAV_LABELS.review} />
+        <div className="mx-auto max-w-[1200px] space-y-5 p-4 sm:p-6 lg:px-8 lg:py-10">
+          {/* Today's summary stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              { label: "综合掌握度", value: `${mastery}%`, color: "#0066cc" },
+              { label: "今日目标", value: `${completed}/${goals.length}`, color: "#34c759" },
+              { label: "当前等级", value: level, color: "#ff9500" },
+              { label: "连续学习", value: "7天", color: "#af52de" },
+            ].map((s) => (
+              <div
+                key={s.label}
+                style={{
+                  borderRadius: "var(--jp-radius-lg)",
+                  background: "white",
+                  padding: "20px",
+                  boxShadow: "var(--jp-shadow-card)",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "var(--jp-font-display)",
+                    fontSize: "30px",
+                    fontWeight: 800,
+                    letterSpacing: "-1px",
+                    color: s.color,
+                    lineHeight: 1,
+                  }}
+                >
+                  {s.value}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--jp-font-text)",
+                    fontSize: "12px",
+                    color: "var(--jp-ink-48)",
+                    marginTop: "6px",
+                  }}
+                >
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Goals breakdown */}
+          <DailyGoals goals={progressData?.dailyGoals} />
+
+          {/* CTA to start practice */}
+          <div
             style={{
-              fontFamily: "var(--jp-font-text)",
-              lineHeight: 1.47,
-              letterSpacing: "-0.224px",
+              borderRadius: "var(--jp-radius-lg)",
+              background: "var(--jp-card-blue)",
+              padding: "28px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "16px",
+              boxShadow: "var(--jp-shadow-card)",
             }}
           >
-            学習の振り返りとフィードバック機能をまもなく公開します。
-          </p>
+            <div>
+              <p
+                style={{
+                  fontFamily: "var(--jp-font-display)",
+                  fontSize: "18px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.4px",
+                  color: "var(--jp-ink)",
+                }}
+              >
+                今日も Remi と話しましょう
+              </p>
+              <p
+                style={{
+                  fontFamily: "var(--jp-font-text)",
+                  fontSize: "14px",
+                  color: "var(--jp-ink-48)",
+                  marginTop: "4px",
+                }}
+              >
+                对话练习是最快提升日语的方法
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveNav("practice")}
+              style={{
+                borderRadius: "9999px",
+                background: "var(--jp-primary)",
+                padding: "12px 28px",
+                fontSize: "15px",
+                fontWeight: 600,
+                color: "white",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: "var(--jp-font-text)",
+                letterSpacing: "-0.2px",
+                flexShrink: 0,
+              }}
+              className="active:scale-95"
+            >
+              开始对话练习
+            </button>
+          </div>
         </div>
-      </div>
-    </>
-  );
+      </>
+    );
+  };
 
   const renderContent = () => {
     switch (activeNav) {
@@ -318,6 +604,8 @@ export function JapaneseDashboard() {
         onMobileClose={closeMobileSidebar}
         collapsed={sidebarCollapsed}
         onToggle={toggleCollapsed}
+        currentLevel={progressData?.currentLevel}
+        targetLevel={progressData?.targetLevel}
       />
 
       <div className="flex flex-1 flex-col">

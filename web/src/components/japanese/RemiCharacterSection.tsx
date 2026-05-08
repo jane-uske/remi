@@ -1,19 +1,9 @@
 "use client";
 
 import { useRef } from "react";
-import { RemiPortraitAvatar } from "@/components/RemiPortraitAvatar";
+import { CharacterStage } from "@/components/CharacterStage";
 import type { LipSignal } from "@/types/avatar";
 
-/**
- * A visually prominent section that embeds Remi's portrait avatar.
- *
- * Used in the Japanese dashboard overview to display the Remi character
- * with a subtle Japanese-styled background and a greeting speech bubble.
- *
- * Uses RemiPortraitAvatar directly (the portrait fallback) rather than
- * the full CharacterStage to avoid Live2D/VRM loading overhead in a
- * static dashboard context.
- */
 export function RemiCharacterSection() {
   const lipSignalRef = useRef<LipSignal>({ envelope: 0, active: false });
 
@@ -22,7 +12,7 @@ export function RemiCharacterSection() {
       aria-label="Remi character"
       className="relative overflow-hidden rounded-[var(--jp-radius-lg)]"
       style={{
-        height: "clamp(320px, 40vw, 420px)",
+        height: "clamp(320px, 40vw, 440px)",
         background:
           "linear-gradient(168deg, var(--jp-canvas) 0%, color-mix(in srgb, var(--jp-primary) 4%, var(--jp-parchment)) 48%, var(--jp-parchment) 100%)",
         border: "1px solid var(--jp-hairline)",
@@ -88,9 +78,9 @@ export function RemiCharacterSection() {
         />
       </div>
 
-      {/* Portrait avatar -- positioned to fill the right portion */}
+      {/* Live2D character via CharacterStage (auto-falls back to VRM → portrait) */}
       <div className="absolute bottom-0 right-0 h-full w-[60%] min-w-[260px] sm:w-[50%]">
-        <RemiPortraitAvatar
+        <CharacterStage
           emotion="happy"
           turnState="confirmed_end"
           lipSignalRef={lipSignalRef}

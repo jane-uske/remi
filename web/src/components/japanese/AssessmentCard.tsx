@@ -13,33 +13,54 @@ const DEFAULT_ASSESSMENT: Assessment = {
   ],
 };
 
+const CAT_COLORS: Record<string, string> = {
+  词汇: "#0066cc",
+  语法: "#ff9500",
+  听力: "#34c759",
+  阅读: "#af52de",
+};
+
 interface AssessmentCardProps {
   assessment?: Assessment;
 }
 
 export function AssessmentCard({ assessment = DEFAULT_ASSESSMENT }: AssessmentCardProps) {
   const { score, total, categories } = assessment;
+  const circumference = 2 * Math.PI * 52;
+  const offset = circumference * (1 - score / total);
 
   return (
-    <div className="rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]">
+    <div
+      style={{
+        borderRadius: "var(--jp-radius-lg)",
+        background: "white",
+        padding: "var(--jp-space-lg)",
+        boxShadow: "var(--jp-shadow-card)",
+      }}
+    >
       <h3
-        className="mb-4 text-[17px] font-semibold text-[var(--jp-ink)]"
         style={{
           fontFamily: "var(--jp-font-display)",
-          letterSpacing: "-0.374px",
+          fontSize: "17px",
+          fontWeight: 700,
+          letterSpacing: "-0.4px",
+          color: "var(--jp-ink)",
+          marginBottom: "16px",
         }}
       >
         综合评估
       </h3>
-      <div className="flex items-center gap-6">
-        <div className="relative flex h-[120px] w-[120px] items-center justify-center">
-          <svg width={120} height={120} className="-rotate-90">
+
+      <div className="flex items-start gap-5">
+        {/* Score ring */}
+        <div className="relative shrink-0" style={{ width: 120, height: 120 }}>
+          <svg width={120} height={120} className="-rotate-90" style={{ display: "block" }}>
             <circle
               cx={60}
               cy={60}
               r={52}
               fill="none"
-              stroke="var(--jp-divider)"
+              stroke="#f0f0f5"
               strokeWidth={10}
             />
             <circle
@@ -47,45 +68,96 @@ export function AssessmentCard({ assessment = DEFAULT_ASSESSMENT }: AssessmentCa
               cy={60}
               r={52}
               fill="none"
-              stroke="var(--jp-primary)"
+              stroke="#0066cc"
               strokeWidth={10}
-              strokeDasharray={2 * Math.PI * 52}
-              strokeDashoffset={2 * Math.PI * 52 * (1 - score / total)}
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
               strokeLinecap="round"
               className="transition-all duration-700 ease-out"
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className="text-[34px] font-semibold text-[var(--jp-ink)]"
               style={{
                 fontFamily: "var(--jp-font-display)",
-                letterSpacing: "-0.374px",
+                fontSize: "34px",
+                fontWeight: 800,
+                letterSpacing: "-1.2px",
+                color: "var(--jp-ink)",
+                lineHeight: 1,
               }}
             >
               {score}
             </span>
-            <span className="text-[12px] text-[var(--jp-ink-48)]">/{total}</span>
+            <span
+              style={{
+                fontSize: "11px",
+                color: "var(--jp-ink-48)",
+                fontFamily: "var(--jp-font-text)",
+                marginTop: "2px",
+              }}
+            >
+              / {total}
+            </span>
           </div>
         </div>
 
+        {/* Category bars */}
         <div className="flex-1 space-y-3">
-          {categories.map((item) => (
-            <div key={item.label}>
-              <div className="mb-1 flex justify-between text-[12px]">
-                <span className="text-[var(--jp-ink-80)]">{item.label}</span>
-                <span className="font-medium text-[var(--jp-ink)]">
-                  {item.score}
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--jp-divider)]">
+          {categories.map((item) => {
+            const color = CAT_COLORS[item.label] ?? "#0066cc";
+            return (
+              <div key={item.label}>
                 <div
-                  className="h-full rounded-full bg-[var(--jp-primary)] transition-all duration-500"
-                  style={{ width: `${item.score}%` }}
-                />
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      color: "var(--jp-ink-80)",
+                      fontFamily: "var(--jp-font-text)",
+                    }}
+                  >
+                    {item.label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color,
+                      fontFamily: "var(--jp-font-display)",
+                    }}
+                  >
+                    {item.score}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    height: "4px",
+                    width: "100%",
+                    borderRadius: "9999px",
+                    background: "var(--jp-divider)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${item.score}%`,
+                      borderRadius: "9999px",
+                      background: color,
+                      transition: "width 500ms cubic-bezier(0.25,0.46,0.45,0.94)",
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

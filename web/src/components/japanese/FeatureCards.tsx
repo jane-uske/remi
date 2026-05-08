@@ -1,307 +1,172 @@
 "use client";
 
-/* ---------- Inline SVG illustrations ---------- */
+/* ---------- Inline SVG illustrations — larger, more colorful ---------- */
 
-/** APT教材 — open book with Japanese text lines */
 function IllustrationTextbook() {
   return (
     <svg
-      width="100"
-      height="88"
-      viewBox="0 0 100 88"
+      width="120"
+      height="104"
+      viewBox="0 0 120 104"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      {/* Book spine shadow */}
-      <rect
-        x="13"
-        y="18"
-        width="74"
-        height="56"
-        rx="4"
-        fill="var(--jp-parchment)"
-      />
+      {/* Book shadow */}
+      <ellipse cx="60" cy="96" rx="36" ry="5" fill="rgba(0,102,204,0.10)" />
+      {/* Book back cover */}
+      <rect x="14" y="20" width="92" height="68" rx="6" fill="#c9deff" />
       {/* Left page */}
       <path
-        d="M50 16 C50 16 48 14 30 14 C16 14 12 16 12 16 L12 68 C12 68 16 66 30 66 C44 66 48 68 50 68 Z"
+        d="M60 18C60 18 57 15 36 15C18 15 13 18 13 18L13 82C13 82 18 79 36 79C54 79 57 82 60 82Z"
         fill="white"
-        stroke="var(--jp-primary)"
+        stroke="#0066cc"
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
       {/* Right page */}
       <path
-        d="M50 16 C50 16 52 14 70 14 C84 14 88 16 88 16 L88 68 C88 68 84 66 70 66 C56 66 52 68 50 68 Z"
+        d="M60 18C60 18 63 15 84 15C102 15 107 18 107 18L107 82C107 82 102 79 84 79C66 79 63 82 60 82Z"
         fill="white"
-        stroke="var(--jp-primary)"
+        stroke="#0066cc"
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      {/* Spine */}
-      <line
-        x1="50"
-        y1="16"
-        x2="50"
-        y2="68"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-      />
-      {/* Left page — horizontal text lines */}
-      <line x1="22" y1="26" x2="42" y2="26" stroke="#b3d4f0" strokeWidth="2" strokeLinecap="round" />
-      <line x1="22" y1="33" x2="38" y2="33" stroke="#b3d4f0" strokeWidth="2" strokeLinecap="round" />
-      <line x1="22" y1="40" x2="40" y2="40" stroke="#b3d4f0" strokeWidth="2" strokeLinecap="round" />
-      <line x1="22" y1="47" x2="36" y2="47" stroke="#b3d4f0" strokeWidth="2" strokeLinecap="round" />
-      {/* Right page — Japanese characters あ い う */}
-      <text
-        x="70"
-        y="32"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="11"
-        fontFamily="serif"
-        opacity="0.7"
-      >
-        あ
-      </text>
-      <text
-        x="70"
-        y="46"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="11"
-        fontFamily="serif"
-        opacity="0.7"
-      >
-        い
-      </text>
-      <text
-        x="70"
-        y="60"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="11"
-        fontFamily="serif"
-        opacity="0.7"
-      >
-        う
-      </text>
-      {/* Small bookmark ribbon */}
-      <path
-        d="M60 14 L60 8 L64 11 L68 8 L68 14"
-        fill="var(--jp-primary)"
-        opacity="0.25"
-      />
-      {/* N5 badge bottom-right */}
-      <rect x="72" y="72" width="20" height="12" rx="6" fill="var(--jp-primary)" opacity="0.12" />
-      <text
-        x="82"
-        y="81"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="8"
-        fontWeight="600"
-        fontFamily="var(--jp-font-text), sans-serif"
-      >
-        N5
-      </text>
+      {/* Spine line */}
+      <line x1="60" y1="18" x2="60" y2="82" stroke="#0066cc" strokeWidth="1.5" />
+      {/* Left page — text lines */}
+      <line x1="26" y1="30" x2="50" y2="30" stroke="#b3d4f5" strokeWidth="2.5" strokeLinecap="round" />
+      <line x1="26" y1="39" x2="46" y2="39" stroke="#b3d4f5" strokeWidth="2" strokeLinecap="round" />
+      <line x1="26" y1="48" x2="48" y2="48" stroke="#b3d4f5" strokeWidth="2" strokeLinecap="round" />
+      <line x1="26" y1="57" x2="44" y2="57" stroke="#b3d4f5" strokeWidth="2" strokeLinecap="round" />
+      <line x1="26" y1="66" x2="50" y2="66" stroke="#b3d4f5" strokeWidth="1.5" strokeLinecap="round" />
+      {/* Right page — Japanese characters, larger */}
+      <text x="84" y="38" textAnchor="middle" fill="#0066cc" fontSize="16" fontFamily="serif" fontWeight="600" opacity="0.75">あ</text>
+      <text x="84" y="56" textAnchor="middle" fill="#0066cc" fontSize="16" fontFamily="serif" fontWeight="600" opacity="0.55">い</text>
+      <text x="84" y="74" textAnchor="middle" fill="#0066cc" fontSize="16" fontFamily="serif" fontWeight="600" opacity="0.40">う</text>
+      {/* N5 badge */}
+      <rect x="86" y="85" width="26" height="14" rx="7" fill="#0066cc" opacity="0.18" />
+      <text x="99" y="95" textAnchor="middle" fill="#0066cc" fontSize="9" fontWeight="700">N5</text>
+      {/* Bookmark */}
+      <path d="M72 15L72 8L76 11L80 8L80 15" fill="#0066cc" opacity="0.30" />
     </svg>
   );
 }
 
-/** 私人定制 — person silhouette with gear/customization arcs */
 function IllustrationPersonalized() {
   return (
     <svg
-      width="100"
-      height="88"
-      viewBox="0 0 100 88"
+      width="120"
+      height="104"
+      viewBox="0 0 120 104"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
+      {/* Shadow */}
+      <ellipse cx="60" cy="96" rx="30" ry="4" fill="rgba(52,199,89,0.12)" />
       {/* Head */}
-      <circle cx="50" cy="24" r="12" fill="var(--jp-primary)" opacity="0.12" />
-      <circle
-        cx="50"
-        cy="24"
-        r="12"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-        fill="none"
-      />
-      {/* Body / torso */}
+      <circle cx="60" cy="26" r="16" fill="#ddf5e8" stroke="#34c759" strokeWidth="1.5" />
+      {/* Face details */}
+      <circle cx="55" cy="24" r="1.5" fill="#34c759" opacity="0.6" />
+      <circle cx="65" cy="24" r="1.5" fill="#34c759" opacity="0.6" />
+      <path d="M55 30 Q60 34 65 30" stroke="#34c759" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.7" />
+      {/* Body */}
       <path
-        d="M30 62 C30 46 38 38 50 38 C62 38 70 46 70 62"
-        stroke="var(--jp-primary)"
+        d="M34 78 C34 60 44 50 60 50 C76 50 86 60 86 78"
+        stroke="#34c759"
         strokeWidth="1.5"
-        fill="var(--jp-primary)"
-        fillOpacity="0.08"
+        fill="#ddf5e8"
+        fillOpacity="0.5"
         strokeLinecap="round"
       />
-      {/* Gear — top-right */}
-      <g transform="translate(72, 16)">
-        <circle cx="0" cy="0" r="7" fill="white" stroke="var(--jp-primary)" strokeWidth="1.2" />
-        <circle cx="0" cy="0" r="2.5" fill="var(--jp-primary)" opacity="0.3" />
-        {/* Gear teeth */}
+      {/* Gear — top right */}
+      <g transform="translate(90, 20)">
+        <circle cx="0" cy="0" r="9" fill="white" stroke="#34c759" strokeWidth="1.5" />
+        <circle cx="0" cy="0" r="3.5" fill="#34c759" opacity="0.35" />
         {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
-          <line
-            key={angle}
-            x1={0}
-            y1={-7}
-            x2={0}
-            y2={-10}
-            stroke="var(--jp-primary)"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            transform={`rotate(${angle})`}
-          />
+          <line key={angle} x1="0" y1="-9" x2="0" y2="-13" stroke="#34c759" strokeWidth="2.5" strokeLinecap="round" transform={`rotate(${angle})`} />
         ))}
       </g>
-      {/* Adjustment arcs — left side */}
-      <path
-        d="M18 36 A18 18 0 0 0 18 52"
-        stroke="#b3d4f0"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <path
-        d="M12 32 A24 24 0 0 0 12 56"
-        stroke="#b3d4f0"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.5"
-      />
-      {/* Small slider dots */}
-      <circle cx="18" cy="40" r="2.5" fill="var(--jp-primary)" opacity="0.4" />
-      <circle cx="12" cy="48" r="2" fill="var(--jp-primary)" opacity="0.25" />
-      {/* Sparkle / star — right side */}
-      <g transform="translate(82, 48)">
-        <line x1="0" y1="-5" x2="0" y2="5" stroke="var(--jp-primary)" strokeWidth="1.2" strokeLinecap="round" opacity="0.4" />
-        <line x1="-5" y1="0" x2="5" y2="0" stroke="var(--jp-primary)" strokeWidth="1.2" strokeLinecap="round" opacity="0.4" />
-        <line x1="-3" y1="-3" x2="3" y2="3" stroke="var(--jp-primary)" strokeWidth="1" strokeLinecap="round" opacity="0.25" />
-        <line x1="3" y1="-3" x2="-3" y2="3" stroke="var(--jp-primary)" strokeWidth="1" strokeLinecap="round" opacity="0.25" />
-      </g>
-      {/* Progress bar at bottom */}
-      <rect x="28" y="72" width="44" height="4" rx="2" fill="#b3d4f0" opacity="0.5" />
-      <rect x="28" y="72" width="28" height="4" rx="2" fill="var(--jp-primary)" opacity="0.3" />
+      {/* Adjustment arcs */}
+      <path d="M18 44 A22 22 0 0 0 18 64" stroke="#a8f0c2" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M10 38 A30 30 0 0 0 10 70" stroke="#a8f0c2" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.5" />
+      {/* Slider handles */}
+      <circle cx="18" cy="50" r="3.5" fill="white" stroke="#34c759" strokeWidth="1.5" />
+      <circle cx="10" cy="58" r="2.5" fill="white" stroke="#34c759" strokeWidth="1.2" opacity="0.6" />
+      {/* Progress bar */}
+      <rect x="34" y="85" width="52" height="5" rx="2.5" fill="#b8f0cf" />
+      <rect x="34" y="85" width="33" height="5" rx="2.5" fill="#34c759" opacity="0.6" />
     </svg>
   );
 }
 
-/** 沉浸式対話 — chat bubbles with Japanese text */
 function IllustrationConversation() {
   return (
     <svg
-      width="100"
-      height="88"
-      viewBox="0 0 100 88"
+      width="120"
+      height="104"
+      viewBox="0 0 120 104"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      {/* Left bubble (user) */}
-      <rect
-        x="8"
-        y="12"
-        width="48"
-        height="28"
-        rx="14"
-        fill="var(--jp-primary)"
-        opacity="0.1"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-      />
+      {/* Left bubble */}
+      <rect x="6" y="8" width="64" height="34" rx="17" fill="#fff5e8" stroke="#ff9500" strokeWidth="1.5" />
       {/* Left bubble tail */}
-      <path
-        d="M20 40 L16 48 L28 40"
-        fill="var(--jp-primary)"
-        opacity="0.1"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      {/* Text in left bubble */}
-      <text
-        x="32"
-        y="30"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="12"
-        fontFamily="serif"
-        opacity="0.7"
-      >
-        こんにちは
-      </text>
-      {/* Right bubble (Remi) */}
-      <rect
-        x="44"
-        y="46"
-        width="48"
-        height="28"
-        rx="14"
-        fill="var(--jp-primary)"
-        opacity="0.08"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-      />
+      <path d="M24 42 L18 52 L36 42" fill="#fff5e8" stroke="#ff9500" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Left bubble text */}
+      <text x="38" y="29" textAnchor="middle" fill="#c07000" fontSize="14" fontFamily="serif" fontWeight="600" opacity="0.85">こんにちは</text>
+      {/* Right bubble */}
+      <rect x="50" y="54" width="64" height="34" rx="17" fill="#fff5e8" stroke="#ff9500" strokeWidth="1.5" />
       {/* Right bubble tail */}
-      <path
-        d="M80 74 L84 82 L72 74"
-        fill="var(--jp-primary)"
-        opacity="0.08"
-        stroke="var(--jp-primary)"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      {/* Text in right bubble */}
-      <text
-        x="68"
-        y="64"
-        textAnchor="middle"
-        fill="var(--jp-primary)"
-        fontSize="12"
-        fontFamily="serif"
-        opacity="0.7"
-      >
-        元気です
-      </text>
-      {/* Sound wave arcs — top-right */}
-      <path
-        d="M76 10 A8 8 0 0 1 76 24"
-        stroke="#b3d4f0"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <path
-        d="M82 6 A14 14 0 0 1 82 28"
-        stroke="#b3d4f0"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.5"
-      />
-      <path
-        d="M88 2 A20 20 0 0 1 88 32"
-        stroke="#b3d4f0"
-        strokeWidth="1"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.3"
-      />
-      {/* Small dot accents */}
-      <circle cx="12" cy="56" r="2" fill="var(--jp-primary)" opacity="0.15" />
-      <circle cx="18" cy="62" r="1.5" fill="var(--jp-primary)" opacity="0.1" />
+      <path d="M96 88 L102 96 L86 88" fill="#fff5e8" stroke="#ff9500" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Right bubble text */}
+      <text x="82" y="75" textAnchor="middle" fill="#c07000" fontSize="13" fontFamily="serif" fontWeight="500" opacity="0.75">元気です！</text>
+      {/* Sound waves */}
+      <path d="M96 12 A9 9 0 0 1 96 28" stroke="#ffd090" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M104 6 A16 16 0 0 1 104 34" stroke="#ffd090" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" />
+      <path d="M112 1 A23 23 0 0 1 112 40" stroke="#ffd090" strokeWidth="1" strokeLinecap="round" fill="none" opacity="0.35" />
+      {/* Dot accents */}
+      <circle cx="10" cy="66" r="2.5" fill="#ff9500" opacity="0.18" />
+      <circle cx="17" cy="74" r="1.8" fill="#ff9500" opacity="0.12" />
     </svg>
   );
 }
 
-/* ---------- Illustrations map ---------- */
+/* ---------- Features data + colors ---------- */
 
-const illustrations: Record<string, () => React.JSX.Element> = {
+const features = [
+  {
+    illustration: "textbook" as const,
+    bg: "var(--jp-card-blue)",
+    accentColor: "#0066cc",
+    accentBg: "rgba(0,102,204,0.10)",
+    title: "APT 教材",
+    desc: "自适应进度教学，基于 JLPT 标准体系，从 N5 到 N1 系统覆盖。",
+    tag: "N5–N1 全覆盖",
+  },
+  {
+    illustration: "personalized" as const,
+    bg: "var(--jp-card-green)",
+    accentColor: "#1d8348",
+    accentBg: "rgba(52,199,89,0.10)",
+    title: "私人定制",
+    desc: "根据学习习惯与薄弱项，智能调整学习路径，千人千面。",
+    tag: "千人千面",
+  },
+  {
+    illustration: "conversation" as const,
+    bg: "var(--jp-card-orange)",
+    accentColor: "#b45309",
+    accentBg: "rgba(255,149,0,0.10)",
+    title: "沉浸式对话",
+    desc: "与 Remi 真实对话练习，实时纠正发音与语法，完全沉浸。",
+    tag: "实时反馈",
+  },
+];
+
+const illustrations = {
   textbook: IllustrationTextbook,
   personalized: IllustrationPersonalized,
   conversation: IllustrationConversation,
@@ -310,67 +175,65 @@ const illustrations: Record<string, () => React.JSX.Element> = {
 /* ---------- Component ---------- */
 
 export function FeatureCards() {
-  const features = [
-    {
-      illustration: "textbook" as const,
-      title: "APT 教材",
-      desc: "自适应进度教学，基于 JLPT 标准体系",
-      detail: "N5-N1 全覆盖",
-    },
-    {
-      illustration: "personalized" as const,
-      title: "私人定制",
-      desc: "根据学习习惯与薄弱项，智能调整学习路径",
-      detail: "千人千面",
-    },
-    {
-      illustration: "conversation" as const,
-      title: "沉浸式对话",
-      desc: "与 Remi 真实对话练习，纠正发音与语法",
-      detail: "实时反馈",
-    },
-  ];
-
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-[var(--jp-space-lg)] lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
       {features.map((f) => {
         const Illust = illustrations[f.illustration];
         return (
           <div
             key={f.title}
-            className="cursor-default rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]"
-            style={{ transition: "border-color 200ms ease" }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.borderColor = "var(--jp-primary)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.borderColor = "var(--jp-hairline)")
-            }
+            className="group relative cursor-default overflow-hidden rounded-[var(--jp-radius-xl)]"
+            style={{ background: f.bg }}
           >
-            <div className="mb-[var(--jp-space-md)] flex items-center justify-center">
+            {/* Illustration area */}
+            <div className="flex items-center justify-center px-6 pt-7 pb-2">
               <Illust />
             </div>
-            <h3
-              className="text-[17px] font-semibold text-[var(--jp-ink)]"
-              style={{
-                fontFamily: "var(--jp-font-display)",
-                letterSpacing: "-0.374px",
-              }}
-            >
-              {f.title}
-            </h3>
-            <p
-              className="mt-2 text-[14px] leading-[1.43] text-[var(--jp-ink-80)]"
-              style={{
-                fontFamily: "var(--jp-font-text)",
-                letterSpacing: "-0.224px",
-              }}
-            >
-              {f.desc}
-            </p>
-            <span className="mt-3 inline-block rounded-[var(--jp-radius-pill)] bg-[var(--jp-parchment)] px-3 py-1 text-[12px] font-medium text-[var(--jp-primary)]">
-              {f.detail}
-            </span>
+
+            {/* Text area */}
+            <div className="px-6 pb-6">
+              <h3
+                style={{
+                  fontFamily: "var(--jp-font-display)",
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.4px",
+                  color: "var(--jp-ink)",
+                  lineHeight: 1.2,
+                }}
+              >
+                {f.title}
+              </h3>
+              <p
+                style={{
+                  fontFamily: "var(--jp-font-text)",
+                  fontSize: "14px",
+                  lineHeight: 1.6,
+                  letterSpacing: "-0.1px",
+                  color: "var(--jp-ink-80)",
+                  marginTop: "6px",
+                }}
+              >
+                {f.desc}
+              </p>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  marginTop: "14px",
+                  background: f.accentBg,
+                  color: f.accentColor,
+                  borderRadius: "var(--jp-radius-pill)",
+                  padding: "4px 12px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.1px",
+                  fontFamily: "var(--jp-font-text)",
+                }}
+              >
+                {f.tag}
+              </span>
+            </div>
           </div>
         );
       })}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import type { JlptLevel } from "@/types/japanese";
 
 const NAV_ITEMS = [
   { id: "overview", label: "学习总览", icon: "📊" },
@@ -24,6 +25,10 @@ interface SidebarProps {
   collapsed?: boolean;
   /** Called to toggle collapsed state */
   onToggle?: () => void;
+  /** Current JLPT level from API */
+  currentLevel?: JlptLevel;
+  /** Target JLPT level from API */
+  targetLevel?: JlptLevel;
 }
 
 export function Sidebar({
@@ -33,6 +38,8 @@ export function Sidebar({
   onMobileClose,
   collapsed = false,
   onToggle,
+  currentLevel = "N4",
+  targetLevel = "N1",
 }: SidebarProps) {
   // Lock body scroll when mobile sidebar is open
   useEffect(() => {
@@ -169,7 +176,7 @@ export function Sidebar({
           <div className="rounded-[var(--jp-radius-md)] bg-white p-3">
             {collapsed ? (
               <p className="text-center text-[20px] font-semibold text-[var(--jp-primary)]">
-                N4
+                {currentLevel}
               </p>
             ) : (
               <>
@@ -180,10 +187,10 @@ export function Sidebar({
                   当前等级
                 </p>
                 <p className="mt-1 text-[24px] font-semibold text-[var(--jp-primary)]">
-                  N4
+                  {currentLevel}
                 </p>
                 <p className="text-[12px] text-[var(--jp-ink-48)]">
-                  目标: N1
+                  目标: {targetLevel}
                 </p>
               </>
             )}

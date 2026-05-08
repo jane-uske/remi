@@ -13,53 +13,123 @@ interface DailyGoalsProps {
   goals?: DailyGoal[];
 }
 
+const PROGRESS_COLORS: Record<string, string> = {
+  vocab: "#0066cc",
+  grammar: "#ff9500",
+  listen: "#34c759",
+  speak: "#af52de",
+};
+
 export function DailyGoals({ goals = DEFAULT_GOALS }: DailyGoalsProps) {
+  const completedCount = goals.filter((g) => g.progress >= 100).length;
+
   return (
-    <div className="rounded-[var(--jp-radius-lg)] border border-[var(--jp-hairline)] bg-white p-[var(--jp-space-lg)]">
-      <div className="mb-4 flex items-center justify-between">
+    <div
+      style={{
+        borderRadius: "var(--jp-radius-lg)",
+        background: "white",
+        padding: "var(--jp-space-lg)",
+        boxShadow: "var(--jp-shadow-card)",
+      }}
+    >
+      <div className="mb-5 flex items-center justify-between">
         <h3
-          className="text-[17px] font-semibold text-[var(--jp-ink)]"
           style={{
             fontFamily: "var(--jp-font-display)",
-            letterSpacing: "-0.374px",
+            fontSize: "17px",
+            fontWeight: 700,
+            letterSpacing: "-0.4px",
+            color: "var(--jp-ink)",
           }}
         >
           每日学习目标
         </h3>
-        <span className="text-[12px] text-[var(--jp-ink-48)]">
-          {goals.filter((g) => g.progress >= 100).length}/{goals.length} 已完成
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            fontSize: "12px",
+            fontWeight: 600,
+            color: "#34c759",
+            fontFamily: "var(--jp-font-text)",
+            background: "rgba(52,199,89,0.08)",
+            padding: "3px 10px",
+            borderRadius: "9999px",
+          }}
+        >
+          {completedCount}/{goals.length} 完成
         </span>
       </div>
       <div className="space-y-3">
-        {goals.map((goal) => (
-          <div
-            key={goal.id}
-            className="flex items-center gap-3 rounded-[var(--jp-radius-sm)] bg-[var(--jp-parchment)] p-3"
-            style={{ transition: "background-color 200ms ease" }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--jp-divider)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--jp-parchment)")
-            }
-          >
-            <span className="text-lg">{goal.icon}</span>
-            <div className="flex-1">
-              <p className="text-[14px] font-medium text-[var(--jp-ink)]">
-                {goal.title}
-              </p>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--jp-hairline)]">
+        {goals.map((goal) => {
+          const color = PROGRESS_COLORS[goal.id] ?? "#0066cc";
+          const done = goal.progress >= 100;
+          return (
+            <div
+              key={goal.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                borderRadius: "12px",
+                background: done ? "rgba(52,199,89,0.05)" : "var(--jp-parchment)",
+                padding: "12px 14px",
+                transition: "background 200ms ease",
+              }}
+            >
+              <span style={{ fontSize: "20px", lineHeight: 1 }}>{goal.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p
+                  style={{
+                    fontFamily: "var(--jp-font-text)",
+                    fontSize: "14px",
+                    fontWeight: 500,
+                    color: "var(--jp-ink)",
+                    letterSpacing: "-0.1px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {goal.title}
+                </p>
+                {/* Progress bar */}
                 <div
-                  className="h-full rounded-full bg-[var(--jp-primary)] transition-all duration-500"
-                  style={{ width: `${Math.min(goal.progress, 100)}%` }}
-                />
+                  style={{
+                    height: "4px",
+                    width: "100%",
+                    borderRadius: "9999px",
+                    background: "var(--jp-divider)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(goal.progress, 100)}%`,
+                      borderRadius: "9999px",
+                      background: color,
+                      transition: "width 500ms cubic-bezier(0.25,0.46,0.45,0.94)",
+                    }}
+                  />
+                </div>
               </div>
+              <span
+                style={{
+                  minWidth: "36px",
+                  textAlign: "right",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: color,
+                  fontFamily: "var(--jp-font-display)",
+                  letterSpacing: "-0.3px",
+                  lineHeight: 1,
+                }}
+              >
+                {goal.progress}%
+              </span>
             </div>
-            <span className="min-w-[36px] text-right text-[14px] font-semibold text-[var(--jp-primary)]">
-              {goal.progress}%
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
