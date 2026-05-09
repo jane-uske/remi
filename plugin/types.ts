@@ -12,7 +12,7 @@ export interface TurnInterpreterHook {
   postProcess(
     interpretation: TurnInterpretation,
     policy: ResponsePolicy,
-    input: { userMessage: string; inputSource: "text" | "voice" },
+    input: { userMessage: string; inputSource: "text" | "voice"; connId?: string },
   ): { interpretation: TurnInterpretation; policy: ResponsePolicy };
 }
 
@@ -21,6 +21,7 @@ export interface PromptInjectionHook {
     userMessage: string;
     persona: PersonaState;
     interpretation?: TurnInterpretation | null;
+    connId?: string;
   }): string[];
 }
 
@@ -32,7 +33,7 @@ export type OutputGuardResult =
 export interface OutputGuardHook {
   review(
     reply: string,
-    context: { userMessage: string; persona: PersonaState },
+    context: { userMessage: string; persona: PersonaState; connId?: string },
   ): OutputGuardResult;
 }
 
@@ -62,6 +63,9 @@ export interface RemiPlugin {
   name: string;
   version: string;
   enabled?(): boolean;
+
+  onSessionStart?(connId: string): void;
+  onSessionEnd?(connId: string): void;
 
   characterRules?: CharacterRulesHook;
   turnInterpreter?: TurnInterpreterHook;

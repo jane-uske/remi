@@ -363,7 +363,7 @@ export async function runPipeline(
     const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
 
     for (const guard of getOutputGuardHooks()) {
-      const result = guard.review(full, { userMessage: text, persona: ctx.persona });
+      const result = guard.review(full, { userMessage: text, persona: ctx.persona, connId });
       if (result.action === "modify") {
         full = result.modified;
       } else if (result.action === "block") {

@@ -103,7 +103,7 @@ interface TurnInterpreterHook {
   postProcess(
     interpretation: TurnInterpretation,
     policy: ResponsePolicy,
-    input: { userMessage: string; inputSource: "text" | "voice" },
+    input: { userMessage: string; inputSource: "text" | "voice"; connId?: string },
   ): { interpretation: TurnInterpretation; policy: ResponsePolicy };
 }
 ```
@@ -136,6 +136,7 @@ interface PromptInjectionHook {
     userMessage: string;
     persona: PersonaState;
     interpretation?: TurnInterpretation | null;
+    connId?: string;
   }): string[];
 }
 ```
@@ -168,7 +169,7 @@ type OutputGuardResult =
 interface OutputGuardHook {
   review(
     reply: string,
-    context: { userMessage: string; persona: PersonaState },
+    context: { userMessage: string; persona: PersonaState; connId?: string },
   ): OutputGuardResult;
 }
 ```
@@ -252,6 +253,28 @@ Plugin B.extendRules(rules₁) →  rules₂  (final)
 ### Registration
 
 Call `registerPlugin()` once per plugin. Duplicate `id` values are rejected with a warning. Registration is typically done at server startup.
+
+### Session Lifecycle
+
+Plugins that need per-session state can implement `onSessionStart` and `onSessionEnd`:
+
+```typescript
+const myPlugin: RemiPlugin = {
+  id: "stateful-plugin",
+  name: "Stateful Plugin",
+  version: "1.0.0",
+
+  onSessionStart(connId) {
+    // Initialize per-session state
+  },
+  onSessionEnd(connId) {
+    // Clean up per-session state
+  },
+  // ...hooks
+};
+```
+
+The `connId` is also passed to `TurnInterpreterHook`, `PromptInjectionHook`, and `OutputGuardHook` via their input/context parameters. `TtsModifierHook` receives it via `TtsRequestContext.connId`. This allows stateful plugins to look up per-session data in any hook.
 
 ## Example: Content Filter Plugin
 

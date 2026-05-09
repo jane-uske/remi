@@ -490,6 +490,7 @@ export async function* routeMessage(
     history: ctx.history,
     slowBrainSnapshot,
     inputSource,
+    connId: ctx.connId,
     signal,
   } as const;
   const analysisCandidate =
@@ -723,6 +724,7 @@ export async function* routeMessage(
       onFirstLlmReasoningChunk,
       onFirstLlmVisibleContent,
       persona: ctx.persona,
+      connId: ctx.connId,
     })) {
       fullReply += token;
       yield token;

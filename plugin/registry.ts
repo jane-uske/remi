@@ -71,3 +71,15 @@ export function getTtsModifierHooks(): TtsModifierHook[] {
     )
     .map((p) => p.ttsModifier);
 }
+
+export function notifySessionStart(connId: string): void {
+  for (const p of getActivePlugins()) {
+    p.onSessionStart?.(connId);
+  }
+}
+
+export function notifySessionEnd(connId: string): void {
+  for (const p of getActivePlugins()) {
+    p.onSessionEnd?.(connId);
+  }
+}

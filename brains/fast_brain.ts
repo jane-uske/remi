@@ -105,6 +105,7 @@ export interface FastBrainInput {
   onFirstLlmVisibleContent?: () => void;
   /** Optional structured persona state for v1 personality system */
   persona?: PersonaState;
+  connId?: string;
 }
 
 /**
@@ -133,6 +134,7 @@ export async function* fastBrainStream(
     currentContext: input.currentContext,
     priorityContext,
     persona: input.persona,
+    connId: input.connId,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
@@ -256,6 +258,7 @@ export async function fastBrainPredictOnly(
     currentContext: input.currentContext,
     priorityContext,
     persona: input.persona,
+    connId: input.connId,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);

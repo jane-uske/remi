@@ -26,6 +26,7 @@ interface BuildPromptInput {
   priorityContext?: string;
   /** Optional structured persona state for v1 personality system */
   persona?: PersonaState;
+  connId?: string;
 }
 
 type PrioritySlots = {
@@ -132,6 +133,7 @@ function buildSystemPrompt(
   currentContext?: string,
   priorityContext?: string,
   persona?: PersonaState,
+  connId?: string,
 ): string {
   const maxPriorityChars = parsePositiveInt(process.env.MAX_PRIORITY_CONTEXT_CHARS, 500);
   const maxMemoryEntries = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
@@ -155,7 +157,7 @@ function buildSystemPrompt(
           .join("\n")
       : undefined;
     const pluginSections = getPromptInjectionHooks().flatMap((hook) =>
-      hook.getPromptSections({ userMessage, persona, interpretation: null }),
+      hook.getPromptSections({ userMessage, persona, interpretation: null, connId }),
     );
     const personaPrompt = buildPersonaPrompt(persona, {
       userMessage,
@@ -222,7 +224,7 @@ function buildSystemPrompt(
   }
 
   const legacyPluginSections = getPromptInjectionHooks().flatMap((hook) =>
-    hook.getPromptSections({ userMessage, persona: persona!, interpretation: null }),
+    hook.getPromptSections({ userMessage, persona: persona!, interpretation: null, connId }),
   );
   if (legacyPluginSections.length > 0) {
     sections.push(legacyPluginSections.join("\n"));
@@ -239,9 +241,10 @@ export function buildPrompt({
   currentContext,
   priorityContext,
   persona,
+  connId,
 }: BuildPromptInput): PromptMessage[] {
   return [
-    { role: "system", content: buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona) },
+    { role: "system", content: buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona, connId) },
     ...history,
     { role: "user", content: userMessage },
   ];

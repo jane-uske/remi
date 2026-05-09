@@ -130,6 +130,7 @@ export async function computeSessionPrediction(
     slowBrainContext,
     signal,
     persona: brain.persona,
+    connId: input.connId,
   });
 
   if (!signal.aborted && input.pushPrediction && reply) {

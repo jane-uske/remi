@@ -103,6 +103,7 @@ export interface AnalyzeTurnInput {
   history: PromptMessage[];
   slowBrainSnapshot: SlowBrainSnapshot;
   inputSource: "text" | "voice";
+  connId?: string;
   signal?: AbortSignal;
 }
 
@@ -958,7 +959,7 @@ export async function analyzeTurn(input: AnalyzeTurnInput): Promise<TurnAnalysis
     const result = hook.postProcess(
       bundle.interpretation,
       bundle.policy,
-      { userMessage: input.userMessage, inputSource: input.inputSource },
+      { userMessage: input.userMessage, inputSource: input.inputSource, connId: input.connId },
     );
     bundle.interpretation = result.interpretation;
     bundle.policy = result.policy;

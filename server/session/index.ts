@@ -149,6 +149,7 @@ import {
 } from "./tts_transport";
 import { applyPcm16Gain, normalizeDuplexPcm16Mono } from "./audio_resample";
 import { clearSessionTtsRuntimeOverride } from "../../voice/tts_runtime_overrides";
+import { notifySessionStart, notifySessionEnd } from "../../plugin/registry";
 
 const logger = createLogger("session");
 const HISTORY_PAGE_SIZE = 15;
@@ -396,6 +397,7 @@ export class ConnectionSession {
   constructor(ws: WebSocket, req: IncomingMessage) {
     this.connId = randomUUID();
     this.brain = new RemiSessionContext(this.connId);
+    notifySessionStart(this.connId);
     this.ws = ws;
     this.stt = new SttStream();
     this.vad = new VadDetector();
@@ -3530,6 +3532,7 @@ export class ConnectionSession {
 
   /** 全面的资源清理方法 */
   private cleanupAllResources(): void {
+    notifySessionEnd(this.connId);
     cleanupSessionResources({
       connId: this.connId,
       sessionId: this.sessionId,
