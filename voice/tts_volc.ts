@@ -4,6 +4,7 @@ import { createLogger } from "../infra/logger";
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
 import type { TtsRequestContext } from "./tts_request_context";
 import { getSessionTtsRuntimeOverride } from "./tts_runtime_overrides";
+import { getTtsModifierHooks } from "../plugin/registry";
 
 const logger = createLogger("tts_volc");
 
@@ -168,6 +169,40 @@ function resolveExpressionPreset(
 }
 
 export function planVolcExpression(
+  text: string,
+  emotion?: Emotion,
+  context?: TtsRequestContext,
+): VolcExpressionPlan {
+  const plan = planVolcExpressionCore(text, emotion, context);
+  const hooks = getTtsModifierHooks();
+  if (hooks.length === 0) return plan;
+  type TtsModifierParams = {
+    expressionPreset: string;
+    speechRate: number;
+    emotion?: string;
+    emotionScale?: number;
+    contextText?: string;
+  };
+  let result: TtsModifierParams = {
+    expressionPreset: plan.preset as string,
+    speechRate: plan.speechRate,
+    emotion: plan.emotion,
+    emotionScale: plan.emotionScale,
+    contextText: plan.contextText,
+  };
+  for (const hook of hooks) {
+    result = hook.modifyTtsParams(result, context ?? {});
+  }
+  return {
+    preset: result.expressionPreset as VolcExpressionPreset,
+    speechRate: result.speechRate,
+    contextText: result.contextText,
+    emotion: result.emotion,
+    emotionScale: result.emotionScale,
+  };
+}
+
+function planVolcExpressionCore(
   text: string,
   emotion?: Emotion,
   context?: TtsRequestContext,

@@ -1,3 +1,5 @@
+import { getCharacterRulesHooks } from "../plugin/registry";
+
 const BASE_CHARACTER_RULES: string[] = [
   "默认 2-3 句，除非用户要详细",
   "像真人朋友，不像客服或主持",
@@ -9,7 +11,11 @@ const BASE_CHARACTER_RULES: string[] = [
 ];
 
 export function getCharacterRules(): string[] {
-  return BASE_CHARACTER_RULES;
+  let rules = [...BASE_CHARACTER_RULES];
+  for (const hook of getCharacterRulesHooks()) {
+    rules = hook.extendRules(rules);
+  }
+  return rules;
 }
 
 export function buildCharacterRulesPrompt(): string {

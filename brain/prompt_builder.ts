@@ -4,6 +4,7 @@ import { buildPersonalityPrompt } from "./personality";
 import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
+import { getPromptInjectionHooks } from "../plugin/registry";
 
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
@@ -153,7 +154,10 @@ function buildSystemPrompt(
           .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
           .join("\n")
       : undefined;
-    return buildPersonaPrompt(persona, {
+    const pluginSections = getPromptInjectionHooks().flatMap((hook) =>
+      hook.getPromptSections({ userMessage, persona, interpretation: null }),
+    );
+    const personaPrompt = buildPersonaPrompt(persona, {
       userMessage,
       currentContext: trimmedCurrentContext,
       priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
@@ -177,6 +181,10 @@ function buildSystemPrompt(
       memoryStr,
       emotionSpeechGuidance: buildEmotionSpeechGuidance(emotion),
     });
+    if (pluginSections.length > 0) {
+      return personaPrompt + "\n\n" + pluginSections.join("\n");
+    }
+    return personaPrompt;
   }
 
   // Fallback to original system prompt logic
@@ -211,6 +219,13 @@ function buildSystemPrompt(
       .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
       .join("\n");
     sections.push(`用户信息：\n${memoryLines}`);
+  }
+
+  const legacyPluginSections = getPromptInjectionHooks().flatMap((hook) =>
+    hook.getPromptSections({ userMessage, persona: persona!, interpretation: null }),
+  );
+  if (legacyPluginSections.length > 0) {
+    sections.push(legacyPluginSections.join("\n"));
   }
 
   return sections.join("\n\n");

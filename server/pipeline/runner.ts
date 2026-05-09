@@ -23,6 +23,7 @@ import { send } from "../gateway";
 import type { InterruptionType } from "../../avatar/types";
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { SessionTtsTransport } from "../session/tts_transport";
+import { getOutputGuardHooks } from "../../plugin/registry";
 
 const logger = createLogger("pipeline");
 
@@ -360,6 +361,16 @@ export async function runPipeline(
     }
     ctx.currentAssistantDraft = null;
     const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
+
+    for (const guard of getOutputGuardHooks()) {
+      const result = guard.review(full, { userMessage: text, persona: ctx.persona });
+      if (result.action === "modify") {
+        full = result.modified;
+      } else if (result.action === "block") {
+        full = result.replacement;
+        break;
+      }
+    }
 
     if (isDbReady() && sessionId && full && !signal.aborted && shouldPersistAssistantReply) {
       try {

@@ -11,6 +11,7 @@ import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
 import type { StyleIntentSignal } from "../persona/style_override";
+import { getTurnInterpreterHooks } from "../plugin/registry";
 
 const logger = createLogger("turn_interpreter");
 
@@ -944,7 +945,7 @@ export async function analyzeTurn(input: AnalyzeTurnInput): Promise<TurnAnalysis
 
   interpretation.sceneType = deriveSceneType(interpretation, input.userMessage, input.history);
   const policy = composeResponsePolicy(interpretation, input.slowBrainSnapshot);
-  return {
+  const bundle: TurnAnalysisBundle = {
     interpretation,
     policy,
     source,
@@ -953,6 +954,16 @@ export async function analyzeTurn(input: AnalyzeTurnInput): Promise<TurnAnalysis
     mode,
     used: mode === "on",
   };
+  for (const hook of getTurnInterpreterHooks()) {
+    const result = hook.postProcess(
+      bundle.interpretation,
+      bundle.policy,
+      { userMessage: input.userMessage, inputSource: input.inputSource },
+    );
+    bundle.interpretation = result.interpretation;
+    bundle.policy = result.policy;
+  }
+  return bundle;
 }
 
 export function buildResponsePolicyGuidance(bundle: TurnAnalysisBundle): string {
