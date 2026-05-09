@@ -2,10 +2,6 @@ import { WebSocket } from "ws";
 
 import { chatStream } from "../../agents/conversation_agent";
 import { inferAvatarIntentFromReply } from "../../agents/avatar_intent_agent";
-import {
-  AdultPersonaStreamGuard,
-  sanitizeAdultPersonaReply,
-} from "../../brain/adult_persona_guard";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { decayEmotion } from "../../emotion/decay_emotion";
 import { updateEmotion } from "../../emotion/emotion_engine";
@@ -191,7 +187,6 @@ export async function runPipeline(
     signal.addEventListener("abort", onAbort, { once: true });
 
     let firstAudioSent = false;
-    const adultSceneState = ctx.persona.liveState.adultSceneState;
     let thinkingFillerTimer: ReturnType<typeof setTimeout> | null = null;
     const clearThinkingFillerTimer = () => {
       if (thinkingFillerTimer) {
@@ -207,7 +202,6 @@ export async function runPipeline(
             connId,
             generationId,
             usage: "thinking_filler",
-            adultSceneState,
             relationalStance: ctx.persona.liveState.relationalStance,
             responsePolicy: ctx.lastResponsePolicy,
           })
@@ -230,16 +224,7 @@ export async function runPipeline(
           if (signal.aborted) break;
 
           if (sentenceIdx === 1) latencyTracer.mark("tts_start", traceId);
-          const ttsReview = sanitizeAdultPersonaReply(rawSentence, adultSceneState);
-          if (ttsReview.flagged) {
-            logger.warn("[AdultPersonaGuard] sanitized tts sentence", {
-              connId,
-              generationId,
-              reasons: ttsReview.reasons,
-              preview: ttsReview.output.slice(0, 80),
-            });
-          }
-          const sentence = ttsReview.output;
+          const sentence = rawSentence;
 
           try {
             ic.markSpeaking();
@@ -276,7 +261,6 @@ export async function runPipeline(
 
     const chunker = new SentenceChunker();
     chunker.setEager(true);
-    const adultPersonaGuard = new AdultPersonaStreamGuard(adultSceneState);
     let full = "";
     let firstTokenReceived = false;
     let firstSentenceSent = false;
@@ -315,16 +299,7 @@ export async function runPipeline(
     )) {
       if (signal.aborted) break;
 
-      const guardedChunk = adultPersonaGuard.push(token);
-      if (guardedChunk.flagged) {
-        logger.warn("[AdultPersonaGuard] sanitized streaming chunk", {
-          connId,
-          generationId,
-          reasons: guardedChunk.reasons,
-          preview: guardedChunk.output.slice(0, 80),
-        });
-      }
-      if (!guardedChunk.output) continue;
+      if (!token) continue;
 
       if (!firstTokenReceived) {
         firstTokenReceived = true;
@@ -334,11 +309,11 @@ export async function runPipeline(
         clearThinkingFillerTimer();
       }
 
-      full += guardedChunk.output;
+      full += token;
       ctx.currentAssistantDraft = full;
-      send(ws, { type: "chat_chunk", content: guardedChunk.output, generationId });
+      send(ws, { type: "chat_chunk", content: token, generationId });
 
-      for (const sentence of chunker.pushDetailed(guardedChunk.output)) {
+      for (const sentence of chunker.pushDetailed(token)) {
         pushSentence(sentence.text, sentence.boundaryType);
         if (!firstSentenceSent) {
           firstSentenceSent = true;
@@ -350,46 +325,6 @@ export async function runPipeline(
     latencyTracer.mark("llm_end", traceId);
 
     if (!signal.aborted) {
-      const finalGuardedChunk = adultPersonaGuard.flush();
-      if (finalGuardedChunk.flagged) {
-        logger.warn("[AdultPersonaGuard] sanitized final chunk", {
-          connId,
-          generationId,
-          reasons: finalGuardedChunk.reasons,
-          preview: finalGuardedChunk.output.slice(0, 80),
-        });
-      }
-      if (finalGuardedChunk.output) {
-        if (!firstTokenReceived) {
-          firstTokenReceived = true;
-          const now = Date.now();
-          latencyTracer.set("llm_first_visible_content", now, traceId);
-          latencyTracer.set("llm_first_token", now, traceId);
-          clearThinkingFillerTimer();
-        }
-        full += finalGuardedChunk.output;
-        ctx.currentAssistantDraft = full;
-        send(ws, { type: "chat_chunk", content: finalGuardedChunk.output, generationId });
-        for (const sentence of chunker.pushDetailed(finalGuardedChunk.output)) {
-          pushSentence(sentence.text, sentence.boundaryType);
-          if (!firstSentenceSent) {
-            firstSentenceSent = true;
-            chunker.setEager(false);
-          }
-        }
-      }
-
-      const finalReview = sanitizeAdultPersonaReply(full, adultSceneState);
-      if (finalReview.flagged) {
-        logger.warn("[AdultPersonaGuard] sanitized completed reply", {
-          connId,
-          generationId,
-          reasons: finalReview.reasons,
-          preview: finalReview.output.slice(0, 120),
-        });
-        full = finalReview.output;
-        ctx.currentAssistantDraft = full;
-      }
       const last = chunker.flushDetailed();
       if (last) pushSentence(last.text, last.boundaryType);
     } else {
@@ -584,7 +519,6 @@ async function ttsSend(
             connId: ctx.connId,
             generationId,
             usage: "reply",
-            adultSceneState: ctx.persona.liveState.adultSceneState,
             relationalStance: ctx.persona.liveState.relationalStance,
             responsePolicy: ctx.lastResponsePolicy ?? null,
           })
@@ -593,7 +527,6 @@ async function ttsSend(
               connId: ctx.connId,
               generationId,
               usage: "reply",
-              adultSceneState: ctx.persona.liveState.adultSceneState,
               relationalStance: ctx.persona.liveState.relationalStance,
               responsePolicy: ctx.lastResponsePolicy ?? null,
             }),

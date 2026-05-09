@@ -1888,7 +1888,6 @@ export class ConnectionSession {
       connId: this.connId,
       generationId,
       usage: "backchannel",
-      adultSceneState: this.brain.persona.liveState.adultSceneState,
       relationalStance: this.brain.persona.liveState.relationalStance,
       responsePolicy: this.brain.lastResponsePolicy ?? null,
     })

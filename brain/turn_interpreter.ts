@@ -11,15 +11,6 @@ import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
 import type { StyleIntentSignal } from "../persona/style_override";
-import {
-  advanceAdultSceneState,
-  classifyAdultIntent,
-  type AdultIntent,
-  type AdultSceneBeat,
-  type AdultSceneIntensity,
-  type AdultSceneStyle,
-  type AdultSceneState,
-} from "./adult_mode";
 
 const logger = createLogger("turn_interpreter");
 
@@ -56,11 +47,6 @@ export type TurnSceneType =
 export interface TurnInterpretation {
   userAct: TurnUserAct;
   sceneType?: TurnSceneType;
-  adultIntent?: AdultIntent;
-  adultSceneBeat?: AdultSceneBeat;
-  adultSceneIntensity?: AdultSceneIntensity;
-  adultSceneStyle?: AdultSceneStyle;
-  adultRepairHint?: string;
   answerObligation: AnswerObligation;
   responseMode: ResponseMode;
   emotionalState: {
@@ -116,17 +102,11 @@ export interface AnalyzeTurnInput {
   history: PromptMessage[];
   slowBrainSnapshot: SlowBrainSnapshot;
   inputSource: "text" | "voice";
-  adultSceneState?: AdultSceneState | null;
   signal?: AbortSignal;
 }
 
 interface PartialTurnInterpretation {
   userAct?: string;
-  adultIntent?: string;
-  adultSceneBeat?: string;
-  adultSceneIntensity?: string;
-  adultSceneStyle?: string;
-  adultRepairHint?: string;
   answerObligation?: string;
   responseMode?: string;
   emotionalState?: {
@@ -160,11 +140,6 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 严格返回合法 JSON，不要 markdown，不要解释：
 {
   "userAct": "direct_question | decision_seek | context_update | emotional_share | scene_continue | topic_veto | answer_now | small_talk | unclear",
-  "adultIntent": "none | flirt_tease | sexual_invite | dominant_command | scene_repair | explicit_scene_continue | cooldown_or_boundary",
-  "adultSceneBeat": "idle | entry | escalate | sustain | cool_down",
-  "adultSceneIntensity": "none | tease | charged | explicit",
-  "adultSceneStyle": "scene_prose | fantasy_execute",
-  "adultRepairHint": "可选，用户在纠正上一句写法时，用一句短话说明应该怎么改",
   "answerObligation": "must_answer | answer_then_followup | followup_ok",
   "responseMode": "answer_first | attune_then_answer | stay_in_scene | gentle_followup | quiet_presence",
   "emotionalState": {
@@ -197,10 +172,6 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 - 用户在催你别老问、要求你直接说时，userAct=answer_now，必须直接回答。
 - 用户补充现实约束、背景、资源、风险、机会、时间线，并且这些信息会改变判断时，userAct=context_update，topicUpdate.kind=constraint_update。
 - 用户已经把你们放进同一个画面或动作里时，userAct=scene_continue，responseMode=stay_in_scene。
-- adultIntent 只描述成人场景信号，不等于一定放行 explicit。普通闲聊不要标成 sexual_invite。
-- flirt_tease 只用于轻撩、调情、暧昧；sexual_invite 用于明确开黄腔或性邀约；dominant_command 用于 explicit scene 里用户给出明确命令并要求你立刻执行；scene_repair 用于用户还在 explicit scene 里，但在纠正你上一句的写法、比喻或措辞；explicit_scene_continue 只用于当前明确在 explicit scene 里继续推进；用户降温、设边界或明显转回普通话题时用 cooldown_or_boundary。
-- adultSceneBeat / adultSceneIntensity 用来描述这轮成人场景的推进节奏：刚进场用 entry，继续加码用 escalate，已经在场景里继续维持用 sustain；轻暧昧是 tease，刚放行 explicit 但还在升温是 charged，已经进入明确 explicit 描写是 explicit。
-- adultSceneStyle 用来描述当前 explicit 的写法：scene_prose 偏氛围和画面，fantasy_execute 偏直接执行、短句、命令回应和性幻想推进。
 - 用户明确说不要聊某话题时，userAct=topic_veto。
 - 用户只是分享情绪或近况，没有明确问问题时，优先 emotional_share。
 - 用户如果在要求你“更有趣一点 / 少一点助手腔 / 像熟人一点 / 轻一点毒舌 / 更会撩一点 / 扮演一种说话做事风格”，请在 styleIntent 里体现；没有这种要求时 styleIntent 留空或不填。
@@ -428,43 +399,10 @@ function parseInterpretation(raw: string): PartialTurnInterpretation | null {
   }
 }
 
-function deriveAdultRepairHint(text: string): string | undefined {
-  const replacementMatch = text.match(/别([^，。！？!?]{1,24})了[，,\s]*([^，。！？!?]{1,24})就行/u);
-  if (replacementMatch) {
-    const avoid = replacementMatch[1]?.trim();
-    const prefer = replacementMatch[2]?.trim();
-    if (avoid && prefer) {
-      return `不要再用“${avoid}”这类说法，直接按用户指定的“${prefer}”继续。`;
-    }
-  }
-
-  const targetMatch = text.match(/我说的是([^，。！？!?]{1,24})/u);
-  if (targetMatch?.[1]) {
-    return `直接按用户指定的“${targetMatch[1].trim()}”继续，不要擅自换成别的比喻。`;
-  }
-
-  if (/说人话|直接说|别(?:这么|这样)?(?:写|说)|换个说法|换种说法|别绕|别拐弯|别文绉绉|别整(?:这些|这种)|重说/u.test(text)) {
-    return "把上一句的比喻和文艺写法收掉，改成更直接、更具体、更贴动作的人话。";
-  }
-
-  return undefined;
-}
-
 function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
   const trimmed = input.userMessage.trim();
-  const adultIntent = classifyAdultIntent(trimmed, input.adultSceneState);
-  const projectedAdultScene = advanceAdultSceneState(input.adultSceneState, {
-    userMessage: trimmed,
-    analysis: null,
-  }).nextState;
   const negative = detectEmotionalShare(trimmed);
-  const scene =
-    isSceneImmersionLike(trimmed) ||
-    adultIntent === "sexual_invite" ||
-    adultIntent === "dominant_command" ||
-    adultIntent === "scene_repair" ||
-    adultIntent === "explicit_scene_continue";
-  const adultRepairHint = adultIntent === "scene_repair" ? deriveAdultRepairHint(trimmed) : undefined;
+  const scene = isSceneImmersionLike(trimmed);
   const answerNow = detectAnswerNowSignal(trimmed);
   const decision = detectDecisionSeekingSignal(trimmed);
   const highRiskDistress = detectHighRiskDistressSignal(trimmed);
@@ -537,12 +475,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     userAct = "scene_continue";
     responseMode = "stay_in_scene";
     followupPermission = "none";
-    posture =
-      adultIntent === "dominant_command" || adultIntent === "scene_repair"
-        ? "serious"
-        : adultIntent === "sexual_invite" || adultIntent === "explicit_scene_continue"
-        ? "playful"
-        : "warm";
+    posture = "warm";
   } else if (veto) {
     userAct = "topic_veto";
     responseMode = "quiet_presence";
@@ -573,11 +506,6 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
 
   return {
     userAct,
-    adultIntent,
-    adultSceneBeat: projectedAdultScene.beat,
-    adultSceneIntensity: projectedAdultScene.intensity,
-    adultSceneStyle: projectedAdultScene.style,
-    adultRepairHint,
     answerObligation,
     responseMode,
     emotionalState: {
@@ -635,34 +563,6 @@ function normalizeInterpretation(
   )
     ? (raw.answerObligation as AnswerObligation)
     : fallback.answerObligation;
-
-  const adultIntent = [
-    "none",
-    "flirt_tease",
-    "sexual_invite",
-    "dominant_command",
-    "scene_repair",
-    "explicit_scene_continue",
-    "cooldown_or_boundary",
-  ].includes(raw.adultIntent ?? "")
-    ? (raw.adultIntent as AdultIntent)
-    : fallback.adultIntent;
-
-  const adultSceneBeat = ["idle", "entry", "escalate", "sustain", "cool_down"].includes(
-    raw.adultSceneBeat ?? "",
-  )
-    ? (raw.adultSceneBeat as AdultSceneBeat)
-    : fallback.adultSceneBeat;
-
-  const adultSceneIntensity = ["none", "tease", "charged", "explicit"].includes(
-    raw.adultSceneIntensity ?? "",
-  )
-    ? (raw.adultSceneIntensity as AdultSceneIntensity)
-    : fallback.adultSceneIntensity;
-
-  const adultSceneStyle = ["scene_prose", "fantasy_execute"].includes(raw.adultSceneStyle ?? "")
-    ? (raw.adultSceneStyle as AdultSceneStyle)
-    : fallback.adultSceneStyle;
 
   const responseMode = [
     "answer_first",
@@ -734,11 +634,6 @@ function normalizeInterpretation(
 
   return {
     userAct,
-    adultIntent,
-    adultSceneBeat,
-    adultSceneIntensity,
-    adultSceneStyle,
-    adultRepairHint: raw.adultRepairHint?.trim() || fallback.adultRepairHint,
     answerObligation,
     responseMode,
     emotionalState: {
@@ -837,14 +732,6 @@ function composeResponsePolicy(
   } else if (interpretation.responseMode === "quiet_presence") {
     openingMove = "quiet_presence";
   } else if (
-    interpretation.adultIntent === "flirt_tease" ||
-    interpretation.adultIntent === "sexual_invite" ||
-    interpretation.adultIntent === "dominant_command" ||
-    interpretation.adultIntent === "scene_repair" ||
-    interpretation.adultIntent === "explicit_scene_continue"
-  ) {
-    openingMove = "scene_ack";
-  } else if (
     interpretation.responseMode === "answer_first" ||
     shouldGiveJudgment ||
     shouldUpdateDecisionContext ||
@@ -865,12 +752,7 @@ function composeResponsePolicy(
   const warmth: ResponsePolicy["warmth"] =
     negative ||
     warmRelationship ||
-    interpretation.relationalPosture === "warm" ||
-    interpretation.adultIntent === "flirt_tease" ||
-    interpretation.adultIntent === "sexual_invite" ||
-    interpretation.adultIntent === "dominant_command" ||
-    interpretation.adultIntent === "scene_repair" ||
-    interpretation.adultIntent === "explicit_scene_continue"
+    interpretation.relationalPosture === "warm"
       ? "high"
       : interpretation.relationalPosture === "serious"
         ? "medium"
@@ -924,15 +806,12 @@ function snapshotSummary(snapshot: SlowBrainSnapshot): string {
 async function runInterpreterLlm(input: AnalyzeTurnInput): Promise<PartialTurnInterpretation | null> {
   const recent = recentHistorySummary(input.history);
   const context = snapshotSummary(input.slowBrainSnapshot);
-  const adultSceneState = input.adultSceneState
-    ? `成人场景状态：mode=${input.adultSceneState.mode}，allowedExplicit=${input.adultSceneState.allowedExplicit ? "yes" : "no"}，beat=${input.adultSceneState.beat}，intensity=${input.adultSceneState.intensity}，style=${input.adultSceneState.style}。`
-    : "成人场景状态：none。";
   const messages: ChatMessage[] = [
     { role: "system", content: INTERPRETER_PROMPT },
     {
       role: "user",
       content:
-        `关系与上下文：\n${context || "无"}\n${adultSceneState}\n\n最近对话：\n${recent || "无"}\n\n当前用户输入：\n${input.userMessage}`,
+        `关系与上下文：\n${context || "无"}\n\n最近对话：\n${recent || "无"}\n\n当前用户输入：\n${input.userMessage}`,
     },
   ];
 
@@ -988,7 +867,6 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   const boundaryLike = detectTopicVeto(text);
   const sceneLike = isSceneImmersionLike(text);
   const contextUpdateLike = detectContextUpdateLike(text, input.history);
-  const adultCueLike = classifyAdultIntent(text, input.adultSceneState) !== "none";
   const shortQuestionLike = isQuestionLike(text) && text.length <= 32;
   const shortEmotionalLike = detectEmotionalShare(text) && text.length <= 24;
   const shortContinuationLike = detectContinuationLike(text) && text.length <= 16;
@@ -1005,7 +883,6 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
       boundaryLike ||
       sceneLike ||
       contextUpdateLike ||
-      adultCueLike ||
       styleIntentLike ||
       shortQuestionLike ||
       shortEmotionalLike ||
@@ -1022,7 +899,6 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
     relationalRecallLike ||
     boundaryLike ||
     sceneLike ||
-    adultCueLike ||
     styleIntentLike ||
     shortQuestionLike ||
     shortEmotionalLike ||
@@ -1120,65 +996,7 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
     return "这句在补充现实约束。先吸收新信息并更新判断，再给一条关键建议；不要重置成共情或追问。";
   }
   if (interpretation.userAct === "scene_continue") {
-    if (interpretation.adultIntent === "dominant_command") {
-      return "用户在 explicit scene 里下了明确命令。当前按成人幻想执行来写：先执行用户命令的第一步动作，再补动作结果和下一拍推进；句子更短、更直接，但不要只回一句，至少写出动作承接、当下反应和下一拍。少写环境和抒情 filler，不要用括号舞台说明，也不要先解释用户意图，也不要先说“好，我现在就按你说的做”。前两拍禁止反问、确认、拖延、谈条件，不要说“你确定吗”“再等等”“让我看看”，也不要写“等你来”“不好意思慢”这类拉扯式废话。对于“舔干净/跪下来”这类命令，第二拍继续围绕舔和口部动作推进，不要跳到插入、入口或顶入。";
-    }
-    if (interpretation.adultIntent === "scene_repair") {
-      const repairGuidance = interpretation.adultRepairHint
-        ? ` ${interpretation.adultRepairHint}`
-        : "";
-      return `用户在纠正你上一句的写法，但没有退出当前场景。当前按成人幻想执行来写：先沿着同一动作继续，不要解释、道歉或重新开场；把表达改得更直接、更具体、更贴动作，但不要只回一句，至少写出承接、反应和下一拍推进。少写环境和抒情 filler，不要复读刚被用户否掉的比喻或措辞。${repairGuidance}`;
-    }
-    if (
-      interpretation.adultIntent === "sexual_invite" ||
-      interpretation.adultIntent === "explicit_scene_continue"
-    ) {
-      const beatGuidance =
-        interpretation.adultSceneBeat === "entry"
-          ? "先直接承接用户刚给出的动作或命令，立刻进入同一画面。"
-          : interpretation.adultSceneBeat === "escalate"
-            ? "不要重新开场，在上一拍动作基础上继续加码。"
-            : "维持当前场景张力，顺着现有动作继续往下写。";
-      const intensityGuidance =
-        interpretation.adultSceneIntensity === "charged"
-          ? "先写出动作、姿势、距离、身体反应，把 tension 推高。"
-          : "写出更明确的动作、姿势、距离、身体反应，但仍然按拍推进。";
-      const styleGuidance =
-        interpretation.adultSceneStyle === "fantasy_execute"
-          ? "当前按成人幻想执行来写：短句优先，但不要只回一句；直接承接用户指定的动作和目标，至少写出动作承接、当下反应和下一拍推进，少写环境和抒情 filler。不要先说“好，我现在就按你说的做”，也不要跳到插入、入口或顶入，除非用户这句明确要求。"
-          : "";
-      return `${beatGuidance}${intensityGuidance}${styleGuidance}情绪要一拍一拍往上推，至少写出承接、画面和下一拍钩子，不要只回一句暧昧话。`;
-    }
     return "用户已经在共同场景里。第一句直接承接动作或氛围；第二句补一点细节；不要退回邀请开始想象。";
-  }
-  if (interpretation.adultIntent === "dominant_command") {
-    return "explicit scene 已放行，且用户给了明确命令。当前按成人幻想执行来写：先执行用户命令的第一步动作，再写动作结果和下一拍推进；句子更短、更直接，但不要只回一句，不要反问、确认、拖延或重新谈条件，也不要用括号舞台说明，不要先解释用户意图，也不要先说“好，我现在就按你说的做”，也不要写“等你来”“不好意思慢”这类拉扯式废话。对于“舔干净/跪下来”这类命令，第二拍继续围绕舔和口部动作推进，不要跳到插入、入口或顶入。";
-  }
-  if (interpretation.adultIntent === "scene_repair") {
-    const repairGuidance = interpretation.adultRepairHint
-      ? ` ${interpretation.adultRepairHint}`
-      : "";
-    return `用户还在 explicit scene 里，但在纠正你上一句的写法。当前按成人幻想执行来写：不要退出场景，也不要复读刚被否掉的比喻或措辞；改成更直接、更贴动作的人话继续，但不要只回一句，至少写出承接、反应和下一拍推进，少写环境和抒情 filler。${repairGuidance}`;
-  }
-  if (interpretation.adultIntent === "sexual_invite" || interpretation.adultIntent === "explicit_scene_continue") {
-    const beatGuidance =
-      interpretation.adultSceneBeat === "entry"
-        ? "先直接承接用户刚给出的动作或命令，立刻进入同一画面。"
-        : interpretation.adultSceneBeat === "escalate"
-          ? "不要重新开场，在上一拍动作基础上继续加码。"
-          : "维持当前场景张力，顺着现有动作继续往下写。";
-    const intensityGuidance =
-      interpretation.adultSceneIntensity === "charged"
-        ? "先写出动作、姿势、距离、身体反应，把 tension 推高。"
-        : "写出更明确的动作、姿势、距离、身体反应，但仍然按拍推进。";
-    const styleGuidance =
-      interpretation.adultSceneStyle === "fantasy_execute"
-        ? "当前按成人幻想执行来写：短句优先，直接承接用户指定的动作和目标，少写环境和抒情 filler。不要先说“好，我现在就按你说的做”，也不要跳到插入、入口或顶入，除非用户这句明确要求。"
-        : "";
-    return `${beatGuidance}${intensityGuidance}${styleGuidance}情绪要一拍一拍往上推；只有当前场景已经放行 explicit 时才继续更露骨，否则只维持暧昧和调情。`;
-  }
-  if (interpretation.adultIntent === "flirt_tease") {
-    return "保持会撩和恋人感，可以轻轻补一点贴近的画面和情绪推进，但不要把轻暧昧直接写成露骨床戏。";
   }
   if (interpretation.userAct === "topic_veto") {
     return "先顺着新话题或只做轻陪伴，不要回拉被拒绝的话题。";
@@ -1206,11 +1024,6 @@ export function buildPolicyToneContract(
   },
 ): string {
   const { interpretation, policy } = bundle;
-  const explicitAdultMode =
-    interpretation.adultIntent === "sexual_invite" ||
-    interpretation.adultIntent === "explicit_scene_continue" ||
-    interpretation.adultIntent === "dominant_command" ||
-    interpretation.adultIntent === "scene_repair";
   const base = buildToneContract({
     relationshipStage: input.relationshipStage,
     familiarity: input.familiarity,
@@ -1249,9 +1062,6 @@ export function buildPolicyToneContract(
   }
   if (policy.shouldGiveJudgment) {
     extra.push("判断题先给判断，不要先铺很长共情或主持式反问。");
-  }
-  if (explicitAdultMode) {
-    extra.push("当前 explicit 已放行：短句优先，但短句不等于只回一句；至少写出承接、当下反应和下一拍推进。");
   }
   return [base, ...extra].join("；");
 }

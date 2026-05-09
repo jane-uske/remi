@@ -103,7 +103,6 @@ Memory V2 基础设施、prompt 读路径、proactive planner 主路径和真实
 - ⏸ iOS 新功能扩张（保底，不抢主线）
 - ⏸ 多端连续性产品化闭环
 - ⏸ 大而全 persona preset 扩展
-- ⏸ adult-mode / 边缘玩法扩展
 - ⏸ 与当前主线无关的大量 docs / ops / infra 美化
 - ⏸ “每条线都推进一点”的并行模式
 

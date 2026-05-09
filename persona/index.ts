@@ -1,7 +1,5 @@
 import { buildCharacterRulesPrompt } from "../brain/character_rules";
-import { buildAdultScenePrompt } from "../brain/adult_mode";
 import { buildPersonalityPrompt } from "../brain/personality";
-import { createAdultSceneState, type AdultSceneState } from "../brain/adult_mode";
 import {
   buildPersonaStyleOverrideGuidance,
   type PersonaStyleOverride,
@@ -64,7 +62,6 @@ export type PersonaLiveState = {
   // ── Layer 4 信号 ──
   proactiveIntent: ProactiveIntent;
   relationalStance: RelationalStance;
-  adultSceneState: AdultSceneState;
   styleOverride: PersonaStyleOverride | null;
 
   // ── 内部辅助状态（不直接映射到设计的6字段，但驱动派生逻辑） ──
@@ -154,7 +151,6 @@ export function createDefaultPersona(): PersonaState {
         proactiveCadence: "guarded",
         expressionDirectness: "balanced",
       },
-      adultSceneState: createAdultSceneState(),
       styleOverride: null,
       recentInteractions: [],
       isContinuingTopic: false,
@@ -531,12 +527,8 @@ export function buildPersonaPrompt(
   // 3. 人格核心
   sections.push(buildPersonalityPrompt());
   sections.push(buildCharacterRulesPrompt());
-  const adultScenePrompt = buildAdultScenePrompt(liveState.adultSceneState);
-  if (adultScenePrompt) {
-    sections.push(adultScenePrompt);
-  }
   sections.push(
-    "【关系与记忆回答规则】用户问“我们是什么关系”“我们聊了多久”“你还记得多少”时，只能依据当前给出的关系阶段、轮数、摘要和记忆来答；没有长期依据时按刚开始接触来答，不能脑补成已经认识很久，也不能编造具体聊天时长或轮数。",
+    "【关系与记忆回答规则】用户问”我们是什么关系””我们聊了多久””你还记得多少”时，只能依据当前给出的关系阶段、轮数、摘要和记忆来答；没有长期依据时按刚开始接触来答，不能脑补成已经认识很久，也不能编造具体聊天时长或轮数。",
   );
   sections.push(
     `【人格设定】${persona.profile.label}；${persona.profile.coreIdentity}；${persona.profile.toneGuide}；${persona.profile.proactiveGuide}`,

@@ -71,7 +71,6 @@
 - [ ] iOS 新功能扩张
 - [ ] 多端持续在线产品化闭环
 - [ ] 大而全 persona preset 扩展
-- [ ] adult-mode / 边缘玩法扩展
 - [ ] 与当前主线无关的大量 docs / ops / infra 美化
 - [ ] 继续按“memory / web / iOS / auth / avatar / voice 全线一起推”的模式工作
 - [ ] 把复杂工具调用 / agent 能力当作陪伴产品的主卖点

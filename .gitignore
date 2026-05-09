@@ -34,3 +34,7 @@ whisper-server-*.wav_temp.wav
 
 /models
 /artifacts/cold_layer/
+
+# IDE / agent config
+.claude/
+.cursor/

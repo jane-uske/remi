@@ -224,7 +224,6 @@ npm run test --prefix web
 | `STT_PREDICTION_DEBOUNCE_MS` | partial prediction 的防抖毫秒数（默认 `300`）。 |
 | `REMI_FAST_BRAIN_MODEL` | fast brain / prediction 单独使用的模型；不设则复用 `model`。适合只给实时链路切轻模型。 |
 | `REMI_FAST_BRAIN_REASONING_EFFORT` | fast brain / prediction 调用的 reasoning 强度覆盖；本地默认可切 `minimal` 以压首个可见正文。 |
-| `REMI_ADULT_MODE` | 是否启用测试用成人 persona / adult guard（默认 `0`；设为 `1` 才注入成人化 character rules），同时会放宽 Volc TTS 的亲密/挑逗表达强度。 |
 | `TURN_PROSODY_ENABLED` | 是否启用 prosody 辅助 turn-taking（当前默认 `1`）。关闭时退回无韵律旁路的规则判断。 |
 | `NEXT_PUBLIC_VRM_URL` | （前端）自定义 VRM 路径；不设则使用 `web/public/vrm/` 下默认模型。根目录 `npm run dev:web:standalone` 时 `next.config` 会读取**仓库根** `.env`。 |
 | `NEXT_PUBLIC_WS_URL` | WebSocket 地址，须含 `ws://` 或 `wss://`（勿写 `localhost:3000/ws` 无前缀）。 |

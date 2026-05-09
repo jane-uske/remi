@@ -42,8 +42,8 @@
     "web:build": "npm run build --prefix web"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "jane-uske",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "dotenv": "^17.4.0",

@@ -86,7 +86,6 @@ export function handleSessionTextChat(
         connId: runtime.connId,
         generationId: interruptedGenerationId ?? 0,
         usage: "interrupt_reaction",
-        adultSceneState: runtime.brain.persona.liveState.adultSceneState,
         relationalStance: runtime.brain.persona.liveState.relationalStance,
         responsePolicy: runtime.brain.lastResponsePolicy ?? null,
       },

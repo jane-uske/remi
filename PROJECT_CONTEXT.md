@@ -492,7 +492,6 @@ Remi 应该更像：
 - iOS 新功能扩张（保底，不抢主线）
 - 多端连续性产品化闭环
 - 大而全 persona presets 扩展
-- adult-mode / 边缘玩法扩展
 - 与当前主线无关的大量 docs / ops / infra 美化
 - 同时推进 memory / web / iOS / auth / avatar / voice 全部高优先
 

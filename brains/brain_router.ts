@@ -23,7 +23,6 @@ import {
   shouldAnalyzeTurn,
   type TurnAnalysisBundle,
 } from "../brain/turn_interpreter";
-import { advanceAdultSceneState } from "../brain/adult_mode";
 import type { RepairState, WorkingMemoryV2 } from "./slow_brain_store";
 import { resolvePersonaStyleDirective } from "../persona/style_override";
 
@@ -316,33 +315,6 @@ function slowBrainEnabled(): boolean {
   return raw !== "0" && raw !== "false";
 }
 
-function updateAdultSceneState(
-  ctx: RemiSessionContext,
-  userMessage: string,
-  analysis: TurnAnalysisBundle | null | undefined,
-  systemTriggered: boolean | undefined,
-): void {
-  if (systemTriggered) return;
-
-  const decision = advanceAdultSceneState(ctx.persona.liveState.adultSceneState, {
-    userMessage,
-    analysis: analysis?.used ? analysis : null,
-  });
-  ctx.persona.liveState.adultSceneState = decision.nextState;
-
-  if (decision.changed || decision.intent !== "none") {
-    logger.info("[AdultScene] state transition", {
-      connId: ctx.connId,
-      intent: decision.intent,
-      reason: decision.reason,
-      mode: decision.nextState.mode,
-      allowedExplicit: decision.nextState.allowedExplicit,
-      initiatedByUser: decision.nextState.initiatedByUser,
-      cooldownOrBoundaryHit: decision.nextState.cooldownOrBoundaryHit,
-    });
-  }
-}
-
 export interface RouteMessageOptions {
   /** 服务端触发的陪伴搭话：不跑记忆提取与慢脑，历史中 user 用短占位 */
   systemTriggered?: boolean;
@@ -518,7 +490,6 @@ export async function* routeMessage(
     history: ctx.history,
     slowBrainSnapshot,
     inputSource,
-    adultSceneState: ctx.persona.liveState.adultSceneState,
     signal,
   } as const;
   const analysisCandidate =
@@ -634,7 +605,6 @@ export async function* routeMessage(
       ctx.slowBrain.addResponseStyleNote(resolvedStyleDirective.responseStyleNote);
     }
   }
-  updateAdultSceneState(ctx, userMessage, analysis, opts?.systemTriggered);
   const guidance = ctx.slowBrain.buildConversationGuidance(
     userMessage,
     analysis?.used ? analysis : null,

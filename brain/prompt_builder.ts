@@ -1,6 +1,5 @@
 import type { Emotion } from "../emotion/emotion_state";
 import { buildCharacterRulesPrompt } from "./character_rules";
-import { buildAdultScenePrompt } from "./adult_mode";
 import { buildPersonalityPrompt } from "./personality";
 import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
@@ -199,10 +198,6 @@ function buildSystemPrompt(
     buildPersonalityPrompt(),
     buildCharacterRulesPrompt(),
   );
-  const adultScenePrompt = buildAdultScenePrompt();
-  if (adultScenePrompt) {
-    sections.push(adultScenePrompt);
-  }
   sections.push(
     `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: "" }), 320)}`,
     "【关系与记忆回答规则】如果用户问“我们是什么关系”“我们聊了多久”“你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按“刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。",

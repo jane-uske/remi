@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
 
 import { createLogger } from "../infra/logger";
-import { isAdultModeEnabled } from "../brain/character_rules";
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
 import type { TtsRequestContext } from "./tts_request_context";
 import { getSessionTtsRuntimeOverride } from "./tts_runtime_overrides";
@@ -110,13 +109,10 @@ function detectExpressionIntent(text: string): "comfort" | "serious" | "playful"
 function buildContextTextFromLiveState(context?: TtsRequestContext): string | undefined {
   const stance = context?.relationalStance;
   const policy = context?.responsePolicy;
-  const adultSceneState = context?.adultSceneState;
   const clauses: string[] = [];
-  const adultMode = isAdultModeEnabled();
-  const explicitScene = adultSceneState?.mode === "explicit" && adultSceneState?.allowedExplicit;
 
   if (stance?.boundary === "close") {
-    clauses.push(adultMode ? "可以更贴近一点，距离感可以更暧昧一点" : "可以更贴近一点");
+    clauses.push("可以更贴近一点");
   } else if (stance?.boundary === "light") {
     clauses.push("保持一点边界感");
   }
@@ -139,14 +135,6 @@ function buildContextTextFromLiveState(context?: TtsRequestContext): string | un
     clauses.push("保持贴近和温度");
   }
 
-  if (adultMode && context?.usage === "reply" && stance?.boundary === "close") {
-    clauses.push(
-      explicitScene
-        ? "允许更明显地带一点 sexual tension，但仍然像真人，不要浮夸"
-        : "允许带一点暧昧和调情感，但别直接变露骨床戏",
-    );
-  }
-
   if (context?.usage === "backchannel") {
     clauses.push("更短、更像随口接话");
   } else if (context?.usage === "interrupt_reaction") {
@@ -156,27 +144,23 @@ function buildContextTextFromLiveState(context?: TtsRequestContext): string | un
   }
 
   if (clauses.length === 0) return undefined;
-  return adultMode
-    ? `${clauses.join("，")}，不要播报腔，也不要像夸张角色配音。`
-    : `${clauses.join("，")}，保持自然克制，不要刻意发骚，也不要像夸张角色配音。`;
+  return `${clauses.join("，")}，保持自然克制，不要刻意发骚，也不要像夸张角色配音。`;
 }
 
 function resolveExpressionPreset(
   intent: "comfort" | "serious" | "playful" | "intimate" | null,
   emotion: Emotion | undefined,
   context: TtsRequestContext | undefined,
-  adultMode: boolean,
 ): VolcExpressionPreset {
-  const explicitScene = context?.adultSceneState?.mode === "explicit" && context?.adultSceneState?.allowedExplicit;
   if (context?.usage === "thinking_filler" || context?.usage === "backchannel") {
     return "neutral_natural";
   }
   if (context?.usage === "interrupt_reaction") {
-    return adultMode ? "playful_light" : "neutral_natural";
+    return "neutral_natural";
   }
   if (intent === "comfort" || emotion === "sad") return "grounded_comfort";
   if (intent === "serious") return "serious_close";
-  if (intent === "intimate") return adultMode && explicitScene ? "intimate_tease" : "soft_intimate";
+  if (intent === "intimate") return "soft_intimate";
   if (intent === "playful") return "playful_tease";
   if (emotion === "happy") return "playful_light";
   if (emotion === "shy") return "soft_intimate";
@@ -189,14 +173,12 @@ export function planVolcExpression(
   context?: TtsRequestContext,
 ): VolcExpressionPlan {
   const baseSpeechRate = resolveBaseSpeechRate(emotion);
-  const adultMode = isAdultModeEnabled();
-  const explicitScene = context?.adultSceneState?.mode === "explicit" && context?.adultSceneState?.allowedExplicit;
   const explicitContext = firstEnv("volc_tts_context_text", "VOLC_TTS_CONTEXT_TEXT");
   const explicitEmotion = firstEnv("volc_tts_emotion", "VOLC_TTS_EMOTION");
   const explicitEmotionScale = firstEnv("volc_tts_emotion_scale", "VOLC_TTS_EMOTION_SCALE");
   const liveStateContext = buildContextTextFromLiveState(context);
   const intent = detectExpressionIntent(text);
-  const preset = resolveExpressionPreset(intent, emotion, context, adultMode);
+  const preset = resolveExpressionPreset(intent, emotion, context);
   if (!isDynamicStyleEnabled()) {
     return {
       preset,
@@ -246,14 +228,10 @@ export function planVolcExpression(
       emotionScale = 2;
       break;
     case "playful_tease":
-      speechRate = clamp(baseSpeechRate + (adultMode ? (explicitScene ? 7 : 4) : 4), -50, 100);
-      contextText = adultMode
-        ? explicitScene
-          ? "带一点坏笑、挑逗和亲近感，可以更勾人一点，但不要假，不要像角色配音。"
-          : "带一点坏笑和调情感，会撩一点，但别直接变露骨床戏，也不要像角色配音。"
-        : "带一点坏笑和调情感，明显会撩一点，但保持自然，不要太骚，也不要像角色配音。";
+      speechRate = clamp(baseSpeechRate + 4, -50, 100);
+      contextText = "带一点坏笑和调情感，明显会撩一点，但保持自然，不要太骚，也不要像角色配音。";
       volcEmotion = "happy";
-      emotionScale = adultMode && explicitScene ? 4 : 3;
+      emotionScale = 3;
       break;
     case "soft_intimate":
       speechRate = clamp(baseSpeechRate - 4, -50, 100);
@@ -263,9 +241,7 @@ export function planVolcExpression(
       break;
     case "intimate_tease":
       speechRate = clamp(baseSpeechRate - 1, -50, 100);
-      contextText = explicitScene
-        ? "更近一点，更轻一点，像靠近耳边说话，允许带一点暧昧和勾引感，但不要演。"
-        : "更近一点，更轻一点，像靠近耳边说话，允许带一点暧昧，但别直接变露骨床戏。";
+      contextText = "更近一点，更轻一点，像靠近耳边说话，允许带一点暧昧，但别直接变露骨床戏。";
       volcEmotion = "happy";
       emotionScale = 3;
       break;
@@ -273,11 +249,7 @@ export function planVolcExpression(
       if (emotion === "curious") {
         contextText = "带一点好奇和贴近感，停顿自然一些。";
       } else {
-        contextText = adultMode
-          ? explicitScene
-            ? "自然一点，像真人贴近地说话，可以有一点若有若无的 sexual tension，但不要播报腔。"
-            : "自然一点，像真人贴近地说话，可以有一点若有若无的暧昧感，但别直接变露骨床戏。"
-          : "自然一点，像真人说话，不要播报腔。";
+        contextText = "自然一点，像真人说话，不要播报腔。";
       }
       break;
   }
@@ -476,9 +448,6 @@ export async function speakWithVolc(
     connId: context?.connId,
     generationId: context?.generationId,
     usage: context?.usage ?? null,
-    adultMode: isAdultModeEnabled(),
-    adultSceneMode: context?.adultSceneState?.mode ?? null,
-    explicitSceneAllowed: context?.adultSceneState?.allowedExplicit ?? false,
     preset: config.expressionPreset,
     voiceType: config.voiceType,
     speechRate: config.speechRate,

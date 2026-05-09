@@ -1,6 +1,5 @@
 import type { RelationalStance } from "../persona";
 import type { ResponsePolicy } from "../brain/turn_interpreter";
-import type { AdultSceneState } from "../brain/adult_mode";
 
 export type TtsUsageKind =
   | "reply"
@@ -12,7 +11,6 @@ export interface TtsRequestContext {
   connId?: string;
   generationId?: number;
   usage?: TtsUsageKind;
-  adultSceneState?: AdultSceneState | null;
   relationalStance?: RelationalStance;
   responsePolicy?: Pick<
     ResponsePolicy,

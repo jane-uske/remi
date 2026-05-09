@@ -1,6 +1,5 @@
 import { applyPersonaProfilePreset, type PersonaState } from "../persona";
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
-import { createAdultSceneState } from "../brain/adult_mode";
 import type { PersonaPresetId } from "../persona/presets";
 import {
   getPersonaPreset,
@@ -83,7 +82,6 @@ export function resetPersonaLiveState(persona: PersonaState): void {
     proactiveCadence: "guarded",
     expressionDirectness: "balanced",
   };
-  persona.liveState.adultSceneState = createAdultSceneState();
   persona.liveState.styleOverride = null;
   persona.liveState.currentMood = "neutral";
   persona.liveState.emotionalState = "平静";
