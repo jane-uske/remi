@@ -18,6 +18,7 @@ import {
 } from "../../infra/auth";
 import { createWsRateLimiter, createRateLimiter } from "../../infra/rate_limiter";
 import type { ServerMessage } from "./types";
+import { handleExtApi } from "./rest_api";
 
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
@@ -352,7 +353,7 @@ function canBypassLoopbackAuth(req: IncomingMessage): boolean {
   return allowLoopbackAuthBypass() && isLocalLoopbackRequest(req);
 }
 
-const AUTH_SKIP_PREFIXES = ["/_next/", "/favicon.ico", "/__nextjs", "/vrm/"];
+const AUTH_SKIP_PREFIXES = ["/_next/", "/favicon.ico", "/__nextjs", "/vrm/", "/api/ext/"];
 
 function shouldSkipAuth(pathname: string): boolean {
   return AUTH_SKIP_PREFIXES.some((p) => pathname.startsWith(p));
@@ -459,6 +460,11 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
           res.end(JSON.stringify({ error: "Invalid or expired token" }));
           return;
         }
+      }
+
+      if (pathname?.startsWith("/api/ext/")) {
+        await handleExtApi(req, res, pathname);
+        return;
       }
 
       const parsedUrl = parseRequestUrl(req);
