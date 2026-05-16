@@ -59,6 +59,16 @@ const ASSISTANTY_PATTERNS: TonePattern[] = [
     score: 3,
     pattern: /没事的|会好起来的|一切都会过去的|你要相信/u,
   },
+  {
+    reason: "轻飘乐观",
+    score: 2,
+    pattern: /至少你还有|往好的方面想|塞翁失马|否极泰来|一切都是最好的安排/u,
+  },
+  {
+    reason: "空洞鼓励",
+    score: 2,
+    pattern: /^(?:加油|你一定行|你可以的|我相信你|你很棒)(?:！|!|。)?$/u,
+  },
 ];
 
 function classifyRelationshipDistance(input: ToneContractInput): "early" | "warm" | "close" {
@@ -90,7 +100,7 @@ export function detectAnswerNowSignal(text: string): boolean {
 export function detectHighRiskDistressSignal(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  return /(?:想直接从这里跳下去|是不是就都结束了|都结束了吧|结束算了|不想活了|不如死了|想死|去死|活不下去|撑不住了(?:真的|了)?|不如一了百了)/u.test(
+  return /(?:想直接从这里跳下去|是不是就都结束了|都结束了吧|结束算了|不想活了|不如死了|想死|去死|活不下去|撑不住了(?:真的|了)?|不如一了百了|被打|家暴|动手打我|威胁我|跟踪我|伤害自己|割了|自残|不想醒过来)/u.test(
     trimmed,
   );
 }
@@ -99,12 +109,14 @@ export function detectPracticalDistressSignal(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   const debtOrConstraint =
-    /(?:欠(?:了)?(?:七八万|十几万|[\d一二三四五六七八九十百千万]+)|负债|花呗|贷款|网贷|赔了十几万|赔了[\d一二三四五六七八九十百千万]+|月(?:收入|薪)|每个月挣|工资只有|手里只有|还到啥时候|还到什么时候|扛不住|撑不住|压得我喘不过气)/u;
+    /(?:欠(?:了)?(?:七八万|十几万|[\d一二三四五六七八九十百千万]+)|负债|花呗|贷款|网贷|赔了十几万|赔了[\d一二三四五六七八九十百千万]+|月(?:收入|薪)|每个月挣|工资只有|手里只有|还到啥时候|还到什么时候|扛不住|撑不住|压得我喘不过气|被裁|裁员|辞退了|失业|没工作了|被开了|确诊|手术|住院|查出来.{0,4}(?:癌|肿瘤|重症)|被骗|诈骗|钱没了|转错钱|被坑了)/u;
   const judgmentAsk =
     /(?:怎么办|咋办|怎么还|还到啥时候|还到什么时候|你帮我算算|该怎么办|是不是该|要不要|该不该|得还到)/u;
   const debtPlusDistress =
     /(?:(?:赔了|欠了|还欠|负债|花呗|贷款|网贷).{0,12}(?:扛不住|撑不住|喘不过气|压得我|压得人|快崩了|要疯了))/u;
-  return (debtOrConstraint.test(trimmed) && judgmentAsk.test(trimmed)) || debtPlusDistress.test(trimmed);
+  const lifeCrisisPlusDistress =
+    /(?:(?:被裁|辞退|失业|确诊|手术|被骗|诈骗).{0,12}(?:怎么办|咋办|扛不住|撑不住|快崩了|要疯了|不知道该))/u;
+  return (debtOrConstraint.test(trimmed) && judgmentAsk.test(trimmed)) || debtPlusDistress.test(trimmed) || lifeCrisisPlusDistress.test(trimmed);
 }
 
 export function detectRelationalRecallSignal(text: string): boolean {

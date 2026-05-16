@@ -190,10 +190,13 @@ function buildSystemPrompt(
       memoryStr,
       emotionSpeechGuidance: buildEmotionSpeechGuidance(emotion),
     });
+    const emotionAnnotation =
+      "\n\n在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。";
+
     if (pluginSections.length > 0) {
-      return personaPrompt + "\n\n" + pluginSections.join("\n");
+      return personaPrompt + emotionAnnotation + "\n\n" + pluginSections.join("\n");
     }
-    return personaPrompt;
+    return personaPrompt + emotionAnnotation;
   }
 
   // Fallback to original system prompt logic

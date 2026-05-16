@@ -12,6 +12,7 @@ import {
   type TtsLipSyncChunk,
 } from "../../voice/tts";
 import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
+import { EmotionTagParser } from "../../utils/emotion_tag_parser";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
 import { createLogger } from "../../infra/logger";
@@ -128,6 +129,7 @@ export async function runPipeline(
     const replyEmotion = options?.silenceNudge
       ? ctx.emotion.getEmotion()
       : updateEmotion(text, ctx.emotion);
+    let finalReplyEmotion = replyEmotion;
     send(ws, { type: "emotion", emotion: replyEmotion });
 
     const avatarFrames = avatar.setEmotion(replyEmotion as any);
@@ -291,6 +293,8 @@ export async function runPipeline(
                 traceId,
               };
 
+    const emotionParser = new EmotionTagParser();
+
     for await (const token of chatStream(
       ctx,
       text,
@@ -310,15 +314,18 @@ export async function runPipeline(
         clearThinkingFillerTimer();
       }
 
-      full += token;
-      ctx.currentAssistantDraft = full;
-      send(ws, { type: "chat_chunk", content: token, generationId });
+      const parsed = emotionParser.feed(token);
+      if (parsed.cleanText) {
+        full += parsed.cleanText;
+        ctx.currentAssistantDraft = full;
+        send(ws, { type: "chat_chunk", content: parsed.cleanText, generationId });
 
-      for (const sentence of chunker.pushDetailed(token)) {
-        pushSentence(sentence.text, sentence.boundaryType);
-        if (!firstSentenceSent) {
-          firstSentenceSent = true;
-          chunker.setEager(false);
+        for (const sentence of chunker.pushDetailed(parsed.cleanText)) {
+          pushSentence(sentence.text, sentence.boundaryType);
+          if (!firstSentenceSent) {
+            firstSentenceSent = true;
+            chunker.setEager(false);
+          }
         }
       }
     }
@@ -326,8 +333,28 @@ export async function runPipeline(
     latencyTracer.mark("llm_end", traceId);
 
     if (!signal.aborted) {
+      const flushed = emotionParser.flush();
+      if (flushed.cleanText) {
+        full += flushed.cleanText;
+        ctx.currentAssistantDraft = full;
+        send(ws, { type: "chat_chunk", content: flushed.cleanText, generationId });
+        for (const sentence of chunker.pushDetailed(flushed.cleanText)) {
+          pushSentence(sentence.text, sentence.boundaryType);
+        }
+      }
+
       const last = chunker.flushDetailed();
       if (last) pushSentence(last.text, last.boundaryType);
+
+      const llmEmotion = emotionParser.getDetectedEmotion();
+      if (llmEmotion) {
+        finalReplyEmotion = llmEmotion;
+        send(ws, { type: "emotion", emotion: finalReplyEmotion });
+        const newFrames = avatar.setEmotion(finalReplyEmotion as any);
+        for (const frame of newFrames) {
+          send(ws, { type: "avatar_frame", frame });
+        }
+      }
     } else {
       chunker.reset();
     }
@@ -335,7 +362,7 @@ export async function runPipeline(
     const shouldInferAvatarIntent =
       Boolean(full) && !signal.aborted && avatarIntentEnabled();
     const avatarIntentTask = shouldInferAvatarIntent
-      ? inferAvatarIntentFromReply(full, replyEmotion as any, signal)
+      ? inferAvatarIntentFromReply(full, finalReplyEmotion as any, signal)
           .then((result) => (signal.aborted ? null : result))
           .catch(() => null)
       : Promise.resolve(null);
@@ -347,7 +374,7 @@ export async function runPipeline(
 
     send(ws, {
       type: "chat_end",
-      emotion: replyEmotion,
+      emotion: finalReplyEmotion,
       content: signal.aborted ? "[interrupted]" : undefined,
       generationId,
     });
@@ -409,7 +436,7 @@ export async function runPipeline(
 
     if (full) {
       logger.info(`[Remi] ${full}${signal.aborted ? " (interrupted)" : ""}`, {
-        emotion: replyEmotion,
+        emotion: finalReplyEmotion,
         connId,
       });
     }

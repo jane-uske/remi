@@ -185,7 +185,9 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 - 用户说”嗯””好的””哦””知道了””OK”等单字/短字回应时，优先 small_talk，followupPermission=none，不要误判为 emotional_share。
 - 用户有明显负面情绪词（难过/委屈/崩溃/焦虑/失眠等）时才判 emotional_share，纯粹日常陈述不算。
 - feltNeeds 只保留 1-3 个最关键的。
-- followupPermission 要保守：短消息（<8字）且明显轻聊时才给 one_light_question；情绪重或问题明确时一律 none。`;
+- followupPermission 要保守：短消息（<8字）且明显轻聊时才给 one_light_question；情绪重或问题明确时一律 none。
+- 消息前半段轻松但后半段出现现实压力词（债务/裁员/手术/被骗/分手等）时，以后半段为准判断 sceneType，不要因为开头像 small_talk 就整条判轻聊。
+- 用户提到被裁、失业、确诊、被骗等非债务类现实压力时，同样走 practical_judgment，不要误判为 emotional_share 或 small_talk。`;
 
 function configured(): boolean {
   return Boolean(process.env.key && process.env.base_url && process.env.model);
@@ -1047,6 +1049,9 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
     policy.bans.includes("no_shallow_reassurance")
   ) {
     return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
+  }
+  if (interpretation.sceneType === "practical_judgment") {
+    return "这是现实判断场景。先针对用户的具体问题给出你的看法或拆解，不要用反问代替回答，也不要绕回轻松话题。";
   }
   if (interpretation.userAct === "answer_now") {
     return "第一句直接给判断或建议；第二句补一条依据；不要反问，也别把决定权抛回去。";
