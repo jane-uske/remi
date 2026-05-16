@@ -11,7 +11,7 @@ import {
 import { toEpisodeV3View } from "./episode_v3";
 import { createLogger } from "../infra/logger";
 import { isSystemMemoryKey } from "./relationship_state";
-import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
+import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
 import {
   buildRelationshipTexts,
   episodeLongHorizonRankingEnabled,

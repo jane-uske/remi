@@ -1,4 +1,4 @@
-import type { SlowBrainSnapshot } from "./slow_brain_store";
+import type { SlowBrainSnapshot } from "./background_analysis_store";
 import type { RelationalStance } from "../persona";
 
 const NEGATIVE_MOOD_CUES = [

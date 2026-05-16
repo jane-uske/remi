@@ -2,8 +2,8 @@ const assert = require("assert").strict;
 const path = require("path");
 
 const { RemiSessionContext } = require("../../brains/remi_session_context");
-const { SlowBrainStore } = require("../../brains/slow_brain_store");
-const { fastBrainPredictOnly } = require("../../brains/fast_brain");
+const { SlowBrainStore } = require("../../brains/background_analysis_store");
+const { fastBrainPredictOnly } = require("../../brains/reply_stream");
 const { retrieveMemory } = require("../../memory/memory_agent");
 const {
   RELATIONSHIP_STATE_KEY,
@@ -69,8 +69,8 @@ function createPersistentRepo() {
 }
 
 function loadMockedRouteMessage(fastBrainStream) {
-  const fastBrainModulePath = path.resolve(__dirname, "../../brains/fast_brain.ts");
-  const brainRouterModulePath = path.resolve(__dirname, "../../brains/brain_router.ts");
+  const fastBrainModulePath = path.resolve(__dirname, "../../brains/reply_stream.ts");
+  const brainRouterModulePath = path.resolve(__dirname, "../../brains/context_orchestrator.ts");
   const fastBrainModule = require(fastBrainModulePath);
   const originalFastBrainStream = fastBrainModule.fastBrainStream;
 

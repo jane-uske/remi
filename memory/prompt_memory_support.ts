@@ -1,4 +1,4 @@
-import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
+import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
 
 const STOP_WORDS = new Set([
   "我们",

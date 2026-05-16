@@ -9,7 +9,7 @@ import {
 } from "./tone_policy";
 import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
-import type { SlowBrainSnapshot } from "../brains/slow_brain_store";
+import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
 import type { StyleIntentSignal } from "../persona/style_override";
 import { getTurnInterpreterHooks } from "../plugin/registry";
 

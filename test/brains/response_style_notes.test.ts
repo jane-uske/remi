@@ -1,5 +1,5 @@
 const assert = require("assert").strict;
-const { SlowBrainStore } = require("../../brains/slow_brain_store");
+const { SlowBrainStore } = require("../../brains/background_analysis_store");
 
 describe("response style notes", () => {
   it("stores weak response-style preferences and renders them as candidate guidance", () => {

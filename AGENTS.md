@@ -1,4 +1,5 @@
 另请参阅：
+- STRUCTURAL_DEBT.md ← **当前最高优先级**
 - CURRENT_FOCUS.md
 - TASKS.md
 - PROJECT_CONTEXT.md
@@ -94,31 +95,22 @@ Remi 的终极目标，是成为一个跨终端持续在线、具备人格连续
 
 ## 当前焦点
 
-当前主线程：Memory V2 验证 + 读路径迁移（V2.1）。
+**当前最高执行优先级是结构性止血。详见 [STRUCTURAL_DEBT.md](STRUCTURAL_DEBT.md)。**
 
-它属于“人格记忆层”。
-目标不是单独做一个记忆功能，而是让 Remi 更像一个持续存在的人，而不是每轮都重置的聊天框。
+Phase 0（env 治理 + DB 迁移 + 命名重构）→ Phase 1（记忆收敛 + 情绪替换 + 人格增强 + hook 拆分）→ 回到原主线。
 
-当前目标：
-- 用真实数据验证 Memory V2 写路径
-- 将读路径从 V1 relationship episodes 迁移到 V2 episode store
-- 让主动策略逐步依赖 unresolved episode
-- 在不伤害实时交互质量的前提下增强关系连续性
+### Phase 0/1 期间的硬约束
 
-不要优先做：
-- 纯 VAD 阈值微调
-- 单独做 TTS first-audio 微优化
-- 只提升展示层、却不增强关系连续性的 avatar 扩展
-- 为单一平台做硬编码式接入
+1. **不允许创建新文件或新目录**（只允许修改/删除/重命名现有文件）
+2. **不允许增加新功能**——只收敛、重构、替换、删除
+3. 每完成一项，先跑对应测试，再标记 TASKS.md 中的状态为 done
+4. 不要”顺手”修复不在 STRUCTURAL_DEBT.md 中的问题
+5. 拆分 useRemiChat.ts 时，**严禁改变任何运行时行为**——纯重构
+6. 记忆系统收敛时，先写对比测试（旧路径 vs 新路径），确认 recall 质量不降
 
-成功意味着：
-- 真实对话里 episode 数据能被可靠写入
-- 读路径能消费 V2 episode memory，且 live UX 不回退
-- proactive planning 能消费 unresolved episode state
-- 在 V2 行为完全验证前，V1 fallback 仍然可用
+### Phase 0/1 完成后的原主线
 
-如果要改 `server/session/*`、`brains/*`、`memory/*` 或 `brain/*`，先读 [CURRENT_FOCUS.md](CURRENT_FOCUS.md)。
-完成当前主线程任务后，在汇报前更新 [TASKS.md](TASKS.md) 和直接受影响的路线图文档。
+Web 端 10 分钟在场感体验：默认人格稳定 → 严肃场景承接 → Web 在场感统一 → 10 分钟压测。
 
 ---
 

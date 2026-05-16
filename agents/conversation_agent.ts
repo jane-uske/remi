@@ -1,16 +1,16 @@
 import fs from "fs";
 import path from "path";
-import type { RouteMessageOptions } from "../brains/brain_router";
+import type { RouteMessageOptions } from "../brains/context_orchestrator";
 import type { RemiSessionContext } from "../brains/remi_session_context";
 import type { Emotion } from "../emotion/emotion_state";
 
 function resolveBrainRouterModulePath(): string {
-  const jsPath = path.resolve(__dirname, "../brains/brain_router.js");
+  const jsPath = path.resolve(__dirname, "../brains/context_orchestrator.js");
   if (fs.existsSync(jsPath)) return jsPath;
-  return path.resolve(__dirname, "../brains/brain_router.ts");
+  return path.resolve(__dirname, "../brains/context_orchestrator.ts");
 }
 
-const { routeMessage }: typeof import("../brains/brain_router") = require(resolveBrainRouterModulePath());
+const { routeMessage }: typeof import("../brains/context_orchestrator") = require(resolveBrainRouterModulePath());
 
 export interface Message {
   role: "system" | "user" | "assistant";

@@ -10,8 +10,8 @@ import {
 } from "../storage/repositories/episode_repository";
 import { deleteMemoriesByUser } from "../storage/repositories/memory_repository";
 import { checkEmbeddingHealth } from "../llm/embedding_client";
-import { runSlowBrain } from "../brains/slow_brain";
-import { SlowBrainStore } from "../brains/slow_brain_store";
+import { runSlowBrain } from '../brains/background_analysis';
+import { SlowBrainStore } from "../brains/background_analysis_store";
 import type { PromptMessage } from "../brain/prompt_builder";
 
 type ScenarioId = "debt_pressure" | "work_sleep" | "pet_liability";
@@ -298,7 +298,7 @@ const { deleteEpisodesByUser, getEpisodesByUser } = require("./dist/storage/repo
 const { deleteMemoriesByUser } = require("./dist/storage/repositories/memory_repository");
 const { checkEmbeddingHealth } = require("./dist/llm/embedding_client");
 const { runSlowBrain } = require("./dist/brains/slow_brain");
-const { SlowBrainStore } = require("./dist/brains/slow_brain_store");
+const { SlowBrainStore } = require("./dist/brains/background_analysis_store");
 const SCENARIOS = ${turns};
 const REPORT_START = "__EPISODE_ACCEPTANCE_JSON_START__";
 const REPORT_END = "__EPISODE_ACCEPTANCE_JSON_END__";

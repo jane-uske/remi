@@ -1,3 +1,10 @@
+-- ============================================================
+-- THIS FILE IS NOW REFERENCE ONLY.
+-- Schema is managed by migrations/ directory.
+-- Use `npm run migrate:up` to apply changes.
+-- Use `npm run migrate:create` to create new migrations.
+-- ============================================================
+
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS users (

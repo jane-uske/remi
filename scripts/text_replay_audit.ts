@@ -151,8 +151,8 @@ function loadMockedRouteMessage(
     slowBrainContext?: string;
   }) => AsyncGenerator<string>,
 ): { routeMessage: any; restore: () => void } {
-  const fastBrainModulePath = path.resolve(__dirname, "../brains/fast_brain.ts");
-  const brainRouterModulePath = path.resolve(__dirname, "../brains/brain_router.ts");
+  const fastBrainModulePath = path.resolve(__dirname, "../brains/reply_stream.ts");
+  const brainRouterModulePath = path.resolve(__dirname, "../brains/context_orchestrator.ts");
   const fastBrainModule = require(fastBrainModulePath);
   const originalFastBrainStream = fastBrainModule.fastBrainStream;
 

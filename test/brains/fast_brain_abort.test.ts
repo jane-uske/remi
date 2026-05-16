@@ -3,7 +3,7 @@ const path = require("path");
 
 function withMockedQwenClient(mockExports, run) {
   const qwenPath = path.resolve(__dirname, "../../llm/qwen_client.ts");
-  const fastBrainPath = path.resolve(__dirname, "../../brains/fast_brain.ts");
+  const fastBrainPath = path.resolve(__dirname, "../../brains/reply_stream.ts");
   const previousQwen = require.cache[qwenPath];
   const previousFastBrain = require.cache[fastBrainPath];
 

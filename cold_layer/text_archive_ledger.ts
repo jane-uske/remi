@@ -4,7 +4,7 @@ import path from "path";
 import { createLogger } from "../infra/logger";
 import type { MomentInput } from "../memory/episode_store";
 import type { EpisodeV3View } from "../memory/episode_v3";
-import type { RepairState, WorkingMemory } from "../brains/slow_brain_store";
+import type { RepairState, WorkingMemory } from "../brains/background_analysis_store";
 
 const logger = createLogger("text_archive_ledger");
 

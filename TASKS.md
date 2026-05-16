@@ -12,6 +12,26 @@
 
 ---
 
+## ⚠️ 前置：结构性止血（Phase 0）
+
+**在继续主线前，必须先完成结构性技术债修复。详见 [STRUCTURAL_DEBT.md](STRUCTURAL_DEBT.md)。**
+
+不修这些问题，主线（在场感体验）的每次迭代都会因为缺测试、记忆不可靠、人格约束力弱而反复返工。
+
+| ID | Task | Status | Priority |
+|---|---|---|---|
+| `SD-01` | 环境变量治理（zod schema + 统一命名 + .env.minimal） | `todo` | Phase 0 |
+| `SD-02` | 数据库迁移系统（node-pg-migrate） | `todo` | Phase 0 |
+| `SD-03` | "双脑"命名重构 → context_orchestrator/reply_stream/background_analysis | `todo` | Phase 0 |
+| `SD-04` | 记忆系统收敛（6层→2层，regex→LLM结构化提取） | `todo` | Phase 1 |
+| `SD-05` | 情绪引擎替换（关键词→LLM自标注） | `todo` | Phase 1 |
+| `SD-06` | 人格深度增强（一句话→结构化persona） | `todo` | Phase 1 |
+| `SD-07` | useRemiChat.ts 拆分（2044行→5个子hook+组合层） | `todo` | Phase 1 |
+
+**执行规则：SD-01/02/03 完成后，再开始 SD-04~07。SD-04~07 全部完成后，再回到下方主线。**
+
+---
+
 ## 当前主线程
 
 **Web 端 10 分钟在场感体验（默认人格 + 严肃场景承接 + Web 在场感统一）**

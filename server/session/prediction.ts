@@ -2,7 +2,7 @@ import type { WebSocket } from "ws";
 
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import { analyzeTurn } from "../../brain/turn_interpreter";
-import { fastBrainPredictOnly } from "../../brains/fast_brain";
+import { fastBrainPredictOnly } from "../../brains/reply_stream";
 import { trimHistoryToTokenBudget } from "../../brains/history_budget";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
 import { getLatencyTracer } from "../../infra/latency_tracer";

@@ -25,9 +25,9 @@ function applyEnv(values) {
 }
 
 function loadMockedRouteMessage({ fastBrainStream, runSlowBrain }) {
-  const fastBrainModulePath = path.resolve(__dirname, "../../brains/fast_brain.ts");
+  const fastBrainModulePath = path.resolve(__dirname, "../../brains/reply_stream.ts");
   const slowBrainModulePath = path.resolve(__dirname, "../../brains/slow_brain.ts");
-  const brainRouterModulePath = path.resolve(__dirname, "../../brains/brain_router.ts");
+  const brainRouterModulePath = path.resolve(__dirname, "../../brains/context_orchestrator.ts");
   const fastBrainModule = require(fastBrainModulePath);
   const slowBrainModule = require(slowBrainModulePath);
 

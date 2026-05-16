@@ -1,7 +1,7 @@
 const assert = require("assert").strict;
 const path = require("path");
 
-const { SlowBrainStore } = require("../../brains/slow_brain_store");
+const { SlowBrainStore } = require("../../brains/background_analysis_store");
 
 function applyEnv(values) {
   const previous = {};

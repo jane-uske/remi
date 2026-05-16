@@ -1,7 +1,7 @@
 import path from "path";
 
 import { InMemoryRepository } from "../memory/memory_store";
-import { SlowBrainStore } from "../brains/slow_brain_store";
+import { SlowBrainStore } from "../brains/background_analysis_store";
 import { toEpisodeV3View, summarizeEpisodeV3View } from "../memory/episode_v3";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { MomentInput } from "../memory/episode_store";

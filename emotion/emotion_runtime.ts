@@ -8,6 +8,9 @@ const DECAY_MAP: Record<Emotion, Emotion> = {
   curious: "neutral",
   shy: "neutral",
   sad: "neutral",
+  concerned: "neutral",
+  playful: "neutral",
+  thoughtful: "neutral",
   neutral: "neutral",
 };
 

@@ -1,7 +1,7 @@
 import { listUnresolved } from "../memory/episode_store";
 import type { DbEpisode } from "../storage/repositories/episode_repository";
 import type { RelationalStanceMode } from "../persona";
-import type { SlowBrainSnapshot } from "./slow_brain_store";
+import type { SlowBrainSnapshot } from "./background_analysis_store";
 import { deriveRelationalStance } from "./relational_stance";
 
 export type ProactiveMode = "care" | "follow_up" | "presence";

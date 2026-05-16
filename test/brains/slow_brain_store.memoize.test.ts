@@ -1,6 +1,6 @@
 const assert = require("assert").strict;
 
-const { SlowBrainStore } = require("../../brains/slow_brain_store");
+const { SlowBrainStore } = require("../../brains/background_analysis_store");
 
 describe("slow brain store memoize cache", () => {
   it("invalidates derived snapshot cache after shared-moment mutation", () => {

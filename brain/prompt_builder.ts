@@ -5,6 +5,7 @@ import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
 import { getPromptInjectionHooks } from "../plugin/registry";
+import { REMI_DEFAULT_PERSONA, traitsToGuidance } from "../persona/remi_default";
 
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
@@ -62,6 +63,9 @@ const EMOTION_STYLE: Record<Emotion, string> = {
   curious: "好奇地回复，语气里带着兴趣和探索欲，适合轻追问、轻确认，让人感觉你在认真跟进。",
   shy: "害羞地回复，语气稍微轻、慢一点，句子可以更短，偶尔带一点停顿或「…」，像在斟酌要不要说出口。",
   sad: "带一点低落、委屈或柔软地回复，语气更轻、更慢，避免兴奋式表达，但仍然要自然、真诚。",
+  concerned: "带着关切地回复，语气认真、稳重，不轻飘，像在仔细听对方说完，偶尔确认关键信息。",
+  playful: "带着一点调皮地回复，语气灵动、跳跃，适合轻松场合，不要在严肃场景用。",
+  thoughtful: "若有所思地回复，语气缓慢、沉稳，像在认真想这件事，句子之间可以有停顿。",
 };
 
 const EMOTION_SPEECH_STYLE: Record<Emotion, string> = {
@@ -70,6 +74,9 @@ const EMOTION_SPEECH_STYLE: Record<Emotion, string> = {
   curious: "句尾可以稍微上挑，适合在关键点前后稍停一下，像在等对方继续说。",
   shy: "起句略慢，句中停顿略多，尾音更轻，像是边想边说。",
   sad: "整体更慢一点，停顿更柔和，句尾更收，像在轻声把话说完。",
+  concerned: "语速适中偏慢，句与句之间停顿稍长，像在认真权衡每个字。",
+  playful: "节奏跳跃，句子之间更紧凑，尾音可以上扬或带一点笑意。",
+  thoughtful: "整体偏慢，句间停顿明显，像在一边说一边想，可以有'嗯...'类的思考音。",
 };
 
 function buildEmotionSpeechGuidance(emotion: Emotion): string {
@@ -199,7 +206,7 @@ function buildSystemPrompt(
 
   if (remainingPriorityChars > 0 && reducedPriorityContext?.trim()) {
     sections.push(
-      "【优先参考（请自然融入对话，不要逐条复述）】\n" +
+      “【优先参考（请自然融入对话，不要逐条复述）】\n” +
         trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars),
     );
   }
@@ -208,31 +215,50 @@ function buildSystemPrompt(
     buildPersonalityPrompt(),
     buildCharacterRulesPrompt(),
   );
+
+  // Inject structured persona traits and behavioral rules
+  const traitGuidance = traitsToGuidance(REMI_DEFAULT_PERSONA.traits);
+  if (traitGuidance) {
+    sections.push(`【性格特质】${traitGuidance}`);
+  }
   sections.push(
-    `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: "" }), 320)}`,
-    "【关系与记忆回答规则】如果用户问“我们是什么关系”“我们聊了多久”“你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按“刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。",
+    `【行为边界】${REMI_DEFAULT_PERSONA.behavioral_rules.join(“；”)}`,
+  );
+
+  sections.push(
+    `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: “” }), 320)}`,
+    “【关系与记忆回答规则】如果用户问”我们是什么关系””我们聊了多久””你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按”刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。”,
     buildEmotionSpeechGuidance(emotion),
-    "用中文回复。",
+    “用中文回复。”,
   );
 
   if (memory.length > 0) {
     const memoryLines = memory
       .slice(0, maxMemoryEntries)
       .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
-      .join("\n");
+      .join(“\n”);
     sections.push(
-      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说“我记得/你之前/上次”，也不要用它另起旧话题。\n${memoryLines}`,
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说”我记得/你之前/上次”，也不要用它另起旧话题。\n${memoryLines}`,
+    );
+    // Inject memory expression rules when memory is present
+    sections.push(
+      `【记忆表达规则】${REMI_DEFAULT_PERSONA.memory_expression_rules.join(“；”)}`,
     );
   }
+
+  // Emotion self-annotation instruction (tag will be stripped by EmotionTagParser)
+  sections.push(
+    “在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。”,
+  );
 
   const legacyPluginSections = getPromptInjectionHooks().flatMap((hook) =>
     hook.getPromptSections({ userMessage, persona: persona!, interpretation: null, connId }),
   );
   if (legacyPluginSections.length > 0) {
-    sections.push(legacyPluginSections.join("\n"));
+    sections.push(legacyPluginSections.join(“\n”));
   }
 
-  return sections.join("\n\n");
+  return sections.join(“\n\n”);
 }
 
 export function buildPrompt({

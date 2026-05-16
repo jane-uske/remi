@@ -1,4 +1,15 @@
 import "dotenv/config";
+
+import { validateEnv } from "./config/schema";
+
+// Validate environment at startup — fails fast with clear error
+try {
+  validateEnv();
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
+
 import type { WebSocket } from "ws";
 import type { IncomingMessage } from "http";
 

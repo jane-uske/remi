@@ -4,7 +4,7 @@ import type {
   SlowBrainSnapshot,
   TopicEntry,
   TopicThread,
-} from "./slow_brain_store";
+} from "./background_analysis_store";
 
 export function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));

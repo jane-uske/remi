@@ -2,13 +2,13 @@ const assert = require("assert").strict;
 const path = require("path");
 const { InterruptController } = require("../../../voice/interrupt_controller");
 const { RemiSessionContext } = require("../../../brains/remi_session_context");
-const { routeMessage } = require("../../../brains/brain_router");
+const { routeMessage } = require("../../../brains/context_orchestrator");
 const { loadSessionHarness, waitFor } = require("../../helpers/session_harness");
 
 function loadMockedRouteMessage({ fastBrainStream, runSlowBrain }) {
-  const fastBrainModulePath = path.resolve(__dirname, "../../../brains/fast_brain.ts");
+  const fastBrainModulePath = path.resolve(__dirname, "../../../brains/reply_stream.ts");
   const slowBrainModulePath = path.resolve(__dirname, "../../../brains/slow_brain.ts");
-  const brainRouterModulePath = path.resolve(__dirname, "../../../brains/brain_router.ts");
+  const brainRouterModulePath = path.resolve(__dirname, "../../../brains/context_orchestrator.ts");
   const fastBrainModule = require(fastBrainModulePath);
   const slowBrainModule = require(slowBrainModulePath);
 

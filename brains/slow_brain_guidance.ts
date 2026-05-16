@@ -4,7 +4,7 @@ import type {
   SharedMoment,
   SlowBrainSnapshot,
   TopicThread,
-} from "./slow_brain_store";
+} from "./background_analysis_store";
 import {
   buildToneContract,
   detectAnswerNowSignal,

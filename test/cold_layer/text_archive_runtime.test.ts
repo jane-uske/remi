@@ -39,8 +39,8 @@ async function waitForEntries(filePath, count) {
 }
 
 function loadMockedRouteMessage(fastBrainStream) {
-  const fastBrainModulePath = path.resolve(__dirname, "../../brains/fast_brain.ts");
-  const brainRouterModulePath = path.resolve(__dirname, "../../brains/brain_router.ts");
+  const fastBrainModulePath = path.resolve(__dirname, "../../brains/reply_stream.ts");
+  const brainRouterModulePath = path.resolve(__dirname, "../../brains/context_orchestrator.ts");
   const fastBrainModule = require(fastBrainModulePath);
   const originalFastBrainStream = fastBrainModule.fastBrainStream;
 
@@ -128,7 +128,7 @@ describe("text archive runtime hooks", () => {
       REMI_EPISODE_MEMORY_ENABLED: "1",
     });
     const { InMemoryRepository } = require("../../memory/memory_store");
-    const { SlowBrainStore } = require("../../brains/slow_brain_store");
+    const { SlowBrainStore } = require("../../brains/background_analysis_store");
     const slowBrainPath = require.resolve("../../brains/slow_brain");
     const episodeStorePath = require.resolve("../../memory/episode_store");
     const qwenClientPath = require.resolve("../../llm/qwen_client");

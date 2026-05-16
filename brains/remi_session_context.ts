@@ -3,7 +3,7 @@ import { EmotionRuntime } from "../emotion/emotion_runtime";
 import type { MemoryRepository } from "../memory/memory_repository";
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
 import { SessionMemoryOverlayRepository } from "../memory/session_memory_overlay";
-import { SlowBrainStore } from "./slow_brain_store";
+import { SlowBrainStore } from "./background_analysis_store";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import type { DbMessage } from "../storage/types";

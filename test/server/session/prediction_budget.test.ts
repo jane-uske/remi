@@ -44,7 +44,7 @@ function loadPredictionSession(options = {}) {
   });
 
   const appStatePath = path.resolve(__dirname, "../../../infra/app_state.ts");
-  const fastBrainPath = path.resolve(__dirname, "../../../brains/fast_brain.ts");
+  const fastBrainPath = path.resolve(__dirname, "../../../brains/reply_stream.ts");
   const sessionPath = path.resolve(__dirname, "../../../server/session/index.ts");
 
   const appState = require(appStatePath);

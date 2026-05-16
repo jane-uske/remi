@@ -14,10 +14,10 @@
 
 ## 主入口文件
 
-- `brain_router.ts` — 主路由与快慢脑调度
-- `fast_brain.ts` — 低延迟回复路径
-- `slow_brain.ts` — 后台分析与写回
-- `slow_brain_store.ts` — relationship / proactive / snapshot 派生
+- `context_orchestrator.ts` — 主路由与快慢脑调度
+- `reply_stream.ts` — 低延迟回复路径
+- `background_analysis.ts` — 后台分析与写回
+- `background_analysis_store.ts` — relationship / proactive / snapshot 派生
 - `remi_session_context.ts` — 连接级上下文
 - `proactive_planner.ts` — 主动策略
 
@@ -30,13 +30,13 @@
 
 ## 最常改的文件
 
-- `brain_router.ts`
-- `slow_brain_store.ts`
-- `fast_brain.ts`
+- `context_orchestrator.ts`
+- `background_analysis_store.ts`
+- `reply_stream.ts`
 
 ## 最容易踩的坑
 
-- 在 `slow_brain_store.ts` 里继续累加策略，导致它变成万能文件。
+- 在 `background_analysis_store.ts` 里继续累加策略，导致它变成万能文件。
 - 动 `priorityContext` 时只看 prompt 字符数，不看关系连续性回退。
 - 把 `brain/*` 和 `brains/*` 的职责混在一起。
 
@@ -48,5 +48,5 @@
 
 ## 禁止并行修改的热点文件
 
-- `slow_brain_store.ts`
-- `brain_router.ts`
+- `background_analysis_store.ts`
+- `context_orchestrator.ts`
