@@ -55,6 +55,47 @@ export const envSchema = z.object({
   REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED: booleanString.default("1"),
   REMI_AVATAR_INTENT_ENABLED: booleanString.default("1"),
   REMI_SILENCE_NUDGE_MS: z.coerce.number().int().nonnegative().default(0),
+
+  // ── Embedding ───────────────────────────────────────────────────────────
+  REMI_EMBEDDING_API_KEY: z.string().optional(),
+  REMI_EMBEDDING_BASE_URL: z.string().optional(),
+  REMI_EMBEDDING_MODEL: z.string().default("nomic-embed-text"),
+
+  // ── Brain ───────────────────────────────────────────────────────────────
+  REMI_STRUCTURED_TURN_INTERPRETER: z.enum(["on", "off", "shadow"]).default("on"),
+  REMI_TURN_INTERPRETER_TIMEOUT_MS: z.coerce.number().int().positive().default(180),
+  REMI_THINKING_FILLER_DELAY_MS: z.coerce.number().int().nonnegative().default(520),
+  REMI_THINKING_FILLER: booleanString.default("0"),
+
+  // ── Memory ──────────────────────────────────────────────────────────────
+  MAX_PROMPT_MEMORY_ENTRIES: z.coerce.number().int().positive().default(5),
+  MAX_PROMPT_MEMORY_VALUE_CHARS: z.coerce.number().int().positive().default(40),
+  MAX_PRIORITY_CONTEXT_CHARS: z.coerce.number().int().positive().default(500),
+  REMI_EPISODE_STORE_PROMPT_ENABLED: booleanString.default("1"),
+  REMI_SEMANTIC_RECALL_TIMEOUT_MS: z.coerce.number().int().positive().default(300),
+
+  // ── VAD / Turn-Taking ──────────────────────────────────────────────────
+  VAD_PRE_ROLL_MS: z.coerce.number().int().nonnegative().default(160),
+  VAD_UTTERANCE_GAP_MS: z.coerce.number().int().nonnegative().default(220),
+  VAD_MIN_UTTERANCE_MS: z.coerce.number().int().nonnegative().default(220),
+  VAD_UTTERANCE_GAP_ADAPTIVE: booleanString.default("1"),
+  TURN_TAKING_STAGE2_ENABLED: booleanString.default("1"),
+  TURN_PROSODY_ENABLED: booleanString.default("1"),
+  DUPLEX_INTERRUPT_MIN_SPEECH_MS: z.coerce.number().int().nonnegative().default(260),
+
+  // ── STT Prediction ─────────────────────────────────────────────────────
+  REMI_STT_FINAL_DISAMBIG_ENABLED: booleanString.default("1"),
+  STT_PARTIAL_PREDICTION_ENABLED: booleanString.default("0"),
+  STT_PREDICTION_PUSH_ENABLED: booleanString.default("0"),
+  STT_PREDICTION_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(300),
+
+  // ── Voice ───────────────────────────────────────────────────────────────
+  VOICE_BACKCHANNEL_ENABLED: booleanString.default("1"),
+  VOICE_BACKCHANNEL_COOLDOWN_MS: z.coerce.number().int().nonnegative().default(6000),
+
+  // ── Dev ─────────────────────────────────────────────────────────────────
+  REMI_DEV_PRESETS_ENABLED: booleanString.default("0"),
+  REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED: booleanString.default("1"),
 });
 
 export type RemiEnv = z.infer<typeof envSchema>;
@@ -75,6 +116,9 @@ const LEGACY_ALIASES: Record<string, string> = {
   JWT_SECRET: "REMI_AUTH_JWT_SECRET",
   PORT: "REMI_PORT",
   LOG_LEVEL: "REMI_LOG_LEVEL",
+  whisper_model: "REMI_STT_WHISPER_MODEL",
+  REM_LOCAL_LLM_ENABLED: "REMI_LOCAL_LLM_ENABLED",
+  rem_thinking_filler: "REMI_THINKING_FILLER",
 };
 
 function applyLegacyAliases(env: NodeJS.ProcessEnv): void {

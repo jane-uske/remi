@@ -2,6 +2,9 @@ import {
   MemoryEntry,
   MemoryRepository,
 } from "./memory_repository";
+import { createLogger } from "../infra/logger";
+
+const logger = createLogger("memory_store");
 
 export interface Memory {
   key: string;
@@ -70,6 +73,10 @@ export class InMemoryRepository implements MemoryRepository {
 const defaultRepo = new InMemoryRepository();
 let repository: MemoryRepository = defaultRepo;
 let currentInMemoryRepo: InMemoryRepository | null = defaultRepo;
+
+if (process.env.NODE_ENV !== "test" && !process.env.DATABASE_URL) {
+  logger.warn("InMemoryRepository is volatile — user facts will be lost on restart. Set DATABASE_URL for persistence.");
+}
 
 export function getMemoryRepository(): MemoryRepository {
   return repository;

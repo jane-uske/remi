@@ -259,8 +259,10 @@ export async function retrievePromptMemory(
           seenKeys.add(hit.key);
           selected.push({ key: hit.key, value: hit.value });
         }
-      } catch {
-        // Semantic search is best-effort
+      } catch (err) {
+        logger.debug("semantic vector supplement failed", {
+          error: (err as Error).message,
+        });
       }
     }
   }

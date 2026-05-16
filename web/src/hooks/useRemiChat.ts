@@ -206,6 +206,204 @@ export function useRemiChat() {
     avatarBeatTimersRef: avatar.avatarBeatTimersRef,
   };
 
+  /* ── Case handlers (extracted from onMessageImpl switch) ── */
+  type AvatarCallbacks = typeof avatarCallbacksRef.current;
+
+  function handleHistoryPage(data: Record<string, unknown>) {
+    const { mode, messages: pageMessages, nextCursor, hasMore } =
+      parseServerHistoryPage(data);
+
+    const shouldAdoptServerHistory =
+      mode === "prepend" || pageMessages.length > 0 || msgs.historyMessages.length === 0;
+
+    if (shouldAdoptServerHistory) {
+      msgs.historySourceRef.current = "server";
+      msgs.historyCursorRef.current =
+        nextCursor && nextCursor.id && nextCursor.createdAt ? nextCursor : null;
+      msgs.setHistoryHasMore(hasMore);
+    }
+    msgs.historyLoadingMoreRef.current = false;
+    msgs.setHistoryLoadingMore(false);
+
+    if (mode === "replace") {
+      if (shouldAdoptServerHistory) {
+        msgs.setHistoryMessages(pageMessages);
+        msgs.markHistoryMutation("replace");
+      }
+    } else if (pageMessages.length > 0) {
+      msgs.setHistoryMessages((current) => {
+        const seenIds = new Set(current.map((m) => m.id));
+        const older = pageMessages.filter((m) => !seenIds.has(m.id));
+        return older.length > 0 ? [...older, ...current] : current;
+      });
+      msgs.markHistoryMutation("prepend");
+    }
+  }
+
+  function handleChatEnd(data: Record<string, unknown>, av: AvatarCallbacks) {
+    if (!allowServerGeneration("chat_end", data.generationId)) return;
+    const text = streamingBufRef.current;
+    resetStreaming();
+    if (!voice.duplexRef.current) {
+      waitingRef.current = false;
+      setWaiting(false);
+    }
+    setSttPartialText("");
+    voice.setInputPlaceholder("说点什么…");
+    if (text) {
+      msgs.appendLiveMessage({
+        id: uid(),
+        role: "rem",
+        text,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    const endGenerationId = parseGenerationId(data.generationId);
+    if (
+      endGenerationId != null &&
+      turnEngine.activeGenerationRef.current === endGenerationId
+    ) {
+      turnEngine.activeGenerationRef.current = null;
+    }
+    if (data.emotion != null) av.setEmotion(String(data.emotion));
+    const awaitingPlaybackDrain = shouldAwaitPlaybackDrain({
+      voiceActive,
+      playbackSeenForGeneration:
+        endGenerationId != null &&
+        turnEngine.playedGenerationIdsRef.current.has(endGenerationId),
+    });
+    turnEngine.pendingChatEndRef.current = {
+      generationId: endGenerationId,
+      awaitingPlaybackDrain,
+    };
+    if (!awaitingPlaybackDrain) {
+      if (turnEngine.pendingChatEndTimerRef.current) {
+        clearTimeout(turnEngine.pendingChatEndTimerRef.current);
+      }
+      turnEngine.pendingChatEndTimerRef.current = setTimeout(() => {
+        if (!turnEngine.pendingChatEndRef.current) return;
+        if (turnEngine.pendingChatEndRef.current.generationId !== endGenerationId) return;
+        if (turnEngine.pendingChatEndRef.current.awaitingPlaybackDrain) return;
+        turnEngine.finalizePendingChatEnd(endGenerationId);
+      }, 220 /* CHAT_END_PLAYBACK_GRACE_MS */);
+    }
+  }
+
+  function handleVoice(data: Record<string, unknown>) {
+    if (!allowServerGeneration("voice", data.generationId)) return;
+    if (typeof data.audio !== "string") return;
+    const generationId = parseGenerationId(data.generationId);
+    turnEngine.rememberPlayedGeneration(generationId);
+    if (turnEngine.pendingChatEndRef.current?.generationId === generationId) {
+      turnEngine.pendingChatEndRef.current = {
+        generationId,
+        awaitingPlaybackDrain: true,
+      };
+      if (turnEngine.pendingChatEndTimerRef.current) {
+        clearTimeout(turnEngine.pendingChatEndTimerRef.current);
+        turnEngine.pendingChatEndTimerRef.current = null;
+      }
+    }
+    turnEngine.commitTurnState("assistant_speaking", "playback_start", {
+      generationId,
+      kind: "ws",
+    });
+    enqueueBase64(data.audio, generationId);
+    if (turnEngine.rememberLoggedVoiceGeneration(generationId)) {
+      pushAvatarDevtoolsLog("ws", "voice start", {
+        generationId,
+        transport: "voice",
+      });
+    }
+  }
+
+  function handleVoicePcmChunk(data: Record<string, unknown>) {
+    if (!allowServerGeneration("voice_pcm_chunk", data.generationId)) return;
+    if (typeof data.audio !== "string") return;
+    const rate = Number(data.sampleRate);
+    const generationId = parseGenerationId(data.generationId);
+    turnEngine.rememberPlayedGeneration(generationId);
+    if (turnEngine.pendingChatEndRef.current?.generationId === generationId) {
+      turnEngine.pendingChatEndRef.current = {
+        generationId,
+        awaitingPlaybackDrain: true,
+      };
+      if (turnEngine.pendingChatEndTimerRef.current) {
+        clearTimeout(turnEngine.pendingChatEndTimerRef.current);
+        turnEngine.pendingChatEndTimerRef.current = null;
+      }
+    }
+    turnEngine.commitTurnState("assistant_speaking", "playback_start", {
+      generationId,
+      kind: "ws",
+    });
+    enqueuePcmChunk(
+      data.audio,
+      Number.isFinite(rate) && rate > 0 ? rate : 24000,
+      generationId,
+    );
+    if (turnEngine.rememberLoggedVoiceGeneration(generationId)) {
+      pushAvatarDevtoolsLog("ws", "voice start", {
+        generationId,
+        transport: "voice_pcm_chunk",
+        sampleRate: Number.isFinite(rate) && rate > 0 ? rate : 24000,
+      });
+    }
+  }
+
+  function handleAvatarIntent(data: Record<string, unknown>, av: AvatarCallbacks) {
+    const intent =
+      data.intent && typeof data.intent === "object"
+        ? (data.intent as AvatarIntent)
+        : null;
+    const beats = Array.isArray(data.beats) ? (data.beats as AvatarIntentBeat[]) : [];
+    av.clearAvatarIntentSchedule();
+    if (!intent) return;
+    av.setAvatarIntentOverride(intent);
+    av.triggerIntentGestureAction(intent);
+    pushAvatarDevtoolsLog("ws", "avatar_intent", {
+      intent,
+      beats: beats.length,
+    });
+    let endAt = Date.now() + Math.max(260, intent.holdMs);
+    for (const beat of beats) {
+      const merged = av.mergeIntentBeat(intent, beat);
+      const timer = setTimeout(() => {
+        av.setAvatarIntentOverride(merged);
+        av.triggerIntentGestureAction(merged);
+      }, Math.max(0, beat.delayMs));
+      av.avatarBeatTimersRef.current.push(timer);
+      endAt = Math.max(
+        endAt,
+        Date.now() + Math.max(0, beat.delayMs) + Math.max(260, merged.holdMs),
+      );
+    }
+    const resetTimer = setTimeout(() => {
+      av.setAvatarIntentOverride(intent);
+    }, Math.max(0, endAt - Date.now()));
+    av.avatarBeatTimersRef.current.push(resetTimer);
+  }
+
+  function handleSttFinal(data: Record<string, unknown>) {
+    const content = String(data.content ?? "");
+    turnEngine.activeGenerationRef.current = null;
+    voice.clearUserSpeakingEndTimer();
+    voice.userSpeakingRef.current = false;
+    voice.setUserSpeaking(false);
+    voice.setAwaitingSpeechCommitState(false);
+    setSttPartialText("");
+    msgs.appendUserTranscript(content);
+    voice.setInputPlaceholder("说点什么…");
+    if (!voice.duplexRef.current) {
+      waitingRef.current = true;
+      setWaiting(true);
+    }
+    setTyping(true);
+    turnEngine.commitTurnState("confirmed_end", "confirmed_end", {
+      kind: "ws",
+    });
+  }
+
   /* ── onMessage (defined after all hooks) ── */
   // This function is assigned to onMessageRef.current each render.
   // It is NOT a useCallback because it closes over many sub-hook values — it reads from refs
@@ -262,34 +460,7 @@ export function useRemiChat() {
         break;
 
       case "history_page": {
-        const { mode, messages: pageMessages, nextCursor, hasMore } =
-          parseServerHistoryPage(data);
-
-        const shouldAdoptServerHistory =
-          mode === "prepend" || pageMessages.length > 0 || msgs.historyMessages.length === 0;
-
-        if (shouldAdoptServerHistory) {
-          msgs.historySourceRef.current = "server";
-          msgs.historyCursorRef.current =
-            nextCursor && nextCursor.id && nextCursor.createdAt ? nextCursor : null;
-          msgs.setHistoryHasMore(hasMore);
-        }
-        msgs.historyLoadingMoreRef.current = false;
-        msgs.setHistoryLoadingMore(false);
-
-        if (mode === "replace") {
-          if (shouldAdoptServerHistory) {
-            msgs.setHistoryMessages(pageMessages);
-            msgs.markHistoryMutation("replace");
-          }
-        } else if (pageMessages.length > 0) {
-          msgs.setHistoryMessages((current) => {
-            const seenIds = new Set(current.map((m) => m.id));
-            const older = pageMessages.filter((m) => !seenIds.has(m.id));
-            return older.length > 0 ? [...older, ...current] : current;
-          });
-          msgs.markHistoryMutation("prepend");
-        }
+        handleHistoryPage(data);
         break;
       }
 
@@ -308,118 +479,18 @@ export function useRemiChat() {
         break;
 
       case "chat_end": {
-        if (!allowServerGeneration("chat_end", data.generationId)) break;
-        const text = streamingBufRef.current;
-        resetStreaming();
-        if (!voice.duplexRef.current) {
-          waitingRef.current = false;
-          setWaiting(false);
-        }
-        setSttPartialText("");
-        voice.setInputPlaceholder("说点什么…");
-        if (text) {
-          msgs.appendLiveMessage({
-            id: uid(),
-            role: "rem",
-            text,
-            createdAt: new Date().toISOString(),
-          });
-        }
-        const endGenerationId = parseGenerationId(data.generationId);
-        if (
-          endGenerationId != null &&
-          turnEngine.activeGenerationRef.current === endGenerationId
-        ) {
-          turnEngine.activeGenerationRef.current = null;
-        }
-        if (data.emotion != null) av.setEmotion(String(data.emotion));
-        const awaitingPlaybackDrain = shouldAwaitPlaybackDrain({
-          voiceActive,
-          playbackSeenForGeneration:
-            endGenerationId != null &&
-            turnEngine.playedGenerationIdsRef.current.has(endGenerationId),
-        });
-        turnEngine.pendingChatEndRef.current = {
-          generationId: endGenerationId,
-          awaitingPlaybackDrain,
-        };
-        if (!awaitingPlaybackDrain) {
-          if (turnEngine.pendingChatEndTimerRef.current) {
-            clearTimeout(turnEngine.pendingChatEndTimerRef.current);
-          }
-          turnEngine.pendingChatEndTimerRef.current = setTimeout(() => {
-            if (!turnEngine.pendingChatEndRef.current) return;
-            if (turnEngine.pendingChatEndRef.current.generationId !== endGenerationId) return;
-            if (turnEngine.pendingChatEndRef.current.awaitingPlaybackDrain) return;
-            turnEngine.finalizePendingChatEnd(endGenerationId);
-          }, 220 /* CHAT_END_PLAYBACK_GRACE_MS */);
-        }
+        handleChatEnd(data, av);
         break;
       }
 
-      case "voice":
-        if (!allowServerGeneration("voice", data.generationId)) break;
-        if (typeof data.audio === "string") {
-          const generationId = parseGenerationId(data.generationId);
-          turnEngine.rememberPlayedGeneration(generationId);
-          if (turnEngine.pendingChatEndRef.current?.generationId === generationId) {
-            turnEngine.pendingChatEndRef.current = {
-              generationId,
-              awaitingPlaybackDrain: true,
-            };
-            if (turnEngine.pendingChatEndTimerRef.current) {
-              clearTimeout(turnEngine.pendingChatEndTimerRef.current);
-              turnEngine.pendingChatEndTimerRef.current = null;
-            }
-          }
-          turnEngine.commitTurnState("assistant_speaking", "playback_start", {
-            generationId,
-            kind: "ws",
-          });
-          enqueueBase64(data.audio, generationId);
-          if (turnEngine.rememberLoggedVoiceGeneration(generationId)) {
-            pushAvatarDevtoolsLog("ws", "voice start", {
-              generationId,
-              transport: "voice",
-            });
-          }
-        }
+      case "voice": {
+        handleVoice(data);
         break;
+      }
 
       case "voice_chunk":
       case "voice_pcm_chunk": {
-        if (!allowServerGeneration("voice_pcm_chunk", data.generationId)) break;
-        if (typeof data.audio === "string") {
-          const rate = Number(data.sampleRate);
-          const generationId = parseGenerationId(data.generationId);
-          turnEngine.rememberPlayedGeneration(generationId);
-          if (turnEngine.pendingChatEndRef.current?.generationId === generationId) {
-            turnEngine.pendingChatEndRef.current = {
-              generationId,
-              awaitingPlaybackDrain: true,
-            };
-            if (turnEngine.pendingChatEndTimerRef.current) {
-              clearTimeout(turnEngine.pendingChatEndTimerRef.current);
-              turnEngine.pendingChatEndTimerRef.current = null;
-            }
-          }
-          turnEngine.commitTurnState("assistant_speaking", "playback_start", {
-            generationId,
-            kind: "ws",
-          });
-          enqueuePcmChunk(
-            data.audio,
-            Number.isFinite(rate) && rate > 0 ? rate : 24000,
-            generationId,
-          );
-          if (turnEngine.rememberLoggedVoiceGeneration(generationId)) {
-            pushAvatarDevtoolsLog("ws", "voice start", {
-              generationId,
-              transport: "voice_pcm_chunk",
-              sampleRate: Number.isFinite(rate) && rate > 0 ? rate : 24000,
-            });
-          }
-        }
+        handleVoicePcmChunk(data);
         break;
       }
 
@@ -485,37 +556,7 @@ export function useRemiChat() {
       }
 
       case "avatar_intent": {
-        const intent =
-          data.intent && typeof data.intent === "object"
-            ? (data.intent as AvatarIntent)
-            : null;
-        const beats = Array.isArray(data.beats) ? (data.beats as AvatarIntentBeat[]) : [];
-        av.clearAvatarIntentSchedule();
-        if (intent) {
-          av.setAvatarIntentOverride(intent);
-          av.triggerIntentGestureAction(intent);
-          pushAvatarDevtoolsLog("ws", "avatar_intent", {
-            intent,
-            beats: beats.length,
-          });
-          let endAt = Date.now() + Math.max(260, intent.holdMs);
-          for (const beat of beats) {
-            const merged = av.mergeIntentBeat(intent, beat);
-            const timer = setTimeout(() => {
-              av.setAvatarIntentOverride(merged);
-              av.triggerIntentGestureAction(merged);
-            }, Math.max(0, beat.delayMs));
-            av.avatarBeatTimersRef.current.push(timer);
-            endAt = Math.max(
-              endAt,
-              Date.now() + Math.max(0, beat.delayMs) + Math.max(260, merged.holdMs),
-            );
-          }
-          const resetTimer = setTimeout(() => {
-            av.setAvatarIntentOverride(intent);
-          }, Math.max(0, endAt - Date.now()));
-          av.avatarBeatTimersRef.current.push(resetTimer);
-        }
+        handleAvatarIntent(data, av);
         break;
       }
 
@@ -610,23 +651,7 @@ export function useRemiChat() {
       }
 
       case "stt_final": {
-        const content = String(data.content ?? "");
-        turnEngine.activeGenerationRef.current = null;
-        voice.clearUserSpeakingEndTimer();
-        voice.userSpeakingRef.current = false;
-        voice.setUserSpeaking(false);
-        voice.setAwaitingSpeechCommitState(false);
-        setSttPartialText("");
-        msgs.appendUserTranscript(content);
-        voice.setInputPlaceholder("说点什么…");
-        if (!voice.duplexRef.current) {
-          waitingRef.current = true;
-          setWaiting(true);
-        }
-        setTyping(true);
-        turnEngine.commitTurnState("confirmed_end", "confirmed_end", {
-          kind: "ws",
-        });
+        handleSttFinal(data);
         break;
       }
 
