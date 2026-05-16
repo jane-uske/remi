@@ -2,6 +2,7 @@ import type { PromptMessage } from "./prompt_builder";
 import {
   buildToneContract,
   detectAnswerNowSignal,
+  detectBedtimeSignal,
   detectDecisionSeekingSignal,
   detectHighRiskDistressSignal,
   detectPracticalDistressSignal,
@@ -44,7 +45,8 @@ export type TurnSceneType =
   | "deliverable_request"
   | "relational_recall"
   | "practical_judgment"
-  | "high_risk_distress";
+  | "high_risk_distress"
+  | "bedtime_wind_down";
 
 export interface TurnInterpretation {
   userAct: TurnUserAct;
@@ -720,6 +722,7 @@ function deriveSceneType(
   ) {
     return "practical_judgment";
   }
+  if (detectBedtimeSignal(text)) return "bedtime_wind_down";
   return "light_chat";
 }
 
@@ -753,6 +756,8 @@ function composeResponsePolicy(
     ) {
       bans.push("no_shallow_reassurance");
     }
+  } else if (interpretation.sceneType === "bedtime_wind_down") {
+    bans.push("no_topic_pivot");
   }
 
   if (interpretation.answerObligation !== "followup_ok") {
@@ -775,6 +780,8 @@ function composeResponsePolicy(
   let openingMove: ResponsePolicy["openingMove"] = "gentle_attunement";
   if (interpretation.sceneType === "deliverable_request" || interpretation.sceneType === "relational_recall") {
     openingMove = "direct_answer";
+  } else if (interpretation.sceneType === "bedtime_wind_down") {
+    openingMove = "quiet_presence";
   } else if (interpretation.responseMode === "stay_in_scene") {
     openingMove = "scene_ack";
   } else if (interpretation.responseMode === "quiet_presence") {
@@ -809,6 +816,7 @@ function composeResponsePolicy(
   const questionBudget: 0 | 1 =
     interpretation.sceneType !== "high_risk_distress" &&
     interpretation.sceneType !== "relational_recall" &&
+    interpretation.sceneType !== "bedtime_wind_down" &&
     interpretation.followupPermission === "one_light_question" &&
     interpretation.userAct !== "answer_now" &&
     !shouldUpdateDecisionContext &&
@@ -1038,6 +1046,9 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   if (interpretation.sceneType === "high_risk_distress") {
     return "这是高风险现实场景。第一句先确认用户此刻是不是安全的；第二句明确别让他一个人硬扛；第三句只给一个最小下一步。不要开玩笑，不要把话题拉回宠物或轻松梗，也不要立刻抛一串赚钱点子。";
   }
+  if (interpretation.sceneType === "bedtime_wind_down") {
+    return "这是睡前陪聊场景。语气放柔放慢，句子短一点；不要抛新话题或追问，像在旁边安静陪着。";
+  }
   if (interpretation.sceneType === "deliverable_request") {
     return "这是交付物请求。必须把正文直接输出在当前聊天框；如果没有真实文件/附件/收件箱工具，就明确说只能贴在聊天里。禁止说已发送、已上传、放进附件、压缩包、收件框或最后一页。先给正文，不要把话题拉回宠物、游戏梗或轻松闲聊。";
   }
@@ -1061,6 +1072,9 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   }
   if (policy.shouldUpdateDecisionContext) {
     return "这句在补充现实约束。先吸收新信息并更新判断，再给一条关键建议；不要重置成共情或追问。";
+  }
+  if (policy.openingMove === "quiet_presence") {
+    return "用户不需要你积极说话。一两个字的轻回应就好，不要主动延伸话题，不要追问。";
   }
   if (interpretation.userAct === "scene_continue") {
     return "用户已经在共同场景里。第一句直接承接动作或氛围；第二句补一点细节；不要退回邀请开始想象。";
@@ -1123,6 +1137,9 @@ export function buildPolicyToneContract(
     if (policy.bans.includes("no_shallow_reassurance")) {
       extra.push("这是现实压力判断：先承认压力，再给有依据的拆法，别随口给一个轻飘的粗算。");
     }
+  }
+  if (interpretation.sceneType === "bedtime_wind_down") {
+    extra.push("睡前场景：语气放柔放慢，不要把话题越聊越兴奋。");
   }
   if (policy.shouldUpdateDecisionContext) {
     extra.push("补充现实约束时，要像真的听懂并纳入判断。");

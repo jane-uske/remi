@@ -443,6 +443,7 @@ export async function runPipeline(
 
     if (signal.aborted) {
       clearThinkingFillerTimer();
+      send(ws, { type: "emotion", emotion: "neutral" });
       latencyTracer.mark("tts_end", traceId);
       latencyTracer.log(traceId);
       return;
@@ -458,6 +459,7 @@ export async function runPipeline(
     clearThinkingFillerTimer();
 
     if (signal.aborted) {
+      send(ws, { type: "emotion", emotion: "neutral" });
       latencyTracer.mark("tts_end", traceId);
       latencyTracer.log(traceId);
       return;

@@ -404,6 +404,197 @@ export function useRemiChat() {
     });
   }
 
+  function handleTtsLipSync(data: Record<string, unknown>) {
+    if (!allowServerGeneration("tts_lip_sync", data.generationId)) return;
+    const generationId = parseGenerationId(data.generationId);
+    if (generationId == null || !Array.isArray(data.cues)) return;
+    const source =
+      data.source === "provider_viseme"
+        ? "provider_viseme"
+        : "provider_word_boundary_derived";
+    const mode = data.mode === "replace" ? "replace" : "append";
+    applyTtsLipSyncPatch({
+      generationId,
+      source,
+      mode,
+      complete: data.complete === true,
+      cues: data.cues as TtsLipSyncPatch["cues"],
+    });
+    pushAvatarDevtoolsLog("ws", "tts_lip_sync", {
+      generationId,
+      source,
+      mode,
+      complete: data.complete === true,
+      cueCount: data.cues.length,
+    });
+  }
+
+  function handleAvatarFrame(data: Record<string, unknown>, av: AvatarCallbacks) {
+    const frame = data.frame as
+      | {
+          action?: AvatarActionCommand;
+          emotion?: string;
+          face?: AvatarFrameState["face"];
+          lipSync?: AvatarFrameState["lipSync"];
+        }
+      | undefined;
+    const receivedAtMs = Date.now();
+    if (frame?.emotion) av.setEmotion(String(frame.emotion));
+    if (frame?.face || frame?.lipSync || frame?.emotion) {
+      av.setAvatarFrame((prev) => ({
+        emotion: (frame?.emotion as AvatarFrameState["emotion"]) ?? prev?.emotion,
+        face: frame?.face ?? prev?.face,
+        lipSync: frame?.lipSync ?? prev?.lipSync,
+        lipSyncAtMs: frame?.lipSync ? receivedAtMs : prev?.lipSyncAtMs,
+      }));
+    }
+    if (frame?.action) {
+      av.setAvatarAction({
+        action: frame.action,
+        nonce: Date.now() + Math.floor(Math.random() * 1000),
+      });
+    }
+    pushAvatarDevtoolsLog("ws", "avatar_frame", {
+      hasEmotion: !!frame?.emotion,
+      hasAction: !!frame?.action,
+      hasFace: !!frame?.face,
+      hasLipSync: !!frame?.lipSync,
+      action: frame?.action?.action,
+    });
+  }
+
+  function handleInterrupt(data: Record<string, unknown>, av: AvatarCallbacks) {
+    const interruptedGeneration = parseGenerationId(data.generationId);
+    turnEngine.clearPendingChatEnd(interruptedGeneration);
+    if (interruptedGeneration != null) {
+      turnEngine.blockGeneration(interruptedGeneration);
+    } else {
+      turnEngine.activeGenerationRef.current = null;
+    }
+    setSttPartialText("");
+    clearQueue();
+    av.clearAvatarIntentSchedule();
+    av.setAvatarIntentOverride(null);
+    turnEngine.sttPredictionPreviewRef.current = null;
+    turnEngine.setSttPredictionPreview(null);
+    resetStreaming();
+    setTyping(false);
+    turnEngine.interruptionTypeRef.current = "unknown";
+    turnEngine.setInterruptionType("unknown");
+    turnEngine.commitTurnState("interrupted_by_user", "user_interrupt", {
+      interruptionType: "unknown",
+      generationId: interruptedGeneration,
+      kind: "ws",
+    });
+    pushAvatarDevtoolsLog("ws", "interrupt", {
+      generationId: interruptedGeneration,
+    });
+  }
+
+  function handleError(data: Record<string, unknown>) {
+    const pendingDevCommand = pendingDevCommandRef.current;
+    if (pendingDevCommand) {
+      pendingDevCommandRef.current = null;
+      setDevStatus({
+        tone: "error",
+        message: String(data.content ?? "开发操作失败"),
+      });
+    }
+    msgs.historyLoadingMoreRef.current = false;
+    msgs.setHistoryLoadingMore(false);
+    turnEngine.clearPendingChatEnd();
+    voice.clearUserSpeakingEndTimer();
+    voice.userSpeakingRef.current = false;
+    voice.setUserSpeaking(false);
+    voice.setAwaitingSpeechCommitState(false);
+    setTyping(false);
+    setSttPartialText("");
+    resetStreaming();
+    waitingRef.current = false;
+    setWaiting(false);
+    voice.setInputPlaceholder("说点什么…");
+    msgs.appendLiveMessage({
+      id: uid(),
+      role: "error",
+      text: String(data.content ?? "错误"),
+    });
+  }
+
+  function handleDevStateChange(data: Record<string, unknown>, av: AvatarCallbacks) {
+    pendingDevCommandRef.current = null;
+    if (data.type === "dev_preset_applied") {
+      const personaPresetVal =
+        typeof data.personaPreset === "string" && data.personaPreset.trim()
+          ? data.personaPreset.trim()
+          : "";
+      const relationshipPreset =
+        typeof data.relationshipPreset === "string" && data.relationshipPreset.trim()
+          ? data.relationshipPreset.trim()
+          : "";
+      const parts = [
+        personaPresetVal ? `人格：${personaPresetVal}` : "",
+        relationshipPreset ? `关系：${relationshipPreset}` : "",
+      ].filter(Boolean);
+      setDevStatus({
+        tone: "success",
+        message: parts.length > 0 ? `预设已应用 (${parts.join(" / ")})` : "预设已应用",
+      });
+    } else if (data.type === "dev_tts_voice_applied") {
+      const voiceType =
+        typeof data.voiceType === "string" && data.voiceType.trim()
+          ? data.voiceType.trim()
+          : "";
+      setDevStatus({
+        tone: "success",
+        message: voiceType ? `Volc 音色已切到 ${voiceType}` : "Volc 音色已恢复环境默认",
+      });
+    } else {
+      const scope =
+        data.scope === "all" ||
+        data.scope === "relationship" ||
+        data.scope === "session"
+          ? data.scope
+          : "session";
+      setDevStatus({
+        tone: "success",
+        message: `${describeResetScope(scope)}已完成`,
+      });
+    }
+    turnEngine.clearPendingChatEnd();
+    voice.clearUserSpeakingEndTimer();
+    voice.userSpeakingRef.current = false;
+    voice.setUserSpeaking(false);
+    voice.setAwaitingSpeechCommitState(false);
+    setTyping(false);
+    setSttPartialText("");
+    resetStreaming();
+    waitingRef.current = false;
+    setWaiting(false);
+    clearQueue();
+    av.clearAvatarIntentSchedule();
+    av.setAvatarIntentOverride(null);
+    turnEngine.sttPredictionPreviewRef.current = null;
+    turnEngine.setSttPredictionPreview(null);
+    turnEngine.interruptionTypeRef.current = null;
+    turnEngine.setInterruptionType(null);
+    turnEngine.commitTurnState("confirmed_end", "confirmed_end", { kind: "system" });
+    msgs.historySourceRef.current = "fallback";
+    msgs.historyCursorRef.current = null;
+    msgs.historyLoadingMoreRef.current = false;
+    msgs.setHistoryLoadingMore(false);
+    msgs.setHistoryHasMore(false);
+    msgs.persistedMessagesRef.current = [];
+    msgs.setHistoryMessages([]);
+    msgs.setLiveMessages([]);
+    msgs.markHistoryMutation("replace");
+    try {
+      localStorage.removeItem(messageStorageKey);
+      localStorage.removeItem(resolveLegacyMessageStorageKey(messageStorageKey));
+    } catch {
+      /* noop */
+    }
+  }
+
   /* ── onMessage (defined after all hooks) ── */
   // This function is assigned to onMessageRef.current each render.
   // It is NOT a useCallback because it closes over many sub-hook values — it reads from refs
@@ -495,63 +686,12 @@ export function useRemiChat() {
       }
 
       case "tts_lip_sync": {
-        if (!allowServerGeneration("tts_lip_sync", data.generationId)) break;
-        const generationId = parseGenerationId(data.generationId);
-        if (generationId == null || !Array.isArray(data.cues)) break;
-        const source =
-          data.source === "provider_viseme"
-            ? "provider_viseme"
-            : "provider_word_boundary_derived";
-        const mode = data.mode === "replace" ? "replace" : "append";
-        applyTtsLipSyncPatch({
-          generationId,
-          source,
-          mode,
-          complete: data.complete === true,
-          cues: data.cues as TtsLipSyncPatch["cues"],
-        });
-        pushAvatarDevtoolsLog("ws", "tts_lip_sync", {
-          generationId,
-          source,
-          mode,
-          complete: data.complete === true,
-          cueCount: data.cues.length,
-        });
+        handleTtsLipSync(data);
         break;
       }
 
       case "avatar_frame": {
-        const frame = data.frame as
-          | {
-              action?: AvatarActionCommand;
-              emotion?: string;
-              face?: AvatarFrameState["face"];
-              lipSync?: AvatarFrameState["lipSync"];
-            }
-          | undefined;
-        const receivedAtMs = Date.now();
-        if (frame?.emotion) av.setEmotion(String(frame.emotion));
-        if (frame?.face || frame?.lipSync || frame?.emotion) {
-          av.setAvatarFrame((prev) => ({
-            emotion: (frame?.emotion as AvatarFrameState["emotion"]) ?? prev?.emotion,
-            face: frame?.face ?? prev?.face,
-            lipSync: frame?.lipSync ?? prev?.lipSync,
-            lipSyncAtMs: frame?.lipSync ? receivedAtMs : prev?.lipSyncAtMs,
-          }));
-        }
-        if (frame?.action) {
-          av.setAvatarAction({
-            action: frame.action,
-            nonce: Date.now() + Math.floor(Math.random() * 1000),
-          });
-        }
-        pushAvatarDevtoolsLog("ws", "avatar_frame", {
-          hasEmotion: !!frame?.emotion,
-          hasAction: !!frame?.action,
-          hasFace: !!frame?.face,
-          hasLipSync: !!frame?.lipSync,
-          action: frame?.action?.action,
-        });
+        handleAvatarFrame(data, av);
         break;
       }
 
@@ -581,31 +721,7 @@ export function useRemiChat() {
       /* ── Full-duplex events ── */
 
       case "interrupt": {
-        const interruptedGeneration = parseGenerationId(data.generationId);
-        turnEngine.clearPendingChatEnd(interruptedGeneration);
-        if (interruptedGeneration != null) {
-          turnEngine.blockGeneration(interruptedGeneration);
-        } else {
-          turnEngine.activeGenerationRef.current = null;
-        }
-        setSttPartialText("");
-        clearQueue();
-        av.clearAvatarIntentSchedule();
-        av.setAvatarIntentOverride(null);
-        turnEngine.sttPredictionPreviewRef.current = null;
-        turnEngine.setSttPredictionPreview(null);
-        resetStreaming();
-        setTyping(false);
-        turnEngine.interruptionTypeRef.current = "unknown";
-        turnEngine.setInterruptionType("unknown");
-        turnEngine.commitTurnState("interrupted_by_user", "user_interrupt", {
-          interruptionType: "unknown",
-          generationId: interruptedGeneration,
-          kind: "ws",
-        });
-        pushAvatarDevtoolsLog("ws", "interrupt", {
-          generationId: interruptedGeneration,
-        });
+        handleInterrupt(data, av);
         break;
       }
 
@@ -656,32 +772,7 @@ export function useRemiChat() {
       }
 
       case "error": {
-        const pendingDevCommand = pendingDevCommandRef.current;
-        if (pendingDevCommand) {
-          pendingDevCommandRef.current = null;
-          setDevStatus({
-            tone: "error",
-            message: String(data.content ?? "开发操作失败"),
-          });
-        }
-        msgs.historyLoadingMoreRef.current = false;
-        msgs.setHistoryLoadingMore(false);
-        turnEngine.clearPendingChatEnd();
-        voice.clearUserSpeakingEndTimer();
-        voice.userSpeakingRef.current = false;
-        voice.setUserSpeaking(false);
-        voice.setAwaitingSpeechCommitState(false);
-        setTyping(false);
-        setSttPartialText("");
-        resetStreaming();
-        waitingRef.current = false;
-        setWaiting(false);
-        voice.setInputPlaceholder("说点什么…");
-        msgs.appendLiveMessage({
-          id: uid(),
-          role: "error",
-          text: String(data.content ?? "错误"),
-        });
+        handleError(data);
         break;
       }
 
@@ -697,78 +788,7 @@ export function useRemiChat() {
       case "dev_preset_applied":
       case "dev_tts_voice_applied":
       case "dev_state_reset": {
-        pendingDevCommandRef.current = null;
-        if (data.type === "dev_preset_applied") {
-          const personaPresetVal =
-            typeof data.personaPreset === "string" && data.personaPreset.trim()
-              ? data.personaPreset.trim()
-              : "";
-          const relationshipPreset =
-            typeof data.relationshipPreset === "string" && data.relationshipPreset.trim()
-              ? data.relationshipPreset.trim()
-              : "";
-          const parts = [
-            personaPresetVal ? `人格：${personaPresetVal}` : "",
-            relationshipPreset ? `关系：${relationshipPreset}` : "",
-          ].filter(Boolean);
-          setDevStatus({
-            tone: "success",
-            message: parts.length > 0 ? `预设已应用 (${parts.join(" / ")})` : "预设已应用",
-          });
-        } else if (data.type === "dev_tts_voice_applied") {
-          const voiceType =
-            typeof data.voiceType === "string" && data.voiceType.trim()
-              ? data.voiceType.trim()
-              : "";
-          setDevStatus({
-            tone: "success",
-            message: voiceType ? `Volc 音色已切到 ${voiceType}` : "Volc 音色已恢复环境默认",
-          });
-        } else {
-          const scope =
-            data.scope === "all" ||
-            data.scope === "relationship" ||
-            data.scope === "session"
-              ? data.scope
-              : "session";
-          setDevStatus({
-            tone: "success",
-            message: `${describeResetScope(scope)}已完成`,
-          });
-        }
-        turnEngine.clearPendingChatEnd();
-        voice.clearUserSpeakingEndTimer();
-        voice.userSpeakingRef.current = false;
-        voice.setUserSpeaking(false);
-        voice.setAwaitingSpeechCommitState(false);
-        setTyping(false);
-        setSttPartialText("");
-        resetStreaming();
-        waitingRef.current = false;
-        setWaiting(false);
-        clearQueue();
-        av.clearAvatarIntentSchedule();
-        av.setAvatarIntentOverride(null);
-        turnEngine.sttPredictionPreviewRef.current = null;
-        turnEngine.setSttPredictionPreview(null);
-        turnEngine.interruptionTypeRef.current = null;
-        turnEngine.setInterruptionType(null);
-        turnEngine.commitTurnState("confirmed_end", "confirmed_end", { kind: "system" });
-        msgs.historySourceRef.current = "fallback";
-        msgs.historyCursorRef.current = null;
-        msgs.historyLoadingMoreRef.current = false;
-        msgs.setHistoryLoadingMore(false);
-        msgs.setHistoryHasMore(false);
-        msgs.persistedMessagesRef.current = [];
-        msgs.setHistoryMessages([]);
-        msgs.setLiveMessages([]);
-        msgs.markHistoryMutation("replace");
-        try {
-          localStorage.removeItem(messageStorageKey);
-          localStorage.removeItem(resolveLegacyMessageStorageKey(messageStorageKey));
-        } catch {
-          /* noop */
-        }
+        handleDevStateChange(data, av);
         break;
       }
 

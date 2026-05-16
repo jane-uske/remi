@@ -69,6 +69,11 @@ const ASSISTANTY_PATTERNS: TonePattern[] = [
     score: 2,
     pattern: /^(?:加油|你一定行|你可以的|我相信你|你很棒)(?:！|!|。)?$/u,
   },
+  {
+    reason: "连环追问",
+    score: 3,
+    pattern: /(?:[？?].*){2,}/u,
+  },
 ];
 
 function classifyRelationshipDistance(input: ToneContractInput): "early" | "warm" | "close" {
@@ -127,6 +132,12 @@ export function detectRelationalRecallSignal(text: string): boolean {
   );
 }
 
+export function detectBedtimeSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(?:睡不着|失眠|睡前|晚安|困了|要睡了|准备睡|上床了|躺下了|关灯了|熄灯了|夜里睡不着|半夜醒了)/u.test(trimmed);
+}
+
 export function buildToneContract(input: ToneContractInput): string {
   const distance = classifyRelationshipDistance(input);
   const lines: string[] = [
@@ -134,6 +145,7 @@ export function buildToneContract(input: ToneContractInput): string {
     "先接住用户此刻的点，再往前推一步；不要上来总结、教育或给流程建议",
     "能短就短，少解释你自己，少用模板化安慰句",
     "不要用'总的来说''所以你看'这类总结腔开头",
+    "日常碎聊不要表现得比用户更兴奋；用户随便说一句，不用大惊小怪地回应",
   ];
 
   if (input.sceneImmersion) {
