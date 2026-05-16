@@ -52,7 +52,7 @@ function createMemoryRepo() {
 function loadMockedSlowBrain({ completeImpl, hasConfigImpl, ingestImpl }) {
   const qwenClientModulePath = path.resolve(__dirname, "../../llm/qwen_client.ts");
   const episodeStoreModulePath = path.resolve(__dirname, "../../memory/episode_store.ts");
-  const slowBrainModulePath = path.resolve(__dirname, "../../brains/slow_brain.ts");
+  const slowBrainModulePath = path.resolve(__dirname, "../../brains/background_analysis.ts");
   const qwenClientModule = require(qwenClientModulePath);
   const episodeStoreModule = require(episodeStoreModulePath);
 

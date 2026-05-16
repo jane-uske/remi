@@ -206,7 +206,7 @@ function buildSystemPrompt(
 
   if (remainingPriorityChars > 0 && reducedPriorityContext?.trim()) {
     sections.push(
-      “【优先参考（请自然融入对话，不要逐条复述）】\n” +
+      "【优先参考（请自然融入对话，不要逐条复述）】\n" +
         trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars),
     );
   }
@@ -222,43 +222,43 @@ function buildSystemPrompt(
     sections.push(`【性格特质】${traitGuidance}`);
   }
   sections.push(
-    `【行为边界】${REMI_DEFAULT_PERSONA.behavioral_rules.join(“；”)}`,
+    `【行为边界】${REMI_DEFAULT_PERSONA.behavioral_rules.join("；")}`,
   );
 
   sections.push(
-    `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: “” }), 320)}`,
-    “【关系与记忆回答规则】如果用户问”我们是什么关系””我们聊了多久””你还记得多少”这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按”刚开始接触/还在建立了解”来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。”,
+    `【语气合同】\n${trimTextByChars(buildToneContract({ userMessage: "" }), 320)}`,
+    `【关系与记忆回答规则】如果用户问"我们是什么关系""我们聊了多久""你还记得多少"这类问题，只能依据当前提供的关系阶段、轮数、对话摘要和记忆来回答。没有明确长期关系依据时，要按"刚开始接触/还在建立了解"来答，不能脑补成已经认识很久、是老朋友，也不能编造具体聊天时长或轮数。`,
     buildEmotionSpeechGuidance(emotion),
-    “用中文回复。”,
+    "用中文回复。",
   );
 
   if (memory.length > 0) {
     const memoryLines = memory
       .slice(0, maxMemoryEntries)
       .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
-      .join(“\n”);
+      .join("\n");
     sections.push(
-      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说”我记得/你之前/上次”，也不要用它另起旧话题。\n${memoryLines}`,
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说"我记得/你之前/上次"，也不要用它另起旧话题。\n${memoryLines}`,
     );
     // Inject memory expression rules when memory is present
     sections.push(
-      `【记忆表达规则】${REMI_DEFAULT_PERSONA.memory_expression_rules.join(“；”)}`,
+      `【记忆表达规则】${REMI_DEFAULT_PERSONA.memory_expression_rules.join("；")}`,
     );
   }
 
   // Emotion self-annotation instruction (tag will be stripped by EmotionTagParser)
   sections.push(
-    “在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。”,
+    "在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。",
   );
 
   const legacyPluginSections = getPromptInjectionHooks().flatMap((hook) =>
     hook.getPromptSections({ userMessage, persona: persona!, interpretation: null, connId }),
   );
   if (legacyPluginSections.length > 0) {
-    sections.push(legacyPluginSections.join(“\n”));
+    sections.push(legacyPluginSections.join("\n"));
   }
 
-  return sections.join(“\n\n”);
+  return sections.join("\n\n");
 }
 
 export function buildPrompt({

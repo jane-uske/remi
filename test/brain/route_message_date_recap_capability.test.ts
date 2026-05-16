@@ -30,7 +30,7 @@ function loadMockedRouteMessage({
   tryHandleDirectCapabilities,
 }) {
   const fastBrainModulePath = path.resolve(__dirname, "../../brains/reply_stream.ts");
-  const slowBrainModulePath = path.resolve(__dirname, "../../brains/slow_brain.ts");
+  const slowBrainModulePath = path.resolve(__dirname, "../../brains/background_analysis.ts");
   const directCapabilitiesModulePath = path.resolve(
     __dirname,
     "../../brain/direct_capabilities.ts",
