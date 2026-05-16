@@ -3,7 +3,6 @@ import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import {
-  extractMemory,
   retrievePromptMemory,
 } from "../memory/memory_agent";
 import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
@@ -478,9 +477,7 @@ export async function* routeMessage(
     return;
   }
 
-  const fastMemoryWrites = !opts?.systemTriggered
-    ? extractMemory(userMessage, ctx.memory)
-    : [];
+  const fastMemoryWrites: { key: string; value: string }[] = [];
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();

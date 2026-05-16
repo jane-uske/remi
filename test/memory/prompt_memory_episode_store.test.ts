@@ -209,7 +209,6 @@ describe("prompt memory retrieval with episode store", () => {
         episodeRecallSource: "episode_store",
         episodeRecallIds: ["episode-1", "episode-2"],
         episodeReferenceApplied: true,
-        episodeRecallFallback: false,
       });
     } finally {
       restore();
@@ -279,7 +278,6 @@ describe("prompt memory retrieval with episode store", () => {
         episodeRecallSource: "episode_store",
         episodeRecallIds: ["episode-2"],
         episodeReferenceApplied: true,
-        episodeRecallFallback: false,
       });
     } finally {
       restore();
@@ -349,7 +347,6 @@ describe("prompt memory retrieval with episode store", () => {
         episodeRecallSource: "episode_store",
         episodeRecallIds: ["episode-2"],
         episodeReferenceApplied: true,
-        episodeRecallFallback: false,
       });
     } finally {
       restore();
@@ -465,7 +462,6 @@ describe("prompt memory retrieval with episode store", () => {
         episodeRecallSource: "none",
         episodeRecallIds: [],
         episodeReferenceApplied: false,
-        episodeRecallFallback: false,
       });
     } finally {
       restore();

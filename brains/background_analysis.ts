@@ -4,7 +4,6 @@
 // NEVER blocks the response path.
 
 import { complete, hasLlmConfig, type ChatMessage } from "../llm/qwen_client";
-import { extractMemory } from "../memory/memory_agent";
 import type { EpisodeLifecycleStatus } from "../memory/episode_store";
 import { ingest } from "../memory/episode_store";
 import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
@@ -62,9 +61,7 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
   const lightTouchTurn = isLightTouchTurn(userMessage);
 
   slowBrain.recordTurn();
-  const slowMemoryWrites = !lightTouchTurn
-    ? extractMemory(userMessage, memoryRepo)
-    : [];
+  const slowMemoryWrites: { key: string; value: string }[] = [];
   localAnalysis(slowBrain, userMessage);
 
   const configured = hasLlmConfig();
