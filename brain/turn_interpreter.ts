@@ -143,32 +143,32 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 
 严格返回合法 JSON，不要 markdown，不要解释：
 {
-  "userAct": "direct_question | decision_seek | context_update | emotional_share | scene_continue | topic_veto | answer_now | small_talk | unclear",
-  "answerObligation": "must_answer | answer_then_followup | followup_ok",
-  "responseMode": "answer_first | attune_then_answer | stay_in_scene | gentle_followup | quiet_presence",
-  "emotionalState": {
-    "valence": "negative | mixed | neutral | positive",
-    "intensity": "low | medium | high",
-    "feltNeeds": ["comfort | clarity | validation | practical_help | space"]
+  “userAct”: “direct_question | decision_seek | context_update | emotional_share | scene_continue | topic_veto | answer_now | small_talk | unclear”,
+  “answerObligation”: “must_answer | answer_then_followup | followup_ok”,
+  “responseMode”: “answer_first | attune_then_answer | stay_in_scene | gentle_followup | quiet_presence”,
+  “emotionalState”: {
+    “valence”: “negative | mixed | neutral | positive”,
+    “intensity”: “low | medium | high”,
+    “feltNeeds”: [“comfort | clarity | validation | practical_help | space”]
   },
-  "relationalPosture": "warm | steady | playful | serious",
-  "topicUpdate": {
-    "kind": "new_topic | continuation | constraint_update | none",
-    "label": "可选，短词"
+  “relationalPosture”: “warm | steady | playful | serious”,
+  “topicUpdate”: {
+    “kind”: “new_topic | continuation | constraint_update | none”,
+    “label”: “可选，短词”
   },
-  "sceneState": "already_in_scene | not_in_scene",
-  "boundaryState": "veto_topic | none",
-  "followupPermission": "none | one_light_question",
-  "styleIntent": {
-    "humorBoost": true,
-    "teasingLevel": "off | light",
-    "assistantySuppression": false,
-    "familiarityBoost": false,
-    "romanceBoost": false,
-    "roleplayStyle": "可选，短词",
-    "confidence": 0.0
+  “sceneState”: “already_in_scene | not_in_scene”,
+  “boundaryState”: “veto_topic | none”,
+  “followupPermission”: “none | one_light_question”,
+  “styleIntent”: {
+    “humorBoost”: true,
+    “teasingLevel”: “off | light”,
+    “assistantySuppression”: false,
+    “familiarityBoost”: false,
+    “romanceBoost”: false,
+    “roleplayStyle”: “可选，短词”,
+    “confidence”: 0.0
   },
-  "confidence": 0.0
+  “confidence”: 0.0
 }
 
 判定规则：
@@ -179,11 +179,13 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 - 用户已经把你们放进同一个画面或动作里时，userAct=scene_continue，responseMode=stay_in_scene。
 - 用户明确说不要聊某话题时，userAct=topic_veto。
 - 用户只是分享情绪或近况，没有明确问问题时，优先 emotional_share。
-- 用户如果在要求你“更有趣一点 / 少一点助手腔 / 像熟人一点 / 轻一点毒舌 / 更会撩一点 / 扮演一种说话做事风格”，请在 styleIntent 里体现；没有这种要求时 styleIntent 留空或不填。
-- styleIntent 只描述“接下来几轮回复应该更像什么风格”，不是长期人格设定；轻毒舌只能是 teasingLevel=light，不要输出更重等级。
-- 不要把“我是不是该辞职”“换个老板吗”“我还欠花呗两万五”误判成 small_talk。
+- 用户如果在要求你”更有趣一点 / 少一点助手腔 / 像熟人一点 / 轻一点毒舌 / 更会撩一点 / 扮演一种说话做事风格”，请在 styleIntent 里体现；没有这种要求时 styleIntent 留空或不填。
+- styleIntent 只描述”接下来几轮回复应该更像什么风格”，不是长期人格设定；轻毒舌只能是 teasingLevel=light，不要输出更重等级。
+- 不要把”我是不是该辞职””换个老板吗””我还欠花呗两万五””我手里只有三千””我快撑不住了”误判成 small_talk。
+- 用户说”嗯””好的””哦””知道了””OK”等单字/短字回应时，优先 small_talk，followupPermission=none，不要误判为 emotional_share。
+- 用户有明显负面情绪词（难过/委屈/崩溃/焦虑/失眠等）时才判 emotional_share，纯粹日常陈述不算。
 - feltNeeds 只保留 1-3 个最关键的。
-- followupPermission 要保守：只在真的适合轻问一句时给 one_light_question。`;
+- followupPermission 要保守：短消息（<8字）且明显轻聊时才给 one_light_question；情绪重或问题明确时一律 none。`;
 
 function configured(): boolean {
   return Boolean(process.env.key && process.env.base_url && process.env.model);

@@ -49,6 +49,16 @@ const ASSISTANTY_PATTERNS: TonePattern[] = [
     score: 4,
     pattern: /作为.?AI|我是.?AI/u,
   },
+  {
+    reason: "总结腔",
+    score: 2,
+    pattern: /总的来说|总而言之|所以你看|你看哈/u,
+  },
+  {
+    reason: "模板化安慰",
+    score: 3,
+    pattern: /没事的|会好起来的|一切都会过去的|你要相信/u,
+  },
 ];
 
 function classifyRelationshipDistance(input: ToneContractInput): "early" | "warm" | "close" {
@@ -108,9 +118,10 @@ export function detectRelationalRecallSignal(text: string): boolean {
 export function buildToneContract(input: ToneContractInput): string {
   const distance = classifyRelationshipDistance(input);
   const lines: string[] = [
-    "像真人接话，不像客服、主持人或通用助手。",
-    "先接住用户此刻的点，再往前推一步；不要上来总结、教育或给流程建议。",
-    "能短就短，少解释你自己，少用模板化安慰句。",
+    "像真人接话，不像客服、主持人或通用助手",
+    "先接住用户此刻的点，再往前推一步；不要上来总结、教育或给流程建议",
+    "能短就短，少解释你自己，少用模板化安慰句",
+    "不要用'总的来说''所以你看'这类总结腔开头",
   ];
 
   if (input.sceneImmersion) {
@@ -145,7 +156,7 @@ export function buildToneContract(input: ToneContractInput): string {
     lines.push("关系已较亲近，允许更贴近、更在场，但仍然要像自然接话，不像台词表演。");
   }
 
-  lines.push("少用这些开头：‘如果你愿意’、‘要不要我陪你’、‘想不想让我’、‘建议你’。");
+  lines.push("少用这些开头：'如果你愿意'、'要不要我陪你'、'想不想让我'、'建议你'、'总的来说'、'没事的'、'你可以先'。");
   return lines.join("；");
 }
 
