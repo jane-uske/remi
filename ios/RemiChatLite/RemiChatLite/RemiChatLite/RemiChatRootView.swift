@@ -83,23 +83,12 @@ struct RemiChatRootView: View {
 
     private func chatView(showSignOutButton: Bool, currentUserId: String?) -> AnyView {
         let identityKey = currentUserId ?? "legacy-user"
-        if showSignOutButton {
-            return AnyView(
-                ChatView(
-                    store: store,
-                    identityKey: identityKey,
-                    showSignOutButton: true,
-                    onSignOut: signOut
-                )
-            )
-        }
-
         return AnyView(
-            ChatView(
+            RemiCompanionView(
                 store: store,
                 identityKey: identityKey,
-                showSignOutButton: false,
-                onSignOut: nil
+                showSignOutButton: showSignOutButton,
+                onSignOut: showSignOutButton ? signOut : nil
             )
         )
     }

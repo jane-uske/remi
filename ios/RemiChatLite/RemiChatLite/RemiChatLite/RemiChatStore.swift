@@ -33,6 +33,10 @@ final class RemiChatStore: ObservableObject {
     @Published private(set) var voiceTranscriptPreview = ""
     @Published private(set) var isAwaitingAssistantResponse = false
     @Published private(set) var autoScrollToBottomVersion = 0
+    @Published private(set) var turnState: RemiTurnState = .listeningActive
+    @Published private(set) var turnStateReason: String = ""
+    @Published private(set) var sttPredictionPreview: String = ""
+    @Published private(set) var activeGenerationId: Int?
     @Published var draft: String = ""
 
     private var socket: URLSessionWebSocketTask?
@@ -514,10 +518,13 @@ final class RemiChatStore: ObservableObject {
             clearAssistantResponseWait()
             appendAssistantChunk(chunk, generationId: generationId)
 
-        case .chatEnd(let fullContent, let generationId):
+        case .chatEnd(let fullContent, let generationId, let endEmotion):
             log("server chat_end gen=\(generationId.map(String.init) ?? "nil") chars=\(fullContent?.count ?? 0)")
             clearAssistantResponseWait()
             finalizeAssistantMessage(generationId: generationId, fullContent: fullContent)
+            if let endEmotion, !endEmotion.isEmpty {
+                emotion = endEmotion
+            }
 
         case .emotion(let nextEmotion):
             emotion = nextEmotion
@@ -575,6 +582,7 @@ final class RemiChatStore: ObservableObject {
         case .sttFinal(let transcript):
             let transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
             log("server stt_final \(transcript)")
+            sttPredictionPreview = ""
             cancelPushToTalkResultTimeout()
             if duplexEnabled {
                 lastMeaningfulVoicePartial = ""
@@ -614,7 +622,28 @@ final class RemiChatStore: ObservableObject {
             clearAssistantResponseWait()
             appendMessage(ChatMessage(role: .error, text: content))
 
-        default:
+        case .turnState(let state, let reason, let generationId, _, let interruptionType):
+            if let parsed = RemiTurnState(rawValue: state) {
+                turnState = parsed
+                turnStateReason = reason
+                if let generationId { activeGenerationId = generationId }
+                log("server turn_state \(state) reason=\(reason) gen=\(generationId.map(String.init) ?? "nil") interrupt=\(interruptionType ?? "")")
+            }
+
+        case .sttPrediction(_, let preview):
+            sttPredictionPreview = preview
+
+        case .avatarFrame(let frameEmotion, _, _):
+            if let frameEmotion, !frameEmotion.isEmpty {
+                emotion = frameEmotion
+            }
+
+        case .avatarIntent(let intentEmotion, _, _, _, _, _):
+            if !intentEmotion.isEmpty {
+                emotion = intentEmotion
+            }
+
+        case .ttsLipSync:
             break
         }
     }

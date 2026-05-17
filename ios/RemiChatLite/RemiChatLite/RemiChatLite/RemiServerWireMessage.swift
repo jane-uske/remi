@@ -2,7 +2,7 @@ import Foundation
 
 enum RemiServerWireMessage {
     case chatChunk(content: String, generationId: Int?)
-    case chatEnd(content: String?, generationId: Int?)
+    case chatEnd(content: String?, generationId: Int?, emotion: String?)
     case emotion(String)
     case voice(audio: String, generationId: Int?)
     case voicePcmChunk(
@@ -17,6 +17,11 @@ enum RemiServerWireMessage {
     case sttPartial(String)
     case sttFinal(String)
     case interrupt
+    case turnState(state: String, reason: String, generationId: Int?, preview: String?, interruptionType: String?)
+    case sttPrediction(status: String, preview: String)
+    case avatarFrame(emotion: String?, lipSyncViseme: String?, lipSyncWeight: Double?)
+    case avatarIntent(emotion: String, gesture: String, gestureIntensity: Int, energy: Int, holdMs: Int, beats: [[String: Any]])
+    case ttsLipSync(generationId: Int, source: String, mode: String, complete: Bool, cues: [[String: Any]])
     case historyPage(RemiServerHistoryPage)
     case error(String)
 }
@@ -51,7 +56,8 @@ enum RemiServerWireMessageParser {
         case "chat_end":
             return .chatEnd(
                 content: payload["content"] as? String,
-                generationId: intValue(payload["generationId"])
+                generationId: intValue(payload["generationId"]),
+                emotion: payload["emotion"] as? String
             )
 
         case "emotion":
@@ -91,6 +97,65 @@ enum RemiServerWireMessageParser {
 
         case "interrupt":
             return .interrupt
+
+        case "turn_state":
+            guard let state = payload["state"] as? String,
+                  let reason = payload["reason"] as? String else { return nil }
+            return .turnState(
+                state: state,
+                reason: reason,
+                generationId: intValue(payload["generationId"]),
+                preview: payload["preview"] as? String,
+                interruptionType: payload["interruptionType"] as? String
+            )
+
+        case "stt_prediction":
+            let status = payload["status"] as? String ?? ""
+            let preview = (payload["preview"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            guard !preview.isEmpty else { return nil }
+            return .sttPrediction(status: status, preview: preview)
+
+        case "avatar_frame":
+            let frameDict = payload["frame"] as? [String: Any] ?? payload
+            let emotion = frameDict["emotion"] as? String
+            var lipViseme: String?
+            var lipWeight: Double?
+            if let lip = frameDict["lipSync"] as? [String: Any] {
+                lipViseme = lip["viseme"] as? String
+                lipWeight = lip["weight"] as? Double
+            }
+            return .avatarFrame(emotion: emotion, lipSyncViseme: lipViseme, lipSyncWeight: lipWeight)
+
+        case "avatar_intent":
+            let intentDict = payload["intent"] as? [String: Any] ?? payload
+            let emotion = intentDict["emotion"] as? String ?? "neutral"
+            let gesture = intentDict["gesture"] as? String ?? ""
+            let gestureIntensity = intValue(intentDict["gestureIntensity"]) ?? 0
+            let energy = intValue(intentDict["energy"]) ?? 0
+            let holdMs = intValue(intentDict["holdMs"]) ?? 0
+            let beats = payload["beats"] as? [[String: Any]] ?? []
+            return .avatarIntent(
+                emotion: emotion,
+                gesture: gesture,
+                gestureIntensity: gestureIntensity,
+                energy: energy,
+                holdMs: holdMs,
+                beats: beats
+            )
+
+        case "tts_lip_sync":
+            guard let generationId = intValue(payload["generationId"]) else { return nil }
+            let source = payload["source"] as? String ?? ""
+            let mode = payload["mode"] as? String ?? "replace"
+            let complete = payload["complete"] as? Bool ?? false
+            let cues = payload["cues"] as? [[String: Any]] ?? []
+            return .ttsLipSync(
+                generationId: generationId,
+                source: source,
+                mode: mode,
+                complete: complete,
+                cues: cues
+            )
 
         case "history_page":
             return .historyPage(parseHistoryPage(payload))
