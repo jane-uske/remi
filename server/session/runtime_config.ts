@@ -1,12 +1,11 @@
+import { getConfig } from "../../server/config";
 import { endsWithSentencePunctuation } from "./turn_taking";
 
 const SEMANTIC_END_RE = /(吗|呢|吧|了|啦|呀|啊|嘛|么|对吧|是吧|行吗|好吗|可以吗|是不是)\s*[。！？.!?]*$/u;
 
 /** Ring buffer duration (ms) kept before speech_start — inject into STT so minSpeech ramp-up does not clip sentence beginnings. */
 export function preRollMaxBytes(sampleRate: number): number {
-  const raw = process.env.VAD_PRE_ROLL_MS;
-  const ms = raw !== undefined && raw !== "" ? Number(raw) : 480;
-  const dur = Number.isFinite(ms) && ms > 0 ? ms : 480;
+  const dur = getConfig().VAD_PRE_ROLL_MS;
   return Math.floor((sampleRate * 2 * dur) / 1000);
 }
 
@@ -16,34 +15,15 @@ export function preRollMaxBytes(sampleRate: number): number {
  * is not split into multiple stt_final messages. Set to 0 to disable (immediate STT).
  */
 export function utteranceGapMs(): number {
-  const raw = process.env.VAD_UTTERANCE_GAP_MS;
-  if (raw === undefined || raw === "") return 180;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return 180;
-  return n;
-}
-
-export function parseNonNegativeMs(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return n;
-}
-
-export function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
+  return getConfig().VAD_UTTERANCE_GAP_MS;
 }
 
 export function devPresetCommandsEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_DEV_PRESETS_ENABLED, process.env.NODE_ENV !== "production");
+  return getConfig().REMI_DEV_PRESETS_ENABLED;
 }
 
 export function proactivePlannerMainPathEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED, true);
+  return getConfig().REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED;
 }
 
 export function isSemanticallyCompletePreview(text: string): boolean {
@@ -59,43 +39,40 @@ export type PredictionBudgetConfig = {
 };
 
 export function predictionBudgetConfig(): PredictionBudgetConfig {
-  const localLlmEnabled = parseBooleanFlag(
-    process.env.REMI_LOCAL_LLM_ENABLED ?? process.env.REM_LOCAL_LLM_ENABLED,
-    true,
-  );
-  const enabled =
-    localLlmEnabled && parseBooleanFlag(process.env.STT_PARTIAL_PREDICTION_ENABLED, false);
-  const pushRequested = parseBooleanFlag(process.env.STT_PREDICTION_PUSH_ENABLED, false);
+  const cfg = getConfig();
+  const localLlmEnabled = cfg.REMI_LOCAL_LLM_ENABLED;
+  const enabled = localLlmEnabled && cfg.STT_PARTIAL_PREDICTION_ENABLED;
+  const pushRequested = cfg.STT_PREDICTION_PUSH_ENABLED;
   return {
     enabled,
     pushEnabled: enabled && pushRequested,
-    debounceMs: parseNonNegativeMs(process.env.STT_PREDICTION_DEBOUNCE_MS, 300),
+    debounceMs: cfg.STT_PREDICTION_DEBOUNCE_MS,
   };
 }
 
 export function sttPreviewIntervalMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_INTERVAL_MS, 650);
+  return getConfig().STT_PREVIEW_INTERVAL_MS;
 }
 
 export function sttPreviewDebounceMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_DEBOUNCE_MS, 180);
+  return getConfig().STT_PREVIEW_DEBOUNCE_MS;
 }
 
 export function sttPreviewMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_MIN_SPEECH_MS, 550);
+  return getConfig().STT_PREVIEW_MIN_SPEECH_MS;
 }
 
 export function sttPreviewWindowMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_WINDOW_MS, 4200);
+  return getConfig().STT_PREVIEW_WINDOW_MS;
 }
 
 export function sttPreviewSettleMs(): number {
-  return parseNonNegativeMs(process.env.STT_PREVIEW_SETTLE_MS, 260);
+  return getConfig().STT_PREVIEW_SETTLE_MS;
 }
 
 /** Minimum utterance duration to run STT after VAD speech_end. */
 export function minSpeechMs(): number {
-  return parseNonNegativeMs(process.env.VAD_MIN_UTTERANCE_MS, 220);
+  return getConfig().VAD_MIN_UTTERANCE_MS;
 }
 
 /**
@@ -104,17 +81,18 @@ export function minSpeechMs(): number {
  * Set VAD_UTTERANCE_GAP_ADAPTIVE=0 for a fixed VAD_UTTERANCE_GAP_MS (legacy behavior).
  */
 export function effectiveUtteranceGapMs(speechDurationMs: number): number {
-  const base = utteranceGapMs();
+  const cfg = getConfig();
+  const base = cfg.VAD_UTTERANCE_GAP_MS;
   if (base <= 0) return 0;
 
-  if (process.env.VAD_UTTERANCE_GAP_ADAPTIVE === "0") {
+  if (!cfg.VAD_UTTERANCE_GAP_ADAPTIVE) {
     return base;
   }
 
-  const minG = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_MIN_MS, 120);
-  const maxG = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_MAX_MS, 320);
-  const lo = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_ADAPTIVE_LO_MS, 400);
-  const hi = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_ADAPTIVE_HI_MS, 4400);
+  const minG = cfg.VAD_UTTERANCE_GAP_MIN_MS;
+  const maxG = cfg.VAD_UTTERANCE_GAP_MAX_MS;
+  const lo = cfg.VAD_UTTERANCE_GAP_ADAPTIVE_LO_MS;
+  const hi = cfg.VAD_UTTERANCE_GAP_ADAPTIVE_HI_MS;
   if (maxG <= minG) return base;
 
   const t = Math.min(1, Math.max(0, (speechDurationMs - lo) / Math.max(1, hi - lo)));
@@ -123,208 +101,163 @@ export function effectiveUtteranceGapMs(speechDurationMs: number): number {
 
 /** 用户多久没发消息后触发 Remi 主动搭话（ms）；未设置或 0 表示关闭 */
 export function silenceNudgeMs(): number {
-  const raw = process.env.REMI_SILENCE_NUDGE_MS;
-  if (raw === undefined || raw === "") return 0;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n;
+  return getConfig().REMI_SILENCE_NUDGE_MS;
 }
 
 export function hesitationHoldMs(): number {
-  return parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_HESITATION_MS, 980);
+  return getConfig().VAD_UTTERANCE_GAP_HESITATION_MS;
 }
 
 export function turnTakingEnabled(): boolean {
-  const raw = (process.env.TURN_TAKING_STAGE2_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().TURN_TAKING_STAGE2_ENABLED;
 }
 
 export function turnTakingGrowthHoldMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_GROWTH_HOLD_MS, 720);
+  return getConfig().TURN_TAKING_GROWTH_HOLD_MS;
 }
 
 export function turnTakingLikelyStableMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_LIKELY_STABLE_MS, 680);
+  return getConfig().TURN_TAKING_LIKELY_STABLE_MS;
 }
 
 export function turnTakingConfirmedStableMs(): number {
-  return parseNonNegativeMs(process.env.TURN_TAKING_CONFIRMED_STABLE_MS, 1100);
+  return getConfig().TURN_TAKING_CONFIRMED_STABLE_MS;
 }
 
 export function turnProsodyEnabled(): boolean {
-  return parseBooleanFlag(process.env.TURN_PROSODY_ENABLED, true);
+  return getConfig().TURN_PROSODY_ENABLED;
 }
 
 export function voiceBackchannelEnabled(): boolean {
-  const raw = (process.env.VOICE_BACKCHANNEL_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().VOICE_BACKCHANNEL_ENABLED;
 }
 
 export function voiceBackchannelCooldownMs(): number {
-  return parseNonNegativeMs(process.env.VOICE_BACKCHANNEL_COOLDOWN_MS, 6000);
+  return getConfig().VOICE_BACKCHANNEL_COOLDOWN_MS;
 }
 
 export function voiceBackchannelStableMs(): number {
-  return parseNonNegativeMs(process.env.VOICE_BACKCHANNEL_STABLE_MS, 1100);
+  return getConfig().VOICE_BACKCHANNEL_STABLE_MS;
 }
 
 export function duplexInterruptMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_INTERRUPT_MIN_SPEECH_MS, 260);
+  return getConfig().DUPLEX_INTERRUPT_MIN_SPEECH_MS;
 }
 
 export function duplexFallbackInterruptMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_SPEECH_MS, 320);
+  return getConfig().DUPLEX_FALLBACK_INTERRUPT_MIN_SPEECH_MS;
 }
 
 export function duplexFallbackInterruptMinRms(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_RMS, 0.045);
+  return getConfig().DUPLEX_FALLBACK_INTERRUPT_MIN_RMS;
 }
 
 export function duplexFallbackInterruptMinStrongRatio(): number {
-  const raw = process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.22;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.22;
-  return Math.max(0, Math.min(1, n));
+  return getConfig().DUPLEX_FALLBACK_INTERRUPT_MIN_STRONG_RATIO;
 }
 
 export function duplexFallbackInterruptMinPreviewChars(): number {
-  return Math.max(
-    1,
-    Math.floor(parseNonNegativeMs(process.env.DUPLEX_FALLBACK_INTERRUPT_MIN_PREVIEW_CHARS, 3)),
-  );
+  return Math.max(1, Math.floor(getConfig().DUPLEX_FALLBACK_INTERRUPT_MIN_PREVIEW_CHARS));
 }
 
 export function duplexAssistantNoPreviewInterruptMinSpeechMs(): number {
-  return parseNonNegativeMs(
-    process.env.DUPLEX_ASSISTANT_NO_PREVIEW_INTERRUPT_MIN_SPEECH_MS,
-    900,
-  );
+  return getConfig().DUPLEX_ASSISTANT_NO_PREVIEW_INTERRUPT_MIN_SPEECH_MS;
 }
 
 export function duplexIdleGuardAfterMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_AFTER_MS, 8000);
+  return getConfig().DUPLEX_IDLE_GUARD_AFTER_MS;
 }
 
 export function duplexIdleGuardMeaningfulPreviewChars(): number {
-  return Math.max(
-    1,
-    Math.floor(parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MEANINGFUL_PREVIEW_CHARS, 3)),
-  );
+  return Math.max(1, Math.floor(getConfig().DUPLEX_IDLE_GUARD_MEANINGFUL_PREVIEW_CHARS));
 }
 
 export function duplexIdleGuardMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MIN_SPEECH_MS, 480);
+  return getConfig().DUPLEX_IDLE_GUARD_MIN_SPEECH_MS;
 }
 
 export function duplexIdleGuardMinRms(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_MIN_RMS, 0.045);
+  return getConfig().DUPLEX_IDLE_GUARD_MIN_RMS;
 }
 
 export function duplexIdleGuardMinStrongRatio(): number {
-  const raw = process.env.DUPLEX_IDLE_GUARD_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.22;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.22;
-  return Math.max(0, Math.min(1, n));
+  return getConfig().DUPLEX_IDLE_GUARD_MIN_STRONG_RATIO;
 }
 
 export function duplexIdleGuardNoPreviewMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_SPEECH_MS, 900);
+  return getConfig().DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_SPEECH_MS;
 }
 
 export function duplexIdleGuardNoPreviewMinRms(): number {
-  return parseNonNegativeMs(process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_RMS, 0.06);
+  return getConfig().DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_RMS;
 }
 
 export function duplexIdleGuardNoPreviewMinStrongRatio(): number {
-  const raw = process.env.DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.38;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.38;
-  return Math.max(0, Math.min(1, n));
+  return getConfig().DUPLEX_IDLE_GUARD_NO_PREVIEW_MIN_STRONG_RATIO;
 }
 
 export function fallbackNoiseSuppressMaxMs(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SUPPRESS_MS, 900);
+  return getConfig().VAD_FALLBACK_NO_PREVIEW_SUPPRESS_MS;
 }
 
 export function fallbackNoiseSuppressMinRms(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_MIN_RMS, 0.035);
+  return getConfig().VAD_FALLBACK_NO_PREVIEW_MIN_RMS;
 }
 
 export function fallbackNoiseTinyTextMaxChars(): number {
-  return Math.max(
-    1,
-    Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_TINY_TEXT_MAX_CHARS, 1)),
-  );
+  return Math.max(1, Math.floor(getConfig().VAD_FALLBACK_NO_PREVIEW_TINY_TEXT_MAX_CHARS));
 }
 
 export function fallbackNoiseShortTextMaxChars(): number {
-  return Math.max(
-    1,
-    Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_NO_PREVIEW_SHORT_TEXT_MAX_CHARS, 5)),
-  );
+  return Math.max(1, Math.floor(getConfig().VAD_FALLBACK_NO_PREVIEW_SHORT_TEXT_MAX_CHARS));
 }
 
 export function fallbackStrongFrameRms(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_STRONG_FRAME_RMS, 35) / 1000;
+  return getConfig().VAD_FALLBACK_STRONG_FRAME_RMS / 1000;
 }
 
 export function fallbackStrongFramePeak(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_STRONG_FRAME_PEAK, 120) / 1000;
+  return getConfig().VAD_FALLBACK_STRONG_FRAME_PEAK / 1000;
 }
 
 export function fallbackMinStrongFrames(): number {
-  return Math.max(1, Math.floor(parseNonNegativeMs(process.env.VAD_FALLBACK_MIN_STRONG_FRAMES, 2)));
+  return Math.max(1, Math.floor(getConfig().VAD_FALLBACK_MIN_STRONG_FRAMES));
 }
 
 export function fallbackMinStrongRatio(): number {
-  const raw = process.env.VAD_FALLBACK_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.08;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.08;
-  return Math.max(0, Math.min(1, n));
+  return getConfig().VAD_FALLBACK_MIN_STRONG_RATIO;
 }
 
 export function fallbackWeakSpeechSuppressMaxMs(): number {
-  return parseNonNegativeMs(process.env.VAD_FALLBACK_WEAK_SPEECH_SUPPRESS_MS, 1600);
+  return getConfig().VAD_FALLBACK_WEAK_SPEECH_SUPPRESS_MS;
 }
 
 export function strictCandidateMinSpeechMs(): number {
-  return parseNonNegativeMs(process.env.VAD_STRICT_CANDIDATE_MIN_SPEECH_MS, 520);
+  return getConfig().VAD_STRICT_CANDIDATE_MIN_SPEECH_MS;
 }
 
 export function strictCandidateMinStrongFrames(): number {
-  return Math.max(1, Math.floor(parseNonNegativeMs(process.env.VAD_STRICT_CANDIDATE_MIN_STRONG_FRAMES, 8)));
+  return Math.max(1, Math.floor(getConfig().VAD_STRICT_CANDIDATE_MIN_STRONG_FRAMES));
 }
 
 export function strictCandidateMinStrongRatio(): number {
-  const raw = process.env.VAD_STRICT_CANDIDATE_MIN_STRONG_RATIO;
-  if (raw === undefined || raw === "") return 0.22;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.22;
-  return Math.max(0, Math.min(1, n));
+  return getConfig().VAD_STRICT_CANDIDATE_MIN_STRONG_RATIO;
 }
 
 export function suppressedNoiseCooldownMs(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_COOLDOWN_MS, 420);
+  return getConfig().VAD_SUPPRESSED_NOISE_COOLDOWN_MS;
 }
 
 export function suppressedNoiseBypassRms(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_BYPASS_RMS, 40) / 1000;
+  return getConfig().VAD_SUPPRESSED_NOISE_BYPASS_RMS / 1000;
 }
 
 export function suppressedNoiseBypassPeak(): number {
-  return parseNonNegativeMs(process.env.VAD_SUPPRESSED_NOISE_BYPASS_PEAK, 90) / 1000;
+  return getConfig().VAD_SUPPRESSED_NOISE_BYPASS_PEAK / 1000;
 }
 
 export function iosDuplexInputGain(): number {
-  const raw = process.env.REMI_IOS_DUPLEX_INPUT_GAIN;
-  if (raw === undefined || raw === "") return 6;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 6;
-  return Math.max(1, Math.min(12, n));
+  return getConfig().REMI_IOS_DUPLEX_INPUT_GAIN;
 }
 
 /** 随机选择打断反应音文本 */

@@ -1,4 +1,5 @@
 import type { PromptMessage } from "./prompt_builder";
+import { getConfig } from "../server/config";
 import {
   buildToneContract,
   detectAnswerNowSignal,
@@ -896,7 +897,7 @@ async function runInterpreterLlm(input: AnalyzeTurnInput): Promise<PartialTurnIn
       completeWithOptions(messages, {
         maxTokens: 220,
         temperature: 0.1,
-        model: process.env.REMI_TURN_INTERPRETER_MODEL,
+        model: getConfig().REMI_TURN_INTERPRETER_MODEL,
         signal: timeoutController.signal,
       }),
       timeoutPromise,

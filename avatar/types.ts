@@ -1,4 +1,4 @@
-export type Emotion = "neutral" | "happy" | "curious" | "shy" | "sad";
+export type Emotion = "neutral" | "happy" | "curious" | "shy" | "sad" | "concerned" | "playful" | "thoughtful";
 
 export interface FaceParams {
   eyeOpenL: number;

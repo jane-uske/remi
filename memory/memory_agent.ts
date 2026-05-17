@@ -10,13 +10,13 @@ import {
 } from "../llm/embedding_client";
 import { toEpisodeV3View } from "./episode_v3";
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
 import {
   episodeStorePromptEnabled,
   isLightAcknowledgementTurn,
   isExplicitMemoryRecallRequest,
-  parsePositiveInt,
   sanitizeMemoryEvidenceText,
 } from "./prompt_memory_support";
 
@@ -179,7 +179,7 @@ export async function retrievePromptMemory(
 ): Promise<Memory[]> {
   const maxEntries =
     options.maxEntries ??
-    parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
+    getConfig().MAX_PROMPT_MEMORY_ENTRIES;
   if (maxEntries <= 0) return [];
 
   const selected: Memory[] = [];
@@ -247,7 +247,7 @@ export async function retrievePromptMemory(
         ? (repo as any).getPersistentBackend()
         : null;
     if (persistentBackend && typeof persistentBackend.findSimilar === "function") {
-      const timeoutMs = parsePositiveInt(process.env.REMI_SEMANTIC_RECALL_TIMEOUT_MS, 300);
+      const timeoutMs = getConfig().REMI_SEMANTIC_RECALL_TIMEOUT_MS;
       try {
         const hits = await Promise.race([
           persistentBackend.findSimilar(options.userMessage, maxEntries * 2) as Promise<Array<{ key: string; value: string }>>,

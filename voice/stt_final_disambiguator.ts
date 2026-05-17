@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 
 const logger = createLogger("stt_final_disambiguator");
 
@@ -54,17 +55,15 @@ type DictionaryCacheEntry = {
 let cache: DictionaryCacheEntry | null = null;
 
 function disambiguationEnabled(): boolean {
-  const raw = (process.env.REMI_STT_FINAL_DISAMBIG_ENABLED ?? "0").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_STT_FINAL_DISAMBIG_ENABLED;
 }
 
 export function sttFinalDisambiguationLogDiffEnabled(): boolean {
-  const raw = (process.env.REMI_STT_FINAL_DISAMBIG_LOG_DIFF ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_STT_FINAL_DISAMBIG_LOG_DIFF;
 }
 
 function dictionaryPath(): string | null {
-  const raw = process.env.REMI_STT_FINAL_DISAMBIG_DICT_PATH?.trim();
+  const raw = getConfig().REMI_STT_FINAL_DISAMBIG_DICT_PATH?.trim();
   return raw ? path.resolve(raw) : null;
 }
 

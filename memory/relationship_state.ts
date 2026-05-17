@@ -1,4 +1,5 @@
 import type { MemoryRepository } from "./memory_repository";
+import { getConfig } from "../server/config";
 import { createLogger } from "../infra/logger";
 
 const logger = createLogger("relationship-state");
@@ -147,14 +148,6 @@ export interface PersistentRelationshipStateV1 {
   continuityCueState: PersistentContinuityCueState;
   proactiveLedger: PersistentProactiveLedgerEntry[];
   proactiveStrategyState: PersistentProactiveStrategyState;
-}
-
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
 }
 
 function clamp01(value: number): number {
@@ -512,7 +505,7 @@ function toRepairState(value: unknown): PersistentRepairState | undefined {
 }
 
 export function relationshipStateEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_RELATIONSHIP_STATE_ENABLED, true);
+  return getConfig().REMI_RELATIONSHIP_STATE_ENABLED;
 }
 
 export function isSystemMemoryKey(key: string): boolean {

@@ -2,6 +2,7 @@
 // 每条 WebSocket 连接独立一份（C1）。
 
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
+import { getConfig } from "../server/config";
 import { sanitizeMemoryEvidenceText } from "../memory/prompt_memory_support";
 import { detectAnswerNowSignal, detectDecisionSeekingSignal } from "../brain/tone_policy";
 import {
@@ -33,7 +34,7 @@ import {
   silenceNudgeBaseCooldownMs,
   shouldTriggerSilenceNudge,
   topicViolatesBoundary,
-} from "./slow_brain_guidance";
+} from "./conversation_guidance";
 import {
   buildCompatibilityEpisodesFromSignals,
   buildCompatibilityTopicThreadsFromSignals,
@@ -48,7 +49,7 @@ import {
   sentimentLabel,
   topicBoundaryTtlTurns,
   type DerivedTopicSignal,
-} from "./slow_brain_store_support";
+} from "./analysis_store_support";
 
 export interface UserProfile {
   facts: Map<string, string>;
@@ -233,8 +234,7 @@ const GREETING_LIKE_TURN_PATTERN =
   /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好)[!！?？~～。\s]*$/iu;
 
 function workingMemoryEnabled(): boolean {
-  const raw = (process.env.REMI_WORKING_MEMORY_ENABLED ?? "0").trim().toLowerCase();
-  return raw === "1" || raw === "true";
+  return getConfig().REMI_WORKING_MEMORY_ENABLED;
 }
 
 function clipWorkingMemoryText(text: string, maxChars: number): string {
@@ -1733,7 +1733,7 @@ export class SlowBrainStore {
   }
 
   buildSilenceNudgePlan(): SilenceNudgePlan | null {
-    const minTurns = Number(process.env.REMI_SILENCE_NUDGE_MIN_TURNS ?? 2);
+    const minTurns = getConfig().REMI_SILENCE_NUDGE_MIN_TURNS;
     const snap = this.getSnapshot();
     if (snap.relationship.turnCount < minTurns) return null;
     if (!shouldTriggerSilenceNudge(snap)) return null;

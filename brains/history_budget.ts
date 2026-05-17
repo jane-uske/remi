@@ -1,13 +1,10 @@
 import type { PromptMessage } from "../brain/prompt_builder";
+import { getConfig } from "../server/config";
 
 /** Rough token estimate for Chinese-heavy chat (chars → tokens). */
 export function estimateTextTokens(text: string): number {
   return Math.ceil(text.length * 1.35);
 }
-
-const DEFAULT_MAX_HISTORY_TOKENS = Number(
-  process.env.MAX_HISTORY_TOKENS || 1200,
-);
 
 /**
  * Trim oldest messages first until estimated token budget is met.
@@ -15,7 +12,7 @@ const DEFAULT_MAX_HISTORY_TOKENS = Number(
  */
 export function trimHistoryToTokenBudget(
   history: PromptMessage[],
-  maxTokens: number = DEFAULT_MAX_HISTORY_TOKENS,
+  maxTokens: number = getConfig().MAX_HISTORY_TOKENS,
   minTailMessages = 4,
 ): PromptMessage[] {
   if (history.length === 0) return history;

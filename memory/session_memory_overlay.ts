@@ -1,25 +1,17 @@
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 import { isSystemMemoryKey } from "./relationship_state";
 import type { MemoryEntry, MemoryRepository } from "./memory_repository";
 import { InMemoryRepository } from "./memory_store";
 
 const logger = createLogger("session-memory-overlay");
 
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
 export function persistentMemoryOverlayEnabled(): boolean {
-  const raw = (process.env.REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED ?? "1")
-    .trim()
-    .toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED;
 }
 
 export function persistentMemoryPreloadLimit(): number {
-  return parsePositiveInt(process.env.REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT, 12);
+  return getConfig().REMI_PERSISTENT_MEMORY_PRELOAD_LIMIT;
 }
 
 export class SessionMemoryOverlayRepository implements MemoryRepository {

@@ -1,8 +1,9 @@
 import { query } from "../database";
 import { DEV_STORAGE_USER_ID, normalizeToStorageUserId } from "../../infra/user_identity";
+import { getConfig } from "../../server/config";
 
 export function getDevUserId(): string {
-  return normalizeToStorageUserId(process.env.DEV_USER_ID?.trim());
+  return normalizeToStorageUserId(getConfig().DEV_USER_ID?.trim());
 }
 
 export async function ensureStorageUser(userId: string): Promise<string> {

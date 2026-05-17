@@ -1,5 +1,6 @@
 import { RequestHandler } from "express";
 import jwt from "jsonwebtoken";
+import { getConfig } from "../server/config";
 
 export type AuthMode = "disabled" | "legacy_jwt" | "clerk";
 export type AuthProvider = "legacy_jwt" | "clerk";
@@ -36,16 +37,8 @@ declare global {
 
 const DEV_USER: LegacyUserPayload = { id: "dev", iat: 0, exp: 0 };
 
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
 function getLegacySecret(): string | null {
-  return process.env.JWT_SECRET?.trim() || null;
+  return getConfig().REMI_AUTH_JWT_SECRET?.trim() || null;
 }
 
 function normalizePem(raw: string): string {
@@ -53,24 +46,17 @@ function normalizePem(raw: string): string {
 }
 
 function getClerkJwtKey(): string | null {
-  const raw = process.env.CLERK_JWT_KEY?.trim();
+  const raw = getConfig().CLERK_JWT_KEY?.trim();
   if (!raw) return null;
   return normalizePem(raw);
 }
 
 export function getAuthMode(): AuthMode {
-  const raw = process.env.REMI_AUTH_MODE?.trim().toLowerCase();
-  if (raw === "disabled") return "disabled";
-  if (raw === "legacy_jwt") return "legacy_jwt";
-  if (raw === "clerk") return "clerk";
-  return getLegacySecret() ? "legacy_jwt" : "disabled";
+  return getConfig().REMI_AUTH_MODE;
 }
 
 export function allowLoopbackAuthBypass(): boolean {
-  return parseBooleanFlag(
-    process.env.REMI_AUTH_ALLOW_LOOPBACK_BYPASS,
-    process.env.NODE_ENV !== "production",
-  );
+  return getConfig().REMI_AUTH_ALLOW_LOOPBACK_BYPASS;
 }
 
 function verifyClerkToken(token: string): AuthPrincipal | null {

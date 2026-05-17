@@ -56,6 +56,7 @@ import {
 import { parseHistoryCursor, sendSessionHistoryPage } from "./history";
 import { cleanupSessionResources, attachSessionCloseHandlers } from "./lifecycle";
 import { attachSessionMessageHandlers } from "./message_router";
+import { getConfig } from "../config";
 import { isPersonaPresetId } from "../../persona/presets";
 import { saveUserPersonaPreset } from "../../storage/repositories/user_persona_preset_repository";
 import {
@@ -85,7 +86,6 @@ import {
   fallbackWeakSpeechSuppressMaxMs,
   hesitationHoldMs,
   minSpeechMs,
-  parseNonNegativeMs,
   pcmPeak,
   pcmRms,
   predictionBudgetConfig,
@@ -2274,8 +2274,8 @@ export class ConnectionSession {
       };
     }
 
-    const releaseMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS, 60);
-    const minGapMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_MIN_MS, 80);
+    const releaseMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS;
+    const minGapMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_MIN_MS;
     const decision = decideTurnTaking({
       baseGapMs: baseGap,
       previewText,
@@ -2757,7 +2757,7 @@ export class ConnectionSession {
         turnState: state,
         speechMs: Math.round(speechDurationMs),
         gapMs: gap,
-        adaptive: process.env.VAD_UTTERANCE_GAP_ADAPTIVE !== "0",
+        adaptive: getConfig().VAD_UTTERANCE_GAP_ADAPTIVE,
         preview: getMeaningfulTurnPreview(this.lastMeaningfulPartialText || this.lastPreviewText) || undefined,
       });
 

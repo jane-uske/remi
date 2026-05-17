@@ -1,10 +1,10 @@
 import "dotenv/config";
 
-import { validateEnv } from "./config/schema";
+import { getConfig } from "./config";
 
 // Validate environment at startup — fails fast with clear error
 try {
-  validateEnv();
+  getConfig();
 } catch (err) {
   console.error((err as Error).message);
   process.exit(1);

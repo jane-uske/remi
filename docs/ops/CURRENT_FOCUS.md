@@ -2,7 +2,7 @@
 
 ## 一句话
 
-当前最高优先级是 **结构性止血**（[STRUCTURAL_DEBT.md](STRUCTURAL_DEBT.md)），而非继续推进体验主线。原因：7 个结构性问题正在持续拖慢主线交付——无测试的 2044 行 hook、6 层不可靠的记忆 fallback、关键词匹配的情绪引擎、一句话的人格定义、130+ 无验证的 env vars、无迁移系统的数据库、误导性的命名。
+当前最高优先级是 **结构性止血**（[STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)），而非继续推进体验主线。原因：7 个结构性问题正在持续拖慢主线交付——无测试的 2044 行 hook、6 层不可靠的记忆 fallback、关键词匹配的情绪引擎、一句话的人格定义、130+ 无验证的 env vars、无迁移系统的数据库、误导性的命名。
 
 Phase 0（env 治理 + DB 迁移 + 命名重构）完成后，进入 Phase 1（记忆收敛 + 情绪替换 + 人格增强 + hook 拆分）。  
 Phase 1 完成后，回到原主线：Web 默认入口 10 分钟在场感体验。
@@ -15,7 +15,7 @@ Phase 1 完成后，回到原主线：Web 默认入口 10 分钟在场感体验�
 Phase 0 (2天) → Phase 1 (1-2周) → 原主线 (W-PRES-01~04)
 ```
 
-详见 [STRUCTURAL_DEBT.md](STRUCTURAL_DEBT.md) 每个问题的具体步骤和验收标准。
+详见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md) 每个问题的具体步骤和验收标准。
 
 ---
 

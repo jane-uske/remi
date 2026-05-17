@@ -1,4 +1,5 @@
 import type { DirectCapability } from "./direct_capabilities";
+import { getConfig } from "../server/config";
 
 export type TimeIntent =
   | "time_now"
@@ -20,8 +21,7 @@ const WEEKDAY_TODAY_RE =
   /今天.{0,8}(星期几|周几|礼拜几)/u;
 
 function timeCapabilityEnabled(): boolean {
-  const raw = (process.env.REMI_TIME_CAPABILITY_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_TIME_CAPABILITY_ENABLED;
 }
 
 function safeTimeZone(timeZone?: string | null): string {

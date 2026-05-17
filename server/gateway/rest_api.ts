@@ -9,6 +9,7 @@ import { runPipeline } from "../pipeline/runner";
 import { applyPersonaProfilePreset } from "../../persona";
 import { isPersonaPresetId } from "../../persona/presets";
 import { createLogger } from "../../infra/logger";
+import { getConfig } from "../config";
 import type { ServerMessage } from "./types";
 
 const logger = createLogger("rest-api");
@@ -16,7 +17,7 @@ const logger = createLogger("rest-api");
 // ── API Key Authentication ─────────────────────────────────────────
 
 function verifyExternalApiKey(req: IncomingMessage): boolean {
-  const apiKey = process.env.REMI_EXTERNAL_API_KEY;
+  const apiKey = getConfig().REMI_EXTERNAL_API_KEY;
   if (!apiKey) return false;
 
   const provided = req.headers["x-remi-api-key"];

@@ -64,6 +64,27 @@ export const EMOTION_FACE_MAP: Record<Emotion, Partial<FaceParams>> = {
     browDownR: 0.55,
     mouthFrown: 0.62,
   },
+  concerned: {
+    eyeOpenL: 0.7,
+    eyeOpenR: 0.7,
+    browDownL: 0.35,
+    browDownR: 0.35,
+    mouthFrown: 0.2,
+  },
+  playful: {
+    mouthSmile: 0.7,
+    eyeSquintL: 0.4,
+    eyeSquintR: 0.4,
+    browUpL: 0.3,
+    browUpR: 0.3,
+  },
+  thoughtful: {
+    eyeOpenL: 0.6,
+    eyeOpenR: 0.6,
+    browUpL: 0.25,
+    browDownR: 0.2,
+    mouthPucker: 0.15,
+  },
 };
 
 function clamp01(n: number): number {

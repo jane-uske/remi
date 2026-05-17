@@ -12,9 +12,9 @@ import {
   effectiveUtteranceGapMs,
   hesitationHoldMs,
   isSemanticallyCompletePreview,
-  parseNonNegativeMs,
   sttPreviewSettleMs,
 } from "./runtime_config";
+import { getConfig } from "../config";
 
 const CARRY_FORWARD_CUE_RE =
   /(继续刚才|继续那个|刚才那个|上次那个|回到刚才|还是那个|接着说|不是那个意思|我想说的是|我其实是想说)/u;
@@ -284,10 +284,10 @@ export function resolveUtteranceGapMs(input: {
   const preview = input.lastPreviewText.trim();
   if (!preview) return base;
 
-  const holdMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_HOLD_MS, 140);
-  const releaseMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS, 60);
-  const minMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_MIN_MS, 80);
-  const maxMs = parseNonNegativeMs(process.env.VAD_UTTERANCE_GAP_PREVIEW_MAX_MS, 520);
+  const holdMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_HOLD_MS;
+  const releaseMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS;
+  const minMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_MIN_MS;
+  const maxMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_MAX_MS;
   const tentative = isTentativeSpeechText(preview);
   const sentenceClosed = endsWithSentencePunctuation(preview);
   let gap = base;

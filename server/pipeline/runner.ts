@@ -25,23 +25,16 @@ import type { InterruptionType } from "../../avatar/types";
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { SessionTtsTransport } from "../session/tts_transport";
 import { getOutputGuardHooks } from "../../plugin/registry";
+import { getConfig } from "../config";
 
 const logger = createLogger("pipeline");
 
-function parseNonNegativeMs(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return n;
-}
-
 function thinkingFillerDelayMs(): number {
-  return parseNonNegativeMs(process.env.REMI_THINKING_FILLER_DELAY_MS, 520);
+  return getConfig().REMI_THINKING_FILLER_DELAY_MS;
 }
 
 function avatarIntentEnabled(): boolean {
-  const raw = (process.env.REMI_AVATAR_INTENT_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_AVATAR_INTENT_ENABLED;
 }
 
 function ttsSegmentPreview(text: string): string {
@@ -147,8 +140,7 @@ export async function runPipeline(
 
     const thinkingFiller =
       !options?.silenceNudge &&
-      (process.env.rem_thinking_filler === "1" ||
-        process.env.REMI_THINKING_FILLER === "1");
+      getConfig().REMI_THINKING_FILLER;
 
     // ── Producer-consumer TTS: synthesize sentences as they stream in ──
 

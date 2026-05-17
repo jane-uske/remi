@@ -498,7 +498,7 @@ Remi 应该更像：
 一句话：
 **现在最需要的不是更多能力，而是一个第一次让自己都不再叫它玩具的高光版本。**
 
-执行层面的短说明见 [CURRENT_FOCUS.md](CURRENT_FOCUS.md)。
+执行层面的短说明见 [CURRENT_FOCUS.md](./CURRENT_FOCUS.md)。
 
 ---
 

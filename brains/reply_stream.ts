@@ -11,7 +11,7 @@ import { createLogger } from "../infra/logger";
 import { estimateTextTokens } from "./history_budget";
 import type { PersonaState } from "../persona";
 
-const logger = createLogger("fast_brain");
+const logger = createLogger("reply_stream");
 
 const FAST_BRAIN_REASONING_EFFORTS = new Set([
   "none",

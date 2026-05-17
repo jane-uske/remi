@@ -15,6 +15,7 @@ import {
 import { resolveVolcTtsConfig, speakWithVolc } from "./tts_volc";
 import type { TtsRequestContext } from "./tts_request_context";
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 import { withRetry } from "../utils/retry";
 import {
   deriveCanonicalLipCuesFromWordBoundaries,
@@ -32,7 +33,7 @@ let client: OpenAI | null = null;
 let warnedTtsDisabled = false;
 
 function getProvider(): TtsProvider {
-  const p = (process.env.tts_provider || "edge").toLowerCase();
+  const p = getConfig().REMI_TTS_PROVIDER;
   if (p === "piper") return "piper";
   if (p === "openai") return "openai";
   if (p === "volc") return "volc";
@@ -43,11 +44,11 @@ function isProviderConfigured(provider: TtsProvider): boolean {
   if (provider === "edge") return true;
   if (provider === "piper") return Boolean(getPiperModel());
   if (provider === "volc") return Boolean(resolveVolcTtsConfig());
-  return Boolean(process.env.tts_key && process.env.tts_base_url);
+  return Boolean(getConfig().tts_key && getConfig().tts_base_url);
 }
 
 function getFallbackProvider(primary: TtsProvider): TtsProvider | null {
-  const explicit = (process.env.tts_fallback_provider || process.env.TTS_FALLBACK_PROVIDER || "")
+  const explicit = (getConfig().tts_fallback_provider || getConfig().TTS_FALLBACK_PROVIDER || "")
     .trim()
     .toLowerCase();
   const candidates = explicit
@@ -88,8 +89,8 @@ export type TtsSynthesisResult = {
 };
 
 /** 短句 TTS 内存缓存（S10）：同 provider + 情绪 + 正文命中则跳过合成 */
-const TTS_CACHE_MAX_CHARS = Number(process.env.tts_cache_max_chars ?? 24);
-const TTS_CACHE_MAX_ENTRIES = Number(process.env.tts_cache_max_entries ?? 80);
+const TTS_CACHE_MAX_CHARS = getConfig().tts_cache_max_chars;
+const TTS_CACHE_MAX_ENTRIES = getConfig().tts_cache_max_entries;
 const ttsShortAudioCache = new Map<string, Buffer>();
 
 function getTtsCacheVariant(
@@ -97,34 +98,33 @@ function getTtsCacheVariant(
   emotion: Emotion | undefined,
   context?: TtsRequestContext,
 ): string {
+  const cfg = getConfig();
   return buildTtsCacheVariant(provider, emotion, {
     voice:
       provider === "volc"
         ? resolveVolcTtsConfig(emotion, undefined, context)?.voiceType ||
-          process.env.volc_tts_voice_type ||
-          process.env.VOLC_TTS_VOICE_TYPE ||
-          process.env.tts_voice ||
+          cfg.VOLC_TTS_VOICE_TYPE ||
+          cfg.REMI_TTS_VOICE ||
           "zh_female_lingling_uranus_bigtts"
-        : process.env.tts_voice || (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
+        : cfg.REMI_TTS_VOICE || (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
     lang:
       provider === "volc"
         ? resolveVolcTtsConfig(emotion, undefined, context)?.resourceId ||
-          process.env.volc_tts_resource_id ||
-          process.env.VOLC_TTS_RESOURCE_ID ||
+          cfg.VOLC_TTS_RESOURCE_ID ||
           "seed-tts-2.0"
-        : process.env.tts_lang || "zh-CN",
+        : cfg.tts_lang,
     rate:
       provider === "volc"
         ? String(resolveVolcTtsConfig(emotion, undefined, context)?.speechRate ?? 0)
-        : process.env.tts_rate || "default",
+        : cfg.tts_rate,
     pitch:
       provider === "volc"
         ? String(resolveVolcTtsConfig(emotion, undefined, context)?.sampleRate ?? 24_000)
-        : process.env.tts_pitch || "default",
+        : cfg.tts_pitch,
     model:
       provider === "volc"
         ? resolveVolcTtsConfig(emotion, undefined, context)?.format || "mp3"
-        : process.env.tts_model || "tts-1",
+        : cfg.tts_model,
     piperModel: getPiperModel(),
   });
 }
@@ -147,26 +147,26 @@ function setTtsShortCache(key: string, buf: Buffer): void {
 
 function getClient(): OpenAI | null {
   if (client) return client;
-  const apiKey = process.env.tts_key;
-  const baseURL = process.env.tts_base_url;
+  const apiKey = getConfig().tts_key;
+  const baseURL = getConfig().tts_base_url;
   if (!apiKey || !baseURL) return null;
   client = new OpenAI({ apiKey, baseURL, timeout: 15_000 });
   return client;
 }
 
 function getPiperCommand(): string {
-  return process.env.piper_cmd || "piper";
+  return getConfig().piper_cmd;
 }
 
 function getPiperModel(): string | null {
-  return process.env.piper_model || null;
+  return getConfig().piper_model || null;
 }
 
 export function normalizeTtsText(raw: string): string {
   return normalizeTtsTextWithConfig(raw, {
-    maxChars: Number(process.env.tts_max_chars || 120),
-    stripParenthetical: process.env.tts_strip_parenthetical !== "0",
-    stripEmoji: process.env.tts_strip_emoji !== "0",
+    maxChars: getConfig().tts_max_chars,
+    stripParenthetical: getConfig().tts_strip_parenthetical,
+    stripEmoji: getConfig().tts_strip_emoji,
   });
 }
 
@@ -214,8 +214,8 @@ async function speakWithOpenAI(
     throw new Error("TTS 未配置：请在 .env 中设置 tts_key 和 tts_base_url");
   }
 
-  const model = process.env.tts_model || "tts-1";
-  const voice = process.env.tts_voice || "alloy";
+  const model = getConfig().tts_model;
+  const voice = getConfig().REMI_TTS_VOICE;
   const { speed } = getEmotionVoiceParams(emotion ?? "neutral");
 
   const response = await openai.audio.speech.create({
@@ -231,7 +231,7 @@ async function speakWithOpenAI(
   return Buffer.from(arrayBuffer);
 }
 
-const PIPER_TIMEOUT_MS = Number(process.env.piper_timeout || 10_000);
+const PIPER_TIMEOUT_MS = getConfig().piper_timeout;
 
 async function speakWithPiper(
   text: string,
@@ -246,11 +246,12 @@ async function speakWithPiper(
     `rem-tts-${Date.now()}-${Math.random().toString(36).slice(2)}.wav`,
   );
   const cmd = getPiperCommand();
-  const speaker = process.env.piper_speaker;
+  const cfg = getConfig();
+  const speaker = cfg.piper_speaker;
   const ev = getEmotionVoiceParams(emotion ?? "neutral");
-  const lengthScale = process.env.piper_length_scale || String(ev.lengthScale);
-  const noiseScale = process.env.piper_noise_scale || String(ev.noiseScale);
-  const noiseW = process.env.piper_noise_w_scale;
+  const lengthScale = String(cfg.piper_length_scale ?? ev.lengthScale);
+  const noiseScale = String(cfg.piper_noise_scale ?? ev.noiseScale);
+  const noiseW = cfg.piper_noise_w_scale != null ? String(cfg.piper_noise_w_scale) : undefined;
 
   const args = ["--model", model, "--output_file", outFile];
   if (speaker) args.push("--speaker", speaker);
@@ -309,19 +310,12 @@ async function speakWithPiper(
 const edgeDrm = require("node-edge-tts/dist/drm");
 const EDGE_CHROMIUM_VER: string = edgeDrm.CHROMIUM_FULL_VERSION;
 const EDGE_TOKEN: string = edgeDrm.TRUSTED_CLIENT_TOKEN;
-const EDGE_TIMEOUT_MS = Number(process.env.edge_tts_timeout || 10_000);
+const EDGE_TIMEOUT_MS = getConfig().edge_tts_timeout;
 // Edge consumer 端点当前不再接受 PCM outputFormat，只能先拿支持的 MP3 流再转回 pcm16le。
 const EDGE_MP3_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 const EDGE_STREAM_SAMPLE_RATE = 24_000;
-const EDGE_STREAM_FFMPEG_CMD =
-  process.env.edge_tts_stream_ffmpeg_cmd ??
-  process.env.EDGE_TTS_STREAM_FFMPEG_CMD ??
-  "ffmpeg";
-const EDGE_STREAM_FAILURE_COOLDOWN_MS = Number(
-  process.env.edge_tts_stream_failure_cooldown_ms ??
-  process.env.EDGE_TTS_STREAM_FAILURE_COOLDOWN_MS ??
-  120_000,
-);
+const EDGE_STREAM_FFMPEG_CMD = getConfig().EDGE_TTS_STREAM_FFMPEG_CMD || getConfig().edge_tts_stream_ffmpeg_cmd;
+const EDGE_STREAM_FAILURE_COOLDOWN_MS = getConfig().EDGE_TTS_STREAM_FAILURE_COOLDOWN_MS ?? getConfig().edge_tts_stream_failure_cooldown_ms;
 
 let edgeStreamBlockedUntil = 0;
 
@@ -389,9 +383,9 @@ function buildEdgeLipSyncChunk(
 
 /* ── Edge TTS 连接池（M7）：同 voice/lang/rate/pitch/fmt 复用一条 WebSocket ── */
 
-const EDGE_POOL_OFF = process.env.edge_tts_pool === "0";
-const EDGE_POOL_IDLE_MS = Number(process.env.edge_tts_pool_idle_ms ?? 45_000);
-const EDGE_POOL_MAX_SIZE = Number(process.env.edge_tts_pool_max_size ?? 10);
+const EDGE_POOL_OFF = getConfig().edge_tts_pool === "0";
+const EDGE_POOL_IDLE_MS = getConfig().edge_tts_pool_idle_ms;
+const EDGE_POOL_MAX_SIZE = getConfig().edge_tts_pool_max_size;
 
 type EdgePoolSlot = {
   ws: WebSocket;
@@ -770,16 +764,16 @@ async function speakWithEdgeResult(
   throwIfAborted(signal);
   const t0 = Date.now();
 
-  const voice = process.env.tts_voice || "zh-CN-XiaoyiNeural";
-  const lang = process.env.tts_lang || "zh-CN";
+  const voice = getConfig().REMI_TTS_VOICE;
+  const lang = getConfig().tts_lang;
   const fmt = EDGE_MP3_FORMAT;
 
   const resolved = emotion ?? "neutral";
   let rate: string;
   let pitch: string;
   if (resolved === "neutral") {
-    rate = process.env.tts_rate || "default";
-    pitch = process.env.tts_pitch || "default";
+    rate = getConfig().tts_rate;
+    pitch = getConfig().tts_pitch;
   } else {
     const ev = getEmotionVoiceParams(resolved);
     rate = ev.rate;
@@ -986,15 +980,15 @@ function streamEdgePcm(
       return;
     }
 
-    const voice = process.env.tts_voice || "zh-CN-XiaoyiNeural";
-    const lang = process.env.tts_lang || "zh-CN";
+    const voice = getConfig().REMI_TTS_VOICE;
+    const lang = getConfig().tts_lang;
 
     const resolved = emotion ?? "neutral";
     let rate: string;
     let pitch: string;
     if (resolved === "neutral") {
-      rate = process.env.tts_rate || "default";
-      pitch = process.env.tts_pitch || "default";
+      rate = getConfig().tts_rate;
+      pitch = getConfig().tts_pitch;
     } else {
       const ev = getEmotionVoiceParams(resolved);
       rate = ev.rate;
@@ -1189,8 +1183,7 @@ export async function textToSpeech(
 }
 
 export function canStreamTextToSpeech(): boolean {
-  const streamingEnabled =
-    process.env.rem_tts_stream === "1" || process.env.REMI_TTS_STREAM === "1";
+  const streamingEnabled = getConfig().REMI_TTS_STREAM;
   return (
     streamingEnabled &&
     getProvider() === "edge" &&
@@ -1204,11 +1197,11 @@ export async function warmupEdgeTtsConnections(count: number = 2): Promise<void>
   if (EDGE_POOL_OFF || getProvider() !== "edge" || !isTtsEnabled()) return;
   if (count < 1 || count > 4) count = 2;
 
-  const voice = process.env.tts_voice || "zh-CN-XiaoyiNeural";
-  const lang = process.env.tts_lang || "zh-CN";
+  const voice = getConfig().REMI_TTS_VOICE;
+  const lang = getConfig().tts_lang;
   const fmt = EDGE_MP3_FORMAT;
-  const defaultRate = process.env.tts_rate || "default";
-  const defaultPitch = process.env.tts_pitch || "default";
+  const defaultRate = getConfig().tts_rate;
+  const defaultPitch = getConfig().tts_pitch;
 
   // 预热默认情绪（neutral）的连接，以及常用情绪如 happy/soft 可选
   const commonEmotions: Emotion[] = ["neutral", "happy"];

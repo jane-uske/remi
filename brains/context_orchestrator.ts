@@ -10,6 +10,7 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 import { getLatencyTracer } from "../infra/latency_tracer";
 import {
   relationshipStateEnabled,
@@ -26,23 +27,11 @@ import type { RepairState, WorkingMemoryV2 } from "./background_analysis_store";
 import { resolvePersonaStyleDirective } from "../persona/style_override";
 
 const MAX_HISTORY = 10;
-const logger = createLogger("brain_router");
-const DEFAULT_FAST_PATH_HISTORY_TOKENS = 1000;
-const DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS = 1200;
-const DEFAULT_TEXT_DELIBERATE_HISTORY_TOKENS = 2200;
-const DEFAULT_FAST_PATH_PROMPT_MEMORY_ENTRIES = 4;
-const DEFAULT_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES = 5;
-const DEFAULT_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES = 6;
+const logger = createLogger("context_orchestrator");
 const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
 const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
 const GREETING_LIKE_TURN_PATTERN =
   /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好)[!！?？~～。\s]*$/iu;
-
-function configuredPositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 function isGreetingLikeTurn(userMessage: string): boolean {
   const trimmed = userMessage.trim();
@@ -55,22 +44,14 @@ function resolvePromptMemoryMaxEntries(
   _analysisCandidate: boolean,
   deliberationBudget?: "text_normal" | "text_deliberate",
 ): number {
+  const cfg = getConfig();
   if (inputSource === "text" && deliberationBudget === "text_deliberate") {
-    return configuredPositiveInt(
-      process.env.REMI_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES,
-      DEFAULT_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES,
-    );
+    return cfg.REMI_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES;
   }
   if (inputSource === "text") {
-    return configuredPositiveInt(
-      process.env.REMI_FAST_PATH_PROMPT_MEMORY_ENTRIES,
-      DEFAULT_FAST_PATH_PROMPT_MEMORY_ENTRIES,
-    );
+    return cfg.REMI_FAST_PATH_PROMPT_MEMORY_ENTRIES;
   }
-  return configuredPositiveInt(
-    process.env.REMI_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES,
-    DEFAULT_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES,
-  );
+  return cfg.REMI_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES;
 }
 
 function resolveHistoryTokenBudget(
@@ -78,22 +59,14 @@ function resolveHistoryTokenBudget(
   analysisCandidate: boolean,
   deliberationBudget?: "text_normal" | "text_deliberate",
 ): number {
+  const cfg = getConfig();
   if (inputSource === "text" && deliberationBudget === "text_deliberate") {
-    return configuredPositiveInt(
-      process.env.REMI_TEXT_DELIBERATE_HISTORY_TOKENS,
-      DEFAULT_TEXT_DELIBERATE_HISTORY_TOKENS,
-    );
+    return cfg.REMI_TEXT_DELIBERATE_HISTORY_TOKENS;
   }
   if (inputSource === "text" && !analysisCandidate) {
-    return configuredPositiveInt(
-      process.env.REMI_FAST_PATH_HISTORY_TOKENS,
-      DEFAULT_FAST_PATH_HISTORY_TOKENS,
-    );
+    return cfg.REMI_FAST_PATH_HISTORY_TOKENS;
   }
-  return configuredPositiveInt(
-    process.env.REMI_ANALYSIS_PATH_HISTORY_TOKENS,
-    DEFAULT_ANALYSIS_PATH_HISTORY_TOKENS,
-  );
+  return cfg.REMI_ANALYSIS_PATH_HISTORY_TOKENS;
 }
 
 function resolveTextDeliberationBudget(args: {
@@ -136,9 +109,7 @@ function resolveTextDeliberateReasoningEffort(
   deliberationBudget?: "text_normal" | "text_deliberate",
 ): string | undefined {
   if (deliberationBudget !== "text_deliberate") return undefined;
-  const configured = (process.env.REMI_TEXT_DELIBERATE_REASONING_EFFORT ?? "medium")
-    .trim()
-    .toLowerCase();
+  const configured = getConfig().REMI_TEXT_DELIBERATE_REASONING_EFFORT;
   if (!configured || configured === "provider_default" || configured === "default" || configured === "off") {
     return undefined;
   }

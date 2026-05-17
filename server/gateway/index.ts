@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server as HttpServer } from "http";
 import type { IncomingMessage } from "http";
 import type { Request, Response } from "express";
+import { getConfig } from "../config";
 
 import { createLogger } from "../../infra/logger";
 import {
@@ -36,7 +37,7 @@ export const PORT = (() => {
  * Next 的 `hostname` 只能是主机名，不能含端口。误设 `localhost:3000` 或完整 URL 会导致畸形绝对链接/重定向。
  */
 function remNextHostname(): string {
-  const raw = process.env.REMI_NEXT_HOSTNAME?.trim();
+  const raw = getConfig().REMI_NEXT_HOSTNAME?.trim();
   if (!raw) return "localhost";
   try {
     const u = raw.includes("://") ? new URL(raw) : new URL(`http://${raw}`);
@@ -74,7 +75,7 @@ function requestPathname(req: IncomingMessage): string {
 }
 
 function getAccessPassword(): string | null {
-  const raw = process.env.REMI_ACCESS_PASSWORD?.trim();
+  const raw = getConfig().REMI_ACCESS_PASSWORD?.trim();
   return raw ? raw : null;
 }
 
@@ -257,20 +258,12 @@ function getClientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
 function mobileDevAuthEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_MOBILE_DEV_ENABLED, false);
+  return getConfig().REMI_MOBILE_DEV_ENABLED;
 }
 
 function getMobileDevKey(): string | null {
-  const raw = process.env.REMI_MOBILE_DEV_KEY?.trim();
+  const raw = getConfig().REMI_MOBILE_DEV_KEY?.trim();
   return raw ? raw : null;
 }
 

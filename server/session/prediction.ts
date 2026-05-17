@@ -56,7 +56,6 @@ export async function computeSessionPrediction(
           episodeRecallSource: meta.episodeRecallSource,
           episodeRecallIds: meta.episodeRecallIds,
           episodeReferenceApplied: meta.episodeReferenceApplied,
-          episodeRecallFallback: meta.episodeRecallFallback,
         });
       }
     },

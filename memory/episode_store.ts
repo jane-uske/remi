@@ -1,4 +1,5 @@
 import { embed } from "../llm/embedding_client";
+import { getConfig } from "../server/config";
 import { extractKeywords, normalizeText } from "./prompt_memory_support";
 import { toEpisodeV3StorageFields } from "./episode_v3";
 import {
@@ -100,8 +101,7 @@ function buildEpisodeV3Source(
 }
 
 function episodeLifecycleEnabled(): boolean {
-  const raw = (process.env.REMI_EPISODE_LIFECYCLE_ENABLED ?? "0").trim().toLowerCase();
-  return raw === "1" || raw === "true";
+  return getConfig().REMI_EPISODE_LIFECYCLE_ENABLED;
 }
 
 function normalizeLifecycleStatus(status: string | null | undefined): EpisodeLifecycleStatus {

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { withRetry } from "../utils/retry";
+import { getConfig } from "../server/config";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -27,24 +28,14 @@ export interface StreamTokensOptions {
 
 let client: OpenAI | null = null;
 
-function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
 export function localLlmEnabled(): boolean {
-  return parseBooleanFlag(
-    process.env.REMI_LOCAL_LLM_ENABLED ?? process.env.REM_LOCAL_LLM_ENABLED,
-    true,
-  );
+  return getConfig().REMI_LOCAL_LLM_ENABLED;
 }
 
 export function hasLlmConfig(modelOverride?: string): boolean {
-  const model = (modelOverride ?? process.env.model)?.trim();
-  return localLlmEnabled() && Boolean(process.env.key && process.env.base_url && model);
+  const cfg = getConfig();
+  const model = (modelOverride ?? cfg.REMI_LLM_MODEL)?.trim();
+  return localLlmEnabled() && Boolean(cfg.REMI_LLM_API_KEY && cfg.REMI_LLM_BASE_URL && model);
 }
 
 function getClient(): OpenAI {
@@ -52,8 +43,9 @@ function getClient(): OpenAI {
     throw new Error("LLM 已禁用：REMI_LOCAL_LLM_ENABLED=0");
   }
   if (client) return client;
-  const apiKey = process.env.key;
-  const baseURL = process.env.base_url;
+  const cfg = getConfig();
+  const apiKey = cfg.REMI_LLM_API_KEY;
+  const baseURL = cfg.REMI_LLM_BASE_URL;
   if (!apiKey || !baseURL) throw new Error("LLM 未配置：缺少 key / base_url");
   client = new OpenAI({ apiKey, baseURL });
   return client;
@@ -79,7 +71,7 @@ export async function completeWithOptions(
   options: CompletionOptions = {},
 ): Promise<string> {
   const openai = getClient();
-  const model = options.model ?? process.env.model;
+  const model = options.model ?? getConfig().REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
 
   const res = await withRetry(
@@ -111,7 +103,7 @@ export async function* streamTokens(
   options?: StreamTokensOptions,
 ): AsyncGenerator<string> {
   const openai = getClient();
-  const model = options?.model ?? process.env.model;
+  const model = options?.model ?? getConfig().REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
   const onFirstRawChunk = callbacks?.onFirstRawChunk;
   const onFirstChunk = callbacks?.onFirstChunk;

@@ -7,14 +7,14 @@
 - 哪些事情已经做完了
 - 哪些事情还没做，且现在不该和主线程混在一起
 
-当前主线程与交付边界，始终以 [CURRENT_FOCUS.md](CURRENT_FOCUS.md) 为准。
+当前主线程与交付边界，始终以 [CURRENT_FOCUS.md](./CURRENT_FOCUS.md) 为准。
 如果 `TASKS.md` 和其他文档冲突，以 `CURRENT_FOCUS.md`、`AGENTS.md`、实际代码状态为准。
 
 ---
 
 ## ⚠️ 前置：结构性止血（Phase 0）
 
-**在继续主线前，必须先完成结构性技术债修复。详见 [STRUCTURAL_DEBT.md](STRUCTURAL_DEBT.md)。**
+**在继续主线前，必须先完成结构性技术债修复。详见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)。**
 
 不修这些问题，主线（在场感体验）的每次迭代都会因为缺测试、记忆不可靠、人格约束力弱而反复返工。
 

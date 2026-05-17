@@ -1,4 +1,5 @@
 import type { Emotion } from "../emotion/emotion_state";
+import { getConfig } from "../server/config";
 import { buildCharacterRulesPrompt } from "./character_rules";
 import { buildPersonalityPrompt } from "./personality";
 import { buildToneContract } from "./tone_policy";
@@ -45,12 +46,6 @@ const PRIORITY_SLOT_HEADINGS = [
   "语气合同",
   "反助手味",
 ] as const;
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 function trimTextByChars(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -142,9 +137,9 @@ function buildSystemPrompt(
   persona?: PersonaState,
   connId?: string,
 ): string {
-  const maxPriorityChars = parsePositiveInt(process.env.MAX_PRIORITY_CONTEXT_CHARS, 500);
-  const maxMemoryEntries = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_ENTRIES, 5);
-  const maxMemoryValueChars = parsePositiveInt(process.env.MAX_PROMPT_MEMORY_VALUE_CHARS, 40);
+  const maxPriorityChars = getConfig().MAX_PRIORITY_CONTEXT_CHARS;
+  const maxMemoryEntries = getConfig().MAX_PROMPT_MEMORY_ENTRIES;
+  const maxMemoryValueChars = getConfig().MAX_PROMPT_MEMORY_VALUE_CHARS;
   const trimmedCurrentContext = currentContext?.trim()
     ? trimTextByChars(currentContext.trim(), 180)
     : undefined;

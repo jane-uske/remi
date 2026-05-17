@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { getConfig } from "../server/config";
 
 export interface VadOptions {
   /** RMS energy threshold (0–1 for 16-bit PCM). Default: ~0.06 */
@@ -90,38 +91,21 @@ export class VadDetector extends EventEmitter {
 
   constructor(opts: VadOptions = {}) {
     super();
-    const envThreshold = process.env.VAD_THRESHOLD ? Number(process.env.VAD_THRESHOLD) : undefined;
-    const envMinSpeech = process.env.VAD_MIN_SPEECH_FRAMES ? Number(process.env.VAD_MIN_SPEECH_FRAMES) : undefined;
-    const envSilenceFrames = process.env.VAD_SILENCE_FRAMES ? Number(process.env.VAD_SILENCE_FRAMES) : undefined;
-    const envSpeakingSilenceFrames = process.env.VAD_SPEAKING_SILENCE_FRAMES
-      ? Number(process.env.VAD_SPEAKING_SILENCE_FRAMES)
-      : undefined;
-    const envContinueEnergyRatio = process.env.VAD_CONTINUE_ENERGY_RATIO
-      ? Number(process.env.VAD_CONTINUE_ENERGY_RATIO)
-      : undefined;
-    const envMaxZcr = process.env.VAD_MAX_ZCR ? Number(process.env.VAD_MAX_ZCR) : undefined;
-    const envContinueMaxZcr = process.env.VAD_CONTINUE_MAX_ZCR
-      ? Number(process.env.VAD_CONTINUE_MAX_ZCR)
-      : undefined;
-    const envMaxCrest = process.env.VAD_MAX_CREST ? Number(process.env.VAD_MAX_CREST) : undefined;
-    const envContinueMaxCrest = process.env.VAD_CONTINUE_MAX_CREST
-      ? Number(process.env.VAD_CONTINUE_MAX_CREST)
-      : undefined;
-    const envFallbackEnergyThreshold = process.env.VAD_FALLBACK_ENERGY_THRESHOLD
-      ? Number(process.env.VAD_FALLBACK_ENERGY_THRESHOLD)
-      : undefined;
-    const envFallbackMinSpeechFrames = process.env.VAD_FALLBACK_MIN_SPEECH_FRAMES
-      ? Number(process.env.VAD_FALLBACK_MIN_SPEECH_FRAMES)
-      : undefined;
-    const envMinActiveRatio = process.env.VAD_MIN_ACTIVE_RATIO
-      ? Number(process.env.VAD_MIN_ACTIVE_RATIO)
-      : undefined;
-    const envContinueMinActiveRatio = process.env.VAD_CONTINUE_MIN_ACTIVE_RATIO
-      ? Number(process.env.VAD_CONTINUE_MIN_ACTIVE_RATIO)
-      : undefined;
-    const envFallbackMinActiveRatio = process.env.VAD_FALLBACK_MIN_ACTIVE_RATIO
-      ? Number(process.env.VAD_FALLBACK_MIN_ACTIVE_RATIO)
-      : undefined;
+    const cfg = getConfig();
+    const envThreshold = cfg.VAD_THRESHOLD;
+    const envMinSpeech = cfg.VAD_MIN_SPEECH_FRAMES;
+    const envSilenceFrames = cfg.VAD_SILENCE_FRAMES;
+    const envSpeakingSilenceFrames = cfg.VAD_SPEAKING_SILENCE_FRAMES;
+    const envContinueEnergyRatio = cfg.VAD_CONTINUE_ENERGY_RATIO;
+    const envMaxZcr = cfg.VAD_MAX_ZCR;
+    const envContinueMaxZcr = cfg.VAD_CONTINUE_MAX_ZCR;
+    const envMaxCrest = cfg.VAD_MAX_CREST;
+    const envContinueMaxCrest = cfg.VAD_CONTINUE_MAX_CREST;
+    const envFallbackEnergyThreshold = cfg.VAD_FALLBACK_ENERGY_THRESHOLD;
+    const envFallbackMinSpeechFrames = cfg.VAD_FALLBACK_MIN_SPEECH_FRAMES;
+    const envMinActiveRatio = cfg.VAD_MIN_ACTIVE_RATIO;
+    const envContinueMinActiveRatio = cfg.VAD_CONTINUE_MIN_ACTIVE_RATIO;
+    const envFallbackMinActiveRatio = cfg.VAD_FALLBACK_MIN_ACTIVE_RATIO;
     // Balance: too high → mic never crosses threshold (no reaction); too low
     // → false triggers. Tune with VAD_THRESHOLD / VAD_MIN_SPEECH_FRAMES.
     this.threshold = opts.energyThreshold ?? envThreshold ?? 0.04;

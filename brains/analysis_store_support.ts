@@ -5,6 +5,7 @@ import type {
   TopicEntry,
   TopicThread,
 } from "./background_analysis_store";
+import { getConfig } from "../server/config";
 
 export function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
@@ -14,43 +15,32 @@ export function sentimentLabel(s: TopicEntry["sentiment"]): string {
   return s === "positive" ? "正面" : s === "negative" ? "负面" : "中性";
 }
 
-export function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
 export function relationshipStyleGuidanceEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED, true);
+  return getConfig().REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED;
 }
 
 export function realtimeContinuityHintEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_REALTIME_CONTINUITY_HINT_ENABLED, true);
+  return getConfig().REMI_REALTIME_CONTINUITY_HINT_ENABLED;
 }
 
 export function proactivePromptEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_PROACTIVE_PROMPT_ENABLED, true);
+  return getConfig().REMI_PROACTIVE_PROMPT_ENABLED;
 }
 
 export function proactiveLedgerEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_PROACTIVE_LEDGER_ENABLED, true);
+  return getConfig().REMI_PROACTIVE_LEDGER_ENABLED;
 }
 
 export function proactiveCooldownTurns(): number {
-  const raw = Number(process.env.REMI_PROACTIVE_COOLDOWN_TURNS ?? 3);
-  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 3;
+  return getConfig().REMI_PROACTIVE_COOLDOWN_TURNS;
 }
 
 export function sharedMomentCooldownTurns(): number {
-  const raw = Number(process.env.REMI_SHARED_MOMENT_COOLDOWN_TURNS ?? 4);
-  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 4;
+  return getConfig().REMI_SHARED_MOMENT_COOLDOWN_TURNS;
 }
 
 export function topicBoundaryTtlTurns(): number {
-  const raw = Number(process.env.REMI_TOPIC_BOUNDARY_TTL_TURNS ?? 4);
-  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 4;
+  return getConfig().REMI_TOPIC_BOUNDARY_TTL_TURNS;
 }
 
 export function normalizeText(text: string): string {

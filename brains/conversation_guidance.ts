@@ -28,7 +28,7 @@ import {
   sharedMomentCooldownTurns,
   type DerivedTopicSignal,
   type RelationshipStage,
-} from "./slow_brain_store_support";
+} from "./analysis_store_support";
 
 export function buildRelationshipStyleGuidance(
   snap: SlowBrainSnapshot,

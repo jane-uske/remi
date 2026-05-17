@@ -1,4 +1,5 @@
 import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
+import { getConfig } from "../server/config";
 
 const STOP_WORDS = new Set([
   "我们",
@@ -68,26 +69,12 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-export function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-export function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === "") return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "1" || normalized === "true") return true;
-  if (normalized === "0" || normalized === "false") return false;
-  return fallback;
-}
-
 export function episodeLongHorizonRankingEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED, true);
+  return getConfig().REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED;
 }
 
 export function episodeStorePromptEnabled(): boolean {
-  return parseBooleanFlag(process.env.REMI_EPISODE_STORE_PROMPT_ENABLED, true);
+  return getConfig().REMI_EPISODE_STORE_PROMPT_ENABLED;
 }
 
 export function normalizeText(text: string): string {

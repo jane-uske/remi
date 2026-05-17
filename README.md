@@ -35,26 +35,28 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 - 让主动策略逐步基于 unresolved episodes 工作
 - 在增强关系连续性的同时，不破坏实时交互质量
 
-短版执行说明见 [CURRENT_FOCUS.md](./CURRENT_FOCUS.md)。
+短版执行说明见 [CURRENT_FOCUS.md](./docs/ops/CURRENT_FOCUS.md)。
 
 ## Canonical Docs
 
 启动或新 agent 接手时，只把下面这些当事实源：
 
-- [AGENTS.md](./AGENTS.md) — 北极星、改动边界、汇报要求
-- [CURRENT_FOCUS.md](./CURRENT_FOCUS.md) — 当前主线程与交付判断
-- [TASKS.md](./TASKS.md) — 当前执行板与并行任务
-- [TEST_MAP.md](./TEST_MAP.md) — 改目录后先跑什么测试
-- [PROJECT_CONTEXT.md](./PROJECT_CONTEXT.md) — 完整产品语境
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — 系统结构总览
-- [PIPELINE.md](./PIPELINE.md) — 实时链路与状态流转
-- [MEMORY_V2_DESIGN.md](./MEMORY_V2_DESIGN.md) — Memory V2 设计
-- [VOICE_ROADMAP.md](./VOICE_ROADMAP.md) — 语音路线图
+- [AGENTS.md](./docs/guides/AGENTS.md) — 北极星、改动边界、汇报要求
+- [CURRENT_FOCUS.md](./docs/ops/CURRENT_FOCUS.md) — 当前主线程与交付判断
+- [TASKS.md](./docs/ops/TASKS.md) — 当前执行板与并行任务
+- [TEST_MAP.md](./docs/guides/TEST_MAP.md) — 改目录后先跑什么测试
+- [PROJECT_CONTEXT.md](./docs/ops/PROJECT_CONTEXT.md) — 完整产品语境
+- [ARCHITECTURE.md](./docs/design/ARCHITECTURE.md) — 系统结构总览
+- [PIPELINE.md](./docs/design/PIPELINE.md) — 实时链路与状态流转
+- [MEMORY_V2_DESIGN.md](./docs/design/MEMORY_V2_DESIGN.md) — Memory V2 设计
+- [VOICE_ROADMAP.md](./docs/design/VOICE_ROADMAP.md) — 语音路线图
 
 其他历史、运维、评测和参考文档已下沉到 `docs/`：
 
 - `docs/archive/` — 历史入口、阶段性优化记录
-- `docs/ops/` — 远程开发 / 本机生产化操作手册
+- `docs/design/` — 架构、管线、设计方案
+- `docs/guides/` — 插件开发、Agent 使用、测试地图
+- `docs/ops/` — 任务执行、当前焦点、远程开发操作手册
 - `docs/evals/` — 手工测试与对话样例
 - `docs/reference/` — 参考设计文档
 
@@ -316,10 +318,13 @@ remi/
 ├── docker-compose.yml         # App + PostgreSQL + Redis
 ├── package.json
 ├── tsconfig.json
-├── ARCHITECTURE.md
-├── PIPELINE.md
-├── TASKS.md
-└── docs/                    # archive / ops / evals / reference
+└── docs/
+    ├── design/    # ARCHITECTURE, PIPELINE, MEMORY_V2_DESIGN...
+    ├── guides/    # PLUGIN_GUIDE, AGENTS, TEST_MAP
+    ├── ops/       # TASKS, CURRENT_FOCUS, PROJECT_CONTEXT
+    ├── evals/     # 手工测试与对话样例
+    ├── reference/ # 参考设计文档
+    └── archive/   # 历史记录
 ```
 
 ## 开发进度
@@ -356,7 +361,7 @@ remi/
 
 **Remi 已经从“能跑通的系统原型”进入“围绕活人感持续打磨的产品原型”阶段。**
 
-> 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。历史优化记录与阶段性工程日志已归档到 [docs/archive/OPTIMIZATION.md](docs/archive/OPTIMIZATION.md)。
+> 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](docs/design/ARCHITECTURE.md)。历史优化记录与阶段性工程日志已归档到 [docs/archive/OPTIMIZATION.md](docs/archive/OPTIMIZATION.md)。
 
 ## 当前已收口的体验/观测点
 

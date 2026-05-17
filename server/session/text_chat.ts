@@ -13,6 +13,7 @@ import { runPipeline } from "../pipeline";
 import { send } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import type { InterruptController } from "../../voice/interrupt_controller";
+import { getConfig } from "../config";
 import { randomInterruptReaction } from "./runtime_config";
 import type { SessionTtsTransport } from "./tts_transport";
 
@@ -76,7 +77,7 @@ export function handleSessionTextChat(
 
   const interruptedGenerationId = runtime.activeGenerationId;
   const interruptReactionEnabled =
-    process.env.interrupt_reaction !== "0" && isTtsEnabled();
+    getConfig().interrupt_reaction !== "0" && isTtsEnabled();
   if (runtime.interrupt.active && interruptReactionEnabled) {
     void synthesize(
       randomInterruptReaction(),

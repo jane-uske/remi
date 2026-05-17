@@ -4,6 +4,7 @@
 // NEVER blocks the response path.
 
 import { complete, hasLlmConfig, type ChatMessage } from "../llm/qwen_client";
+import { getConfig } from "../server/config";
 import type { EpisodeLifecycleStatus } from "../memory/episode_store";
 import { ingest } from "../memory/episode_store";
 import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
@@ -22,7 +23,7 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
 
-const logger = createLogger("slow_brain");
+const logger = createLogger("background_analysis");
 
 const LIGHT_TOUCH_TURN_PATTERN =
   /^(?:你好呀?|您好|哈喽|hello|hi|嗨|嘿|在吗|在不在|晚安(?:啦|呀)?|早安|早上好|晚上好|睡了|嗯+|嗯嗯+|哦+|噢+|啊+|好+|好的|好哦|好哒|收到|行吧?|ok(?:ay)?|okk+)[!！?？~～。\s]*$/iu;
@@ -338,8 +339,7 @@ function updateRelationship(store: SlowBrainStore, userMessage: string): void {
 }
 
 function episodeMemoryEnabled(): boolean {
-  const raw = (process.env.REMI_EPISODE_MEMORY_ENABLED ?? "1").trim().toLowerCase();
-  return raw !== "0" && raw !== "false";
+  return getConfig().REMI_EPISODE_MEMORY_ENABLED;
 }
 
 async function maybeRecordSharedMoment(

@@ -1,3 +1,5 @@
+import { getConfig } from "../server/config";
+
 export const SENTENCE_END = /[。！？.!?\n]/;
 export const SOFT_BREAK_RE = /[，,、；;：:~～…]/;
 
@@ -61,28 +63,15 @@ export class SentenceChunker {
   private readonly eagerSoftBreakMinChars: number;
 
   constructor(opts: SentenceChunkerOptions = {}) {
-    const envMin = process.env.TTS_CHUNK_MIN_CHARS
-      ? Number(process.env.TTS_CHUNK_MIN_CHARS)
-      : NaN;
-    const envEagerMin = process.env.TTS_EAGER_MIN_CHARS
-      ? Number(process.env.TTS_EAGER_MIN_CHARS)
-      : NaN;
-    const envEagerChunk = process.env.TTS_EAGER_CHUNK_CHARS
-      ? Number(process.env.TTS_EAGER_CHUNK_CHARS)
-      : NaN;
-    const envEagerThreshold = process.env.TTS_EAGER_THRESHOLD
-      ? Number(process.env.TTS_EAGER_THRESHOLD)
-      : NaN;
-    const envMax = process.env.TTS_CHUNK_MAX_CHARS
-      ? Number(process.env.TTS_CHUNK_MAX_CHARS)
-      : NaN;
-    const envTtsMin = process.env.TTS_MIN_CHARS ? Number(process.env.TTS_MIN_CHARS) : NaN;
-    const envEagerLookahead = process.env.TTS_EAGER_LOOKAHEAD_CHARS
-      ? Number(process.env.TTS_EAGER_LOOKAHEAD_CHARS)
-      : NaN;
-    const envEagerSoftBreakMin = process.env.TTS_EAGER_SOFT_BREAK_MIN_CHARS
-      ? Number(process.env.TTS_EAGER_SOFT_BREAK_MIN_CHARS)
-      : NaN;
+    const cfg = getConfig();
+    const envMin = cfg.TTS_CHUNK_MIN_CHARS ?? NaN;
+    const envEagerMin = cfg.TTS_EAGER_MIN_CHARS ?? NaN;
+    const envEagerChunk = cfg.TTS_EAGER_CHUNK_CHARS ?? NaN;
+    const envEagerThreshold = cfg.TTS_EAGER_THRESHOLD ?? NaN;
+    const envMax = cfg.TTS_CHUNK_MAX_CHARS ?? NaN;
+    const envTtsMin = cfg.TTS_MIN_CHARS ?? NaN;
+    const envEagerLookahead = cfg.TTS_EAGER_LOOKAHEAD_CHARS ?? NaN;
+    const envEagerSoftBreakMin = cfg.TTS_EAGER_SOFT_BREAK_MIN_CHARS ?? NaN;
 
     // 优先使用显式传入的 eagerCharThreshold，否则检查 envEagerChunk，再用默认 24
     const desiredThreshold = opts.eagerCharThreshold ??

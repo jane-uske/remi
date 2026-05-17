@@ -4,6 +4,7 @@ import { withRetry } from "../utils/retry";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { getConfig } from "../server/config";
 
 import {
   realtimeSttRuntime,
@@ -38,15 +39,15 @@ type SttProvider = "openai" | "whisper-cpp";
 type IncrementalSttProvider = "openai-realtime" | "sherpa-onnx";
 
 function getProvider(): SttProvider {
-  const p = (process.env.stt_provider || "openai").toLowerCase();
+  const p = getConfig().REMI_STT_PROVIDER;
   return p === "whisper-cpp" ? "whisper-cpp" : "openai";
 }
 
 function getIncrementalProvider(): IncrementalSttProvider | null {
   const p = (
-    process.env.stt_incremental_provider ??
-    process.env.STT_INCREMENTAL_PROVIDER ??
-    process.env.stt_provider ??
+    getConfig().stt_incremental_provider ??
+    getConfig().STT_INCREMENTAL_PROVIDER ??
+    getConfig().REMI_STT_PROVIDER ??
     "openai"
   ).toLowerCase();
   if (p === "openai-realtime" || p === "sherpa-onnx") return p;
@@ -98,8 +99,8 @@ export class SttStream extends EventEmitter {
   constructor() {
     super();
     if (getProvider() === "openai") {
-      const apiKey = process.env.stt_key;
-      const baseURL = process.env.stt_base_url;
+      const apiKey = getConfig().REMI_STT_API_KEY;
+      const baseURL = getConfig().REMI_STT_BASE_URL;
       if (apiKey && baseURL) {
         this.client = new OpenAI({ apiKey, baseURL, timeout: 30_000 });
       }
@@ -107,7 +108,7 @@ export class SttStream extends EventEmitter {
   }
 
   get configured(): boolean {
-    if (getProvider() === "whisper-cpp") return Boolean(process.env.whisper_model);
+    if (getProvider() === "whisper-cpp") return Boolean(getConfig().whisper_model);
     return this.client !== null;
   }
 
@@ -331,9 +332,9 @@ export class SttStream extends EventEmitter {
     temperature?: number;
     prompt?: string;
   } {
-    const prompt = process.env.whisper_prompt || process.env.stt_prompt;
-    const lang = process.env.stt_language || process.env.whisper_lang;
-    const tempRaw = process.env.stt_temperature;
+    const cfg = getConfig();
+    const prompt = cfg.whisper_prompt || cfg.stt_prompt;
+    const lang = cfg.stt_language || cfg.whisper_lang;
 
     const body: {
       model: string;
@@ -341,13 +342,13 @@ export class SttStream extends EventEmitter {
       temperature?: number;
       prompt?: string;
     } = {
-      model: process.env.stt_model || "whisper-1",
+      model: cfg.stt_model,
     };
 
     if (lang) body.language = lang;
     if (prompt) body.prompt = prompt;
-    if (tempRaw !== undefined && tempRaw !== "") {
-      const t = Math.min(1, Math.max(0, Number(tempRaw)));
+    if (cfg.stt_temperature !== undefined) {
+      const t = Math.min(1, Math.max(0, cfg.stt_temperature));
       if (Number.isFinite(t)) body.temperature = t;
     }
 
@@ -481,8 +482,8 @@ function tmpPath(ext: string): string {
 }
 
 function minimumPcmBytes(sampleRate: number): number {
-  const raw = process.env.stt_min_pcm_ms || process.env.STT_MIN_PCM_MS || process.env.VAD_MIN_UTTERANCE_MS || "220";
-  const ms = Number(raw);
+  const cfg = getConfig();
+  const ms = cfg.stt_min_pcm_ms ?? cfg.STT_MIN_PCM_MS ?? cfg.VAD_MIN_UTTERANCE_MS;
   const safeMs = Number.isFinite(ms) && ms > 0 ? ms : 220;
   return Math.ceil(sampleRate * 2 * safeMs / 1000);
 }
