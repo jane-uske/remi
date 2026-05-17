@@ -59,18 +59,4 @@ describe("server/config", () => {
     assert.equal(cfg.REMI_SLOW_BRAIN_ENABLED, false);
     delete process.env.REMI_SLOW_BRAIN_ENABLED;
   });
-
-  it("parses family-memory integration env vars", () => {
-    process.env.REMI_FAMILY_MEMORY_ENABLED = "1";
-    process.env.REMI_FAMILY_MEMORY_SERVICE_URL = "http://127.0.0.1:3456";
-    process.env.REMI_FAMILY_MEMORY_AI_TOKEN = "family-token";
-    resetConfig();
-    const cfg = getConfig();
-    assert.equal(cfg.REMI_FAMILY_MEMORY_ENABLED, true);
-    assert.equal(cfg.REMI_FAMILY_MEMORY_SERVICE_URL, "http://127.0.0.1:3456");
-    assert.equal(cfg.REMI_FAMILY_MEMORY_AI_TOKEN, "family-token");
-    delete process.env.REMI_FAMILY_MEMORY_ENABLED;
-    delete process.env.REMI_FAMILY_MEMORY_SERVICE_URL;
-    delete process.env.REMI_FAMILY_MEMORY_AI_TOKEN;
-  });
 });

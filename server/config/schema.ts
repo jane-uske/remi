@@ -128,12 +128,6 @@ export const envSchema = z.object({
   REMI_SILENCE_NUDGE_MIN_TURNS: z.coerce.number().int().nonnegative().default(2),
   REMI_TIME_CAPABILITY_ENABLED: booleanString("1"),
   REMI_DATE_RECAP_CAPABILITY_ENABLED: booleanString("1"),
-
-  // ── Family Memory ──────────────────────────────────────────────────────
-  REMI_FAMILY_MEMORY_ENABLED: booleanString("0"),
-  REMI_FAMILY_MEMORY_SERVICE_URL: z.string().default("http://localhost:3456"),
-  REMI_FAMILY_MEMORY_AI_TOKEN: z.string().default(""),
-
   REMI_WORKING_MEMORY_ENABLED: booleanString("0"),
   REMI_EPISODE_MEMORY_ENABLED: booleanString("1"),
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
