@@ -548,13 +548,65 @@ html[data-ios-safari="true"] .remi-app-shell::after {
   animation: remThinking 2.2s ease-in-out infinite;
 }
 
+@keyframes remBreathGlow {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+.remi-breath-glow {
+  animation: remBreathGlow 4s ease-in-out infinite;
+}
+
+@keyframes remFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.remi-fade-in-up {
+  animation: remFadeInUp 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+.remi-landing-cta {
+  background-color: var(--remi-accent);
+  color: #050a10;
+  transition:
+    box-shadow 0.3s ease,
+    transform 0.2s ease;
+}
+
+.remi-landing-cta:hover {
+  box-shadow: 0 0 28px rgba(45, 212, 191, 0.45);
+  transform: translateY(-1px);
+}
+
+.remi-landing-cta:active {
+  transform: translateY(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .remi-msg-pop,
   .remi-typing-dot,
   .remi-mic-pulse,
   .remi-thinking-bubble,
-  .remi-portrait-figure {
+  .remi-portrait-figure,
+  .remi-breath-glow,
+  .remi-fade-in-up {
     animation: none !important;
+    opacity: 1 !important;
   }
 
   .remi-voice-bars[data-active="true"] .remi-voice-bar {
