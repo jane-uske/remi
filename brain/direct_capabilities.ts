@@ -2,6 +2,9 @@ import type { Emotion } from "../emotion/emotion_state";
 import { createLogger } from "../infra/logger";
 import type { RemiSessionContext } from "../brains/remi_session_context";
 import { dateRecapCapability } from "../capabilities/date_recap_capability";
+import { familyMemoryCapability } from "../capabilities/family_memory_capability";
+import { familyMemoryCaptureCapability } from "../capabilities/family_memory_capture_capability";
+import { familyMemoryDraftsCapability } from "../capabilities/family_memory_drafts_capability";
 import { timeCapability } from "./time_capability";
 
 const logger = createLogger("direct_capabilities");
@@ -35,6 +38,9 @@ export interface DirectCapability {
 const REGISTERED_DIRECT_CAPABILITIES: readonly DirectCapability[] = [
   timeCapability,
   dateRecapCapability,
+  familyMemoryDraftsCapability,
+  familyMemoryCaptureCapability,
+  familyMemoryCapability,
 ];
 
 export async function tryHandleDirectCapabilities(

@@ -140,6 +140,9 @@ export const envSchema = z.object({
   REMI_SHARED_MOMENT_COOLDOWN_TURNS: z.coerce.number().int().nonnegative().default(4),
   REMI_TOPIC_BOUNDARY_TTL_TURNS: z.coerce.number().int().nonnegative().default(4),
   REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED: booleanString("1"),
+  REMI_FAMILY_MEMORY_ENABLED: booleanString("0"),
+  REMI_FAMILY_MEMORY_SERVICE_URL: z.string().url().default("http://127.0.0.1:3456"),
+  REMI_FAMILY_MEMORY_AI_TOKEN: z.string().default(""),
 
   // ── Embedding ───────────────────────────────────────────────────────────
   REMI_EMBEDDING_API_KEY: z.string().optional(),
