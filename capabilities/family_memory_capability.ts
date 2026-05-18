@@ -11,7 +11,8 @@ const NON_FAMILY_RE =
   /天气|股票|新闻|比赛|电影|音乐|菜谱|导航|翻译|计算|编程|代码/u;
 
 const REPLY_SERVICE_UNAVAILABLE = "家庭记忆服务暂不可用，无法回答家庭相关问题，请稍后再试。";
-const REPLY_NO_EVIDENCE = "家庭记忆里还没有相关记录，我不能确定。";
+const REPLY_NO_EVIDENCE =
+  "我现在还没有确认过这条家庭记忆。你可以先让我查看待确认记忆，补充摘要并确认后，我再能把它作为正式记忆回答。";
 
 function isFamilyMemoryQuestion(text: string): boolean {
   const trimmed = text.trim();
@@ -55,7 +56,7 @@ export const familyMemoryCapability: DirectCapability = {
       response = await fetch(`${serviceUrl}/api/ai/ask`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ question: request.userMessage }),
+        body: JSON.stringify({ question: request.userMessage, confirmedOnly: true }),
         signal: request.signal ?? AbortSignal.timeout(8000),
       });
     } catch (err) {
