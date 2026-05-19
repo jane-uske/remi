@@ -35,6 +35,7 @@
     "memory:v2:audit": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_memory_audit.ts",
     "memory:v2:acceptance": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_acceptance.ts",
     "memory:v2:hygiene": "node -r dotenv/config -r ts-node/register/transpile-only scripts/episode_memory_hygiene.ts",
+    "vlm:smoke": "node scripts/local-vlm-smoke.cjs",
     "migrate:up": "node-pg-migrate up --database-url-var DATABASE_URL --migrations-dir migrations",
     "migrate:down": "node-pg-migrate down --database-url-var DATABASE_URL --migrations-dir migrations",
     "migrate:create": "node-pg-migrate create --migrations-dir migrations",
