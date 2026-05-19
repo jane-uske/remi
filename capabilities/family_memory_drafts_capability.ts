@@ -1,266 +1,435 @@
 import type { DirectCapability } from "../brain/direct_capabilities";
-import type { RemiSessionContext } from "../brains/remi_session_context";
-import {
-  familyMemoryConfig,
-  familyMemoryFetchJson,
-  type FamilyMemoryDraft,
-  type PendingDraftsResponse,
-} from "./family_memory_capability";
+import { getConfig } from "../server/config";
+import { createLogger } from "../infra/logger";
 
-type DraftState = {
+const logger = createLogger("family_memory_drafts");
+
+// --- Intent Detection ---
+
+const DRAFTS_INTENT_PATTERNS: RegExp[] = [
+  /待确认/,
+  /有没有.*草稿/,
+  /有什么.*要确认/,
+  /查看.*草稿/,
+  /有.*待审/,
+  /看看.*draft/i,
+  /确认.*照片/,
+  /确认.*资料/,
+  /有没有.*新.*素材/,
+];
+
+// --- Confirmation / Rejection Detection ---
+
+const CONFIRM_PATTERNS: RegExp[] = [
+  /^确认$/,
+  /^是$/,
+  /^对$/,
+  /^好$/,
+  /^嗯$/,
+  /^ok$/i,
+  /^确定$/,
+  /^没问题$/,
+  /^可以$/,
+  /^通过$/,
+];
+
+const REJECT_PATTERNS: RegExp[] = [
+  /^算了$/,
+  /^取消$/,
+  /^不了$/,
+  /^不要$/,
+  /^删除$/,
+  /^跳过$/,
+  /^拒绝$/,
+  /^reject$/i,
+];
+
+const SUMMARY_PATTERN = /补充摘要[：:](.+)/;
+
+// --- Session State ---
+
+export interface PendingDraft {
+  draftId: string;
+  inferredDate: string | null;
+  inferredTitle: string | null;
+  originalFilenames: string[];
+  attachmentIds: string[];
+  ocrStatus?: "extracted" | "no_text" | "no_extractor" | "error" | "partial";
+  ocrAttachmentCount?: number;
+  ocrExtractedCount?: number;
+}
+
+interface DraftSession {
   activeDraftId: string | null;
+  activeDraftTitle: string | null;
   activeSummary: string | null;
-};
-
-type DraftActionResponse = {
-  ok?: boolean;
-  message?: string;
-  error?: string;
-};
-
-const draftStates = new WeakMap<object, DraftState>();
-
-const INTENT_LIST = /待确认|有什么.*确认|pending|有.*draft/iu;
-const INTENT_CONFIRM = /^(确认|确认吧|好的确认|好，确认|好,确认|确定)$/u;
-const INTENT_REJECT = /^(跳过|skip|不要了|算了)$/iu;
-const INTENT_SELECT = /^(?:选择\s*|选\s*|#)(\d+)$/u;
-const INTENT_SUMMARY = /^补充摘要[：:]\s*(.+)/u;
-
-function contextKey(ctx: RemiSessionContext): object {
-  return ctx as unknown as object;
+  allDrafts: PendingDraft[];
+  createdAt: number;
 }
 
-function getState(ctx: RemiSessionContext): DraftState {
-  const key = contextKey(ctx);
-  const existing = draftStates.get(key);
-  if (existing) return existing;
-  const next = { activeDraftId: null, activeSummary: null };
-  draftStates.set(key, next);
-  return next;
+const sessions = new Map<string, DraftSession>();
+const SESSION_TTL_MS = 5 * 60 * 1000;
+
+function cleanExpiredSessions(): void {
+  const now = Date.now();
+  for (const [key, session] of sessions) {
+    if (now - session.createdAt > SESSION_TTL_MS) {
+      sessions.delete(key);
+    }
+  }
 }
 
-function clearState(ctx: RemiSessionContext): void {
-  draftStates.delete(contextKey(ctx));
+function isDraftsIntent(text: string): boolean {
+  return DRAFTS_INTENT_PATTERNS.some((p) => p.test(text));
 }
 
-function isDraftIntent(input: string): boolean {
-  const trimmed = input.trim();
+function isConfirmation(text: string): boolean {
+  return CONFIRM_PATTERNS.some((p) => p.test(text.trim()));
+}
+
+function isRejection(text: string): boolean {
+  return REJECT_PATTERNS.some((p) => p.test(text.trim()));
+}
+
+const NUMBER_PATTERN = /^(\d+)$/;
+const SELECT_PATTERN = /^选择\s*(\d+)$/;
+
+// --- OCR Display Helpers ---
+
+function ocrStatusLabel(draft: PendingDraft): string {
+  if (!draft.ocrStatus) return "无附件";
+  switch (draft.ocrStatus) {
+    case "extracted":
+      return "已提取文本";
+    case "no_extractor":
+      return "无法自动识别";
+    case "no_text":
+      return "无文本内容";
+    case "error":
+      return "提取失败";
+    case "partial":
+      return `部分提取(${draft.ocrExtractedCount ?? 0}/${draft.ocrAttachmentCount ?? 0})`;
+  }
+}
+
+function needsSummary(draft: PendingDraft): boolean {
   return (
-    INTENT_LIST.test(trimmed) ||
-    INTENT_CONFIRM.test(trimmed) ||
-    INTENT_REJECT.test(trimmed) ||
-    INTENT_SELECT.test(trimmed) ||
-    INTENT_SUMMARY.test(trimmed)
+    draft.ocrStatus === "no_extractor" ||
+    draft.ocrStatus === "no_text" ||
+    draft.ocrStatus === "error" ||
+    draft.ocrStatus === "partial"
   );
 }
 
-async function loadPendingDrafts(): Promise<
-  { ok: true; drafts: FamilyMemoryDraft[] } | { ok: false; error: string }
-> {
-  const result = await familyMemoryFetchJson<PendingDraftsResponse>("/api/ai/drafts/pending");
-  if (!result.ok) return { ok: false, error: result.error };
-  return {
-    ok: true,
-    drafts: Array.isArray(result.data.drafts) ? result.data.drafts : [],
-  };
+function ocrHint(draft: PendingDraft): string {
+  if (draft.ocrStatus === "no_extractor") {
+    return "这些图片当前还不能自动识别内容，请补充摘要后确认。";
+  }
+  if (draft.ocrStatus === "extracted") {
+    return "PDF 已提取文本，但仍需确认摘要。";
+  }
+  if (draft.ocrStatus === "partial") {
+    return `部分文件已提取文本(${draft.ocrExtractedCount}/${draft.ocrAttachmentCount})，建议补充摘要后确认。`;
+  }
+  if (draft.ocrStatus === "no_text" || draft.ocrStatus === "error") {
+    return "文件内容无法自动提取，请补充摘要后确认。";
+  }
+  return "";
 }
 
-function fileList(draft: FamilyMemoryDraft): string {
-  const files = draft.originalFilenames?.filter(Boolean) ?? [];
-  return files.length > 0 ? files.join(", ") : draft.inferredTitle || draft.draftId;
+// --- API Helpers ---
+
+async function fetchPendingDrafts(
+  config: ReturnType<typeof getConfig>,
+): Promise<PendingDraft[] | null> {
+  const serviceUrl = config.REMI_FAMILY_MEMORY_SERVICE_URL;
+  const token = config.REMI_FAMILY_MEMORY_AI_TOKEN;
+
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${serviceUrl}/api/ai/drafts/pending`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { drafts: PendingDraft[] };
+    return body.drafts;
+  } catch {
+    return null;
+  }
 }
 
-function formatSingleDraft(draft: FamilyMemoryDraft): string {
-  const date = draft.inferredDate || "日期未知";
-  const title = draft.inferredTitle ? ` ${draft.inferredTitle}` : "";
-  const ocr = draft.ocrStatus ? `，OCR: ${draft.ocrStatus}` : "";
-  return `[${date}]${title} ${fileList(draft)}${ocr}`.trim();
-}
-
-function formatDraftList(drafts: FamilyMemoryDraft[]): string {
-  return `待确认 draft（共 ${drafts.length} 条）：\n${drafts
-    .map((draft, index) => `${index + 1}. ${formatSingleDraft(draft)}`)
-    .join("\n")}`;
-}
-
-async function postDraftAction(
+async function confirmDraftApi(
   draftId: string,
-  action: "confirm" | "reject",
-  body?: Record<string, unknown>,
-): Promise<{ ok: true; data: DraftActionResponse } | { ok: false; error: string }> {
-  return familyMemoryFetchJson<DraftActionResponse>(
-    `/api/ai/drafts/${encodeURIComponent(draftId)}/${action}`,
-    {
+  overrides: Record<string, unknown>,
+  config: ReturnType<typeof getConfig>,
+): Promise<{ ok: boolean; error?: string }> {
+  const serviceUrl = config.REMI_FAMILY_MEMORY_SERVICE_URL;
+  const token = config.REMI_FAMILY_MEMORY_AI_TOKEN;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${serviceUrl}/api/ai/drafts/${draftId}/confirm`, {
       method: "POST",
-      body: JSON.stringify(body ?? {}),
-    },
-  );
+      headers,
+      body: JSON.stringify(overrides),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { ok: false, error: (body.error as string) || `HTTP ${response.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
+
+async function rejectDraftApi(
+  draftId: string,
+  config: ReturnType<typeof getConfig>,
+): Promise<{ ok: boolean; error?: string }> {
+  const serviceUrl = config.REMI_FAMILY_MEMORY_SERVICE_URL;
+  const token = config.REMI_FAMILY_MEMORY_AI_TOKEN;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${serviceUrl}/api/ai/drafts/${draftId}/reject`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { ok: false, error: (body.error as string) || `HTTP ${response.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+// --- Capability ---
 
 export const familyMemoryDraftsCapability: DirectCapability = {
   id: "family_memory_drafts",
   async tryHandle(request) {
-    if (request.systemTriggered || !familyMemoryConfig().enabled) {
+    const config = getConfig();
+
+    if (!config.REMI_FAMILY_MEMORY_ENABLED) {
       return { handled: false };
     }
 
-    const input = request.userMessage.trim();
-    if (!isDraftIntent(input)) {
+    if (request.systemTriggered) {
       return { handled: false };
     }
 
-    const state = getState(request.ctx);
+    const connId = request.ctx.connId;
+    const userMessage = request.userMessage.trim();
 
-    if (INTENT_SUMMARY.test(input)) {
-      const summary = input.match(INTENT_SUMMARY)?.[1]?.trim() ?? "";
-      if (!summary) return { handled: true, capabilityId: "family_memory_drafts", reply: "摘要不能为空。" };
-      if (!state.activeDraftId) {
-        const pending = await loadPendingDrafts();
-        if (!pending.ok) {
-          return { handled: true, capabilityId: "family_memory_drafts", reply: "家庭记忆服务暂不可用，暂时不能处理待确认 draft。" };
-        }
-        if (pending.drafts.length === 1) {
-          state.activeDraftId = pending.drafts[0].draftId;
-        } else if (pending.drafts.length > 1) {
+    cleanExpiredSessions();
+
+    // --- Phase 2: Active session ---
+    const session = sessions.get(connId);
+    if (session) {
+      if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+        sessions.delete(connId);
+        return {
+          handled: true,
+          capabilityId: "family_memory_drafts",
+          reply: "草稿确认会话已过期，请重新发起。",
+        };
+      }
+
+      // If no active draft selected yet (multi-draft list shown), require number selection
+      if (!session.activeDraftId) {
+        // Number selection (bare number or "选择 N")
+        const numMatch = userMessage.match(NUMBER_PATTERN) || userMessage.match(SELECT_PATTERN);
+        if (numMatch) {
+          const idx = parseInt(numMatch[1], 10) - 1;
+          if (idx < 0 || idx >= session.allDrafts.length) {
+            return {
+              handled: true,
+              capabilityId: "family_memory_drafts",
+              reply: `编号无效，请输入 1 到 ${session.allDrafts.length} 之间的数字。`,
+            };
+          }
+          const selected = session.allDrafts[idx];
+          session.activeDraftId = selected.draftId;
+          session.activeDraftTitle = selected.inferredTitle || selected.originalFilenames.join(", ");
+          const fileList = selected.originalFilenames.join(", ");
+          const dateInfo = selected.inferredDate || "未知日期";
+          const hint = ocrHint(selected);
+          let reply = `已选择第 ${idx + 1} 条：\n  日期：${dateInfo}\n  文件：${fileList}`;
+          if (hint) reply += `\n\n${hint}`;
+          reply += `\n\n回复"确认"通过，"跳过"拒绝，或"补充摘要：<内容>"添加描述后确认。`;
           return {
             handled: true,
             capabilityId: "family_memory_drafts",
-            reply: `有 ${pending.drafts.length} 条待确认，请先选择编号。`,
+            reply,
           };
-        } else {
-          clearState(request.ctx);
-          return { handled: false };
         }
-      }
-      state.activeSummary = summary;
-      return {
-        handled: true,
-        capabilityId: "family_memory_drafts",
-        reply: `摘要已更新：「${summary}」\n回复“确认”保存，或继续补充。`,
-      };
-    }
 
-    const pending = await loadPendingDrafts();
-    if (!pending.ok) {
-      return {
-        handled: true,
-        capabilityId: "family_memory_drafts",
-        reply: "家庭记忆服务暂不可用，暂时不能处理待确认 draft。",
-      };
-    }
-    const drafts = pending.drafts;
+        // Bare confirm/reject without selecting a number — refuse
+        if (isConfirmation(userMessage)) {
+          return {
+            handled: true,
+            capabilityId: "family_memory_drafts",
+            reply: `有 ${session.allDrafts.length} 条待确认草稿，请先输入编号选择要操作的草稿（如"1"、"2"）。`,
+          };
+        }
+        if (isRejection(userMessage)) {
+          return {
+            handled: true,
+            capabilityId: "family_memory_drafts",
+            reply: `有 ${session.allDrafts.length} 条待确认草稿，请先输入编号选择要操作的草稿（如"1"、"2"）。`,
+          };
+        }
 
-    if (INTENT_LIST.test(input)) {
-      if (drafts.length === 0) {
-        clearState(request.ctx);
-        return { handled: true, capabilityId: "family_memory_drafts", reply: "当前没有待确认的 draft。" };
-      }
-      if (drafts.length === 1) {
-        state.activeDraftId = drafts[0].draftId;
-        state.activeSummary = null;
-        return {
-          handled: true,
-          capabilityId: "family_memory_drafts",
-          reply: `${formatDraftList(drafts)}\n\n只有一条，可以直接回复“确认”或“跳过”。`,
-        };
-      }
-      state.activeDraftId = null;
-      state.activeSummary = null;
-      return {
-        handled: true,
-        capabilityId: "family_memory_drafts",
-        reply: `${formatDraftList(drafts)}\n\n请先选择编号（如“选择 1”），再确认或跳过。`,
-      };
-    }
-
-    const selectMatch = input.match(INTENT_SELECT);
-    if (selectMatch) {
-      if (drafts.length === 0) {
-        clearState(request.ctx);
-        return { handled: true, capabilityId: "family_memory_drafts", reply: "当前没有待确认的 draft。" };
-      }
-      const num = Number(selectMatch[1]);
-      if (num < 1 || num > drafts.length) {
-        return {
-          handled: true,
-          capabilityId: "family_memory_drafts",
-          reply: `编号无效，请输入 1~${drafts.length} 之间的数字。`,
-        };
-      }
-      const draft = drafts[num - 1];
-      state.activeDraftId = draft.draftId;
-      state.activeSummary = null;
-      return {
-        handled: true,
-        capabilityId: "family_memory_drafts",
-        reply: `已选择第 ${num} 条：\n${formatSingleDraft(draft)}\n\n可以“补充摘要：xxx”、“确认”或“跳过”。`,
-      };
-    }
-
-    if (INTENT_CONFIRM.test(input)) {
-      if (!state.activeDraftId && drafts.length === 0) {
-        clearState(request.ctx);
+        // Unrecognized — cancel session
+        sessions.delete(connId);
         return { handled: false };
       }
-      if (!state.activeDraftId && drafts.length === 1) {
-        state.activeDraftId = drafts[0].draftId;
-      }
-      if (!state.activeDraftId && drafts.length > 1) {
+
+      // Active draft selected — handle confirm/reject/summary
+      if (isConfirmation(userMessage)) {
+        const overrides: Record<string, unknown> = {};
+        if (session.activeSummary) overrides.summary = session.activeSummary;
+        const result = await confirmDraftApi(session.activeDraftId, overrides, config);
+        const title = session.activeDraftTitle || session.activeDraftId;
+        sessions.delete(connId);
+        if (result.ok) {
+          logger.info("draft confirmed", { connId, draftId: session.activeDraftId });
+          return {
+            handled: true,
+            capabilityId: "family_memory_drafts",
+            reply: `已生成待同步 note「${title}」，运行 npm run sync 后会进入正式时间线和 Remi 可查询记忆。`,
+          };
+        }
         return {
           handled: true,
           capabilityId: "family_memory_drafts",
-          reply: `有 ${drafts.length} 条待确认，请先选择编号（如“选择 1”），不能直接确认。`,
+          reply: `确认失败：${result.error}`,
         };
       }
-      const body: Record<string, unknown> = {};
-      if (state.activeSummary) body.summary = state.activeSummary;
-      const result = await postDraftAction(state.activeDraftId!, "confirm", body);
-      if (!result.ok || result.data.ok === false) {
+
+      if (isRejection(userMessage)) {
+        const result = await rejectDraftApi(session.activeDraftId, config);
+        const title = session.activeDraftTitle || session.activeDraftId;
+        sessions.delete(connId);
+        if (result.ok) {
+          logger.info("draft rejected", { connId, draftId: session.activeDraftId });
+          return {
+            handled: true,
+            capabilityId: "family_memory_drafts",
+            reply: `已跳过「${title}」，不会进入时间线。`,
+          };
+        }
         return {
           handled: true,
           capabilityId: "family_memory_drafts",
-          reply: `确认失败：${result.ok ? result.data.message ?? result.data.error ?? "unknown" : result.error}`,
+          reply: `拒绝失败：${result.error}`,
         };
       }
-      clearState(request.ctx);
+
+      const summaryMatch = userMessage.match(SUMMARY_PATTERN);
+      if (summaryMatch) {
+        const summary = summaryMatch[1].trim();
+        session.activeSummary = summary;
+        const draftIdx = session.allDrafts.findIndex((d) => d.draftId === session.activeDraftId);
+        const draftNum = draftIdx >= 0 ? draftIdx + 1 : 1;
+        return {
+          handled: true,
+          capabilityId: "family_memory_drafts",
+          reply: `已补充摘要到第 ${draftNum} 条草稿。回复"确认"即可生成待同步 note。`,
+        };
+      }
+
+      // Unrecognized — cancel session
+      sessions.delete(connId);
+      return { handled: false };
+    }
+
+    // --- Phase 1: Detect drafts intent ---
+    if (!isDraftsIntent(userMessage)) {
+      return { handled: false };
+    }
+
+    const drafts = await fetchPendingDrafts(config);
+    if (drafts === null) {
       return {
         handled: true,
         capabilityId: "family_memory_drafts",
-        reply: "已确认。已生成待同步 note，运行 npm run sync 后会进入正式时间线和 Remi 可查询记忆。",
+        reply: "家庭记忆服务暂不可用，无法查询待确认草稿。",
       };
     }
 
-    if (INTENT_REJECT.test(input)) {
-      if (!state.activeDraftId && drafts.length === 0) {
-        clearState(request.ctx);
-        return { handled: false };
-      }
-      if (!state.activeDraftId && drafts.length === 1) {
-        state.activeDraftId = drafts[0].draftId;
-      }
-      if (!state.activeDraftId && drafts.length > 1) {
-        return {
-          handled: true,
-          capabilityId: "family_memory_drafts",
-          reply: `有 ${drafts.length} 条待确认，请先选择编号再跳过。`,
-        };
-      }
-      const result = await postDraftAction(state.activeDraftId!, "reject");
-      if (!result.ok || result.data.ok === false) {
-        return {
-          handled: true,
-          capabilityId: "family_memory_drafts",
-          reply: `跳过失败：${result.ok ? result.data.message ?? result.data.error ?? "unknown" : result.error}`,
-        };
-      }
-      clearState(request.ctx);
+    if (drafts.length === 0) {
       return {
         handled: true,
         capabilityId: "family_memory_drafts",
-        reply: "已跳过这条待确认 draft。",
+        reply: "当前没有待确认的草稿。",
       };
     }
 
-    return { handled: false };
+    if (drafts.length === 1) {
+      const first = drafts[0];
+      const fileList = first.originalFilenames.join(", ");
+      const dateInfo = first.inferredDate || "未知日期";
+      const title = first.inferredTitle || fileList;
+      const hint = ocrHint(first);
+
+      sessions.set(connId, {
+        activeDraftId: first.draftId,
+        activeDraftTitle: title,
+        activeSummary: null,
+        allDrafts: drafts,
+        createdAt: Date.now(),
+      });
+
+      let reply = `有 1 条待确认草稿：\n  日期：${dateInfo}\n  文件：${fileList}`;
+      if (hint) reply += `\n\n${hint}`;
+      reply += `\n\n回复"确认"通过，"跳过"拒绝，或"补充摘要：<内容>"添加描述后确认。`;
+      return {
+        handled: true,
+        capabilityId: "family_memory_drafts",
+        reply,
+      };
+    }
+
+    // Multiple drafts — show numbered list with OCR status
+    sessions.set(connId, {
+      activeDraftId: null,
+      activeDraftTitle: null,
+      activeSummary: null,
+      allDrafts: drafts,
+      createdAt: Date.now(),
+    });
+
+    let reply = `有 ${drafts.length} 条待确认草稿：\n\n`;
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i];
+      const title = d.inferredTitle || d.originalFilenames.join(", ");
+      const fileCount = d.originalFilenames.length;
+      const ocr = ocrStatusLabel(d);
+      const summaryNeeded = needsSummary(d) ? " ⚠需补充摘要" : "";
+      reply += `  ${i + 1}. ${title}\n     文件数：${fileCount} | OCR：${ocr}${summaryNeeded}\n`;
+    }
+    reply += `\n请输入编号选择要操作的草稿（如"1"、"2"）。`;
+
+    logger.info("drafts listed (multi)", { connId, total: drafts.length });
+
+    return {
+      handled: true,
+      capabilityId: "family_memory_drafts",
+      reply,
+    };
   },
 };

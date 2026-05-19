@@ -1,176 +1,108 @@
 import type { DirectCapability } from "../brain/direct_capabilities";
 import { getConfig } from "../server/config";
+import { createLogger } from "../infra/logger";
 
-export type FamilyMemoryConfig = {
-  enabled: boolean;
-  serviceUrl: string;
-  token: string;
-};
+const logger = createLogger("family_memory");
 
-export type FamilyMemoryAskResponse = {
-  handled?: boolean;
-  question?: string;
-  answerable?: boolean;
-  answer?: string;
-  confidence?: string;
-  reason?: string;
-  sources?: unknown[];
-  serviceStatus?: string;
-};
+const FAMILY_MEMORY_RE =
+  /宝宝|胎动|孕检|产检|B超|胎心|孕期|预产|怀孕|孕周|胎儿|羊水|脐带|胎盘|分娩|待产|坐月子|母乳|辅食|疫苗|体检|发育|身高|体重|翻身|爬行|走路|说话|出牙|断奶|早教|睡眠训练|家庭|宝贝|小名|乳名|核心记忆|成长|里程碑|第一次/u;
 
-export type FamilyMemoryDraft = {
-  draftId: string;
-  inferredDate?: string | null;
-  inferredTitle?: string | null;
-  inferredType?: string | null;
-  originalFilenames?: string[];
-  ocrStatus?: string | null;
-};
+const NON_FAMILY_RE =
+  /天气|股票|新闻|比赛|电影|音乐|菜谱|导航|翻译|计算|编程|代码/u;
 
-export type PendingDraftsResponse = {
-  total?: number;
-  drafts?: FamilyMemoryDraft[];
-};
+const REPLY_SERVICE_UNAVAILABLE = "家庭记忆服务暂不可用，无法回答家庭相关问题，请稍后再试。";
+const REPLY_NO_EVIDENCE =
+  "我现在还没有确认过这条家庭记忆。你可以先让我查看待确认记忆，补充摘要并确认后，我再能把它作为正式记忆回答。";
 
-export function familyMemoryConfig(): FamilyMemoryConfig {
-  const config = getConfig();
-  return {
-    enabled: config.REMI_FAMILY_MEMORY_ENABLED,
-    serviceUrl: normalizeBaseUrl(config.REMI_FAMILY_MEMORY_SERVICE_URL),
-    token: config.REMI_FAMILY_MEMORY_AI_TOKEN.trim(),
-  };
-}
-
-function normalizeBaseUrl(value: string): string {
-  return value.replace(/\/+$/u, "");
-}
-
-export function familyMemoryHeaders(config = familyMemoryConfig()): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (config.token) {
-    headers.Authorization = `Bearer ${config.token}`;
-  }
-  return headers;
-}
-
-export async function familyMemoryFetchJson<T>(
-  path: string,
-  init?: RequestInit,
-  config = familyMemoryConfig(),
-): Promise<{ ok: true; data: T } | { ok: false; status?: number; error: string }> {
-  if (!config.enabled) {
-    return { ok: false, error: "disabled" };
-  }
-
-  try {
-    const res = await fetch(`${config.serviceUrl}${path}`, {
-      ...init,
-      headers: {
-        ...familyMemoryHeaders(config),
-        ...(init?.headers as Record<string, string> | undefined),
-      },
-    });
-    if (!res.ok) {
-      return { ok: false, status: res.status, error: `http_${res.status}` };
-    }
-    return { ok: true, data: await res.json() as T };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-}
-
-const FAMILY_MEMORY_QUESTION_RE =
-  /(家庭记忆|宝宝|孕检|产检|怀孕|孕期|预产期|胎动|胎心|B超|b超|唐筛|糖耐|NT|nt|四维|孕周|出生|身高|体重|发育|疫苗|辅食|里程碑|最近一次.*检查|上次.*检查)/u;
-
-export function isFamilyMemoryQuestion(message: string): boolean {
-  return FAMILY_MEMORY_QUESTION_RE.test(message.trim());
-}
-
-function renderNoEvidenceReply(): string {
-  return "家庭记忆里还没有相关记录，我不能编一个答案。";
-}
-
-function renderServiceUnavailableReply(): string {
-  return "家庭记忆服务暂不可用，我现在拿不到 family-memory 服务，所以不能假装查到了。";
-}
-
-function uniqueAdjacentFragments(fragments: string[]): string[] {
-  const unique: string[] = [];
-  for (const fragment of fragments) {
-    const normalized = fragment.trim().replace(/\s+/gu, " ");
-    if (!normalized) {
-      continue;
-    }
-    if (unique[unique.length - 1] !== normalized) {
-      unique.push(normalized);
-    }
-  }
-  return unique;
-}
-
-function deduplicateFamilyMemoryAnswer(answer: string): string {
-  const trimmed = answer.trim().replace(/\s+/gu, " ");
-  const memoryPrefix = trimmed.match(/^(根据家庭记忆记录（[^）]+）：)(.+)$/u);
-  if (!memoryPrefix) {
-    return trimmed;
-  }
-
-  const [, prefix, body] = memoryPrefix;
-  const fragments = uniqueAdjacentFragments(body.split(/[。！？!?]|\s+/u));
-  if (fragments.length === 0) {
-    return trimmed;
-  }
-
-  return `${prefix}${fragments.join("。")}。`;
-}
-
-export async function tryHandleFamilyMemoryQuestion(
-  userMessage: string,
-): Promise<{ handled: false } | { handled: true; reply: string }> {
-  const config = familyMemoryConfig();
-  if (!config.enabled || !isFamilyMemoryQuestion(userMessage)) {
-    return { handled: false };
-  }
-
-  const result = await familyMemoryFetchJson<FamilyMemoryAskResponse>(
-    "/api/ai/ask",
-    {
-      method: "POST",
-      body: JSON.stringify({ question: userMessage.trim() }),
-    },
-    config,
-  );
-
-  if (!result.ok) {
-    return { handled: true, reply: renderServiceUnavailableReply() };
-  }
-
-  const answer = typeof result.data.answer === "string" ? result.data.answer.trim() : "";
-  if (!result.data.answerable) {
-    return { handled: true, reply: answer || renderNoEvidenceReply() };
-  }
-
-  return { handled: true, reply: answer ? deduplicateFamilyMemoryAnswer(answer) : renderNoEvidenceReply() };
+function isFamilyMemoryQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length < 4) return false;
+  if (NON_FAMILY_RE.test(trimmed)) return false;
+  return FAMILY_MEMORY_RE.test(trimmed);
 }
 
 export const familyMemoryCapability: DirectCapability = {
   id: "family_memory",
   async tryHandle(request) {
+    const config = getConfig();
+
+    if (!config.REMI_FAMILY_MEMORY_ENABLED) {
+      return { handled: false };
+    }
+
     if (request.systemTriggered) {
       return { handled: false };
     }
 
-    const result = await tryHandleFamilyMemoryQuestion(request.userMessage);
-    if (!result.handled) {
+    if (!isFamilyMemoryQuestion(request.userMessage)) {
       return { handled: false };
+    }
+
+    // Past this point: question IS family-related and feature IS enabled.
+    // MUST return handled=true — never let family questions fall to main LLM.
+
+    const serviceUrl = config.REMI_FAMILY_MEMORY_SERVICE_URL;
+    const token = config.REMI_FAMILY_MEMORY_AI_TOKEN;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${serviceUrl}/api/ai/ask`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ question: request.userMessage, confirmedOnly: true }),
+        signal: request.signal ?? AbortSignal.timeout(8000),
+      });
+    } catch (err) {
+      logger.warn("family-memory service unreachable", {
+        connId: request.ctx.connId,
+        error: (err as Error).message,
+      });
+      return { handled: true, capabilityId: "family_memory", reply: REPLY_SERVICE_UNAVAILABLE };
+    }
+
+    if (!response.ok) {
+      logger.warn("family-memory service returned error", {
+        connId: request.ctx.connId,
+        status: response.status,
+      });
+      return { handled: true, capabilityId: "family_memory", reply: REPLY_SERVICE_UNAVAILABLE };
+    }
+
+    const result = (await response.json()) as {
+      handled?: boolean;
+      answerable?: boolean;
+      answer?: string;
+      confidence?: string;
+      reason?: string;
+      resultSource?: string;
+      sources?: { memoryId?: string; title?: string }[];
+    };
+
+    logger.info("family-memory result", {
+      connId: request.ctx.connId,
+      question: request.userMessage,
+      answerable: result.answerable,
+      confidence: result.confidence,
+      reason: result.reason,
+      resultSource: result.resultSource,
+      sources: result.sources?.length ?? 0,
+    });
+
+    if (!result.answerable || !result.answer) {
+      return { handled: true, capabilityId: "family_memory", reply: result.answer || REPLY_NO_EVIDENCE };
     }
 
     return {
       handled: true,
       capabilityId: "family_memory",
-      reply: result.reply,
+      reply: result.answer,
     };
   },
 };
