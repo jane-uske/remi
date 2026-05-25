@@ -6,6 +6,11 @@ const logger = createLogger("relationship-state");
 
 export const RELATIONSHIP_STATE_KEY = "__rem_relationship_state_v1";
 
+// --- Split storage keys (V2 format) ---
+export const RELATIONSHIP_CORE_KEY = "__rem_relationship_core_v2";
+export const RELATIONSHIP_TOPIC_STATE_KEY = "__rem_relationship_topic_state_v2";
+export const RELATIONSHIP_PROACTIVE_KEY = "__rem_relationship_proactive_v2";
+
 export type PersistentRelationshipSentiment = "positive" | "neutral" | "negative";
 
 export interface PersistentRelationshipTopicEntry {
@@ -590,5 +595,96 @@ export async function savePersistentRelationshipState(
   repo: MemoryRepository,
   state: PersistentRelationshipStateV1,
 ): Promise<void> {
-  await repo.upsert(RELATIONSHIP_STATE_KEY, JSON.stringify(state), 1);
+  // Write to split keys (V2) for partial-read support
+  const corePayload = JSON.stringify({
+    version: "v2",
+    updatedAt: state.updatedAt,
+    userProfile: state.userProfile,
+    lastEmotion: state.lastEmotion,
+    relationship: state.relationship,
+  });
+  const topicPayload = JSON.stringify({
+    version: "v2",
+    updatedAt: state.updatedAt,
+    topicHistory: state.topicHistory,
+    moodTrajectory: state.moodTrajectory,
+    conversationSummary: state.conversationSummary,
+    proactiveTopics: state.proactiveTopics,
+    sharedMoments: state.sharedMoments,
+    episodes: state.episodes,
+    topicThreads: state.topicThreads,
+    workingMemory: state.workingMemory,
+    repairState: state.repairState,
+  });
+  const proactivePayload = JSON.stringify({
+    version: "v2",
+    updatedAt: state.updatedAt,
+    proactiveLedger: state.proactiveLedger,
+    proactiveStrategyState: state.proactiveStrategyState,
+    continuityCueState: state.continuityCueState,
+  });
+
+  // Write split keys in parallel, plus legacy key for backward compat
+  await Promise.all([
+    repo.upsert(RELATIONSHIP_STATE_KEY, JSON.stringify(state), 1),
+    repo.upsert(RELATIONSHIP_CORE_KEY, corePayload, 1),
+    repo.upsert(RELATIONSHIP_TOPIC_STATE_KEY, topicPayload, 1),
+    repo.upsert(RELATIONSHIP_PROACTIVE_KEY, proactivePayload, 1),
+  ]);
+}
+
+// --- Partial loaders (V2 split reads) ---
+
+export async function loadRelationshipCore(
+  repo: MemoryRepository,
+): Promise<Pick<PersistentRelationshipStateV1, "userProfile" | "relationship" | "lastEmotion" | "updatedAt" | "version"> | null> {
+  try {
+    const entry = await repo.getByKey(RELATIONSHIP_CORE_KEY);
+    if (entry?.value) {
+      const parsed = JSON.parse(entry.value);
+      if (parsed.version === "v2") return { ...parsed, version: "v1" };
+    }
+    // Fallback: read from legacy blob
+    const full = await loadPersistentRelationshipState(repo);
+    if (!full) return null;
+    return { version: "v1", updatedAt: full.updatedAt, userProfile: full.userProfile, relationship: full.relationship, lastEmotion: full.lastEmotion };
+  } catch {
+    return null;
+  }
+}
+
+export async function loadRelationshipTopicState(
+  repo: MemoryRepository,
+): Promise<Pick<PersistentRelationshipStateV1, "topicHistory" | "moodTrajectory" | "conversationSummary" | "proactiveTopics" | "sharedMoments" | "episodes" | "topicThreads" | "workingMemory" | "repairState"> | null> {
+  try {
+    const entry = await repo.getByKey(RELATIONSHIP_TOPIC_STATE_KEY);
+    if (entry?.value) {
+      const parsed = JSON.parse(entry.value);
+      if (parsed.version === "v2") return parsed;
+    }
+    const full = await loadPersistentRelationshipState(repo);
+    if (!full) return null;
+    const { topicHistory, moodTrajectory, conversationSummary, proactiveTopics, sharedMoments, episodes, topicThreads, workingMemory, repairState } = full;
+    return { topicHistory, moodTrajectory, conversationSummary, proactiveTopics, sharedMoments, episodes, topicThreads, workingMemory, repairState };
+  } catch {
+    return null;
+  }
+}
+
+export async function loadRelationshipProactiveState(
+  repo: MemoryRepository,
+): Promise<Pick<PersistentRelationshipStateV1, "proactiveLedger" | "proactiveStrategyState" | "continuityCueState"> | null> {
+  try {
+    const entry = await repo.getByKey(RELATIONSHIP_PROACTIVE_KEY);
+    if (entry?.value) {
+      const parsed = JSON.parse(entry.value);
+      if (parsed.version === "v2") return parsed;
+    }
+    const full = await loadPersistentRelationshipState(repo);
+    if (!full) return null;
+    const { proactiveLedger, proactiveStrategyState, continuityCueState } = full;
+    return { proactiveLedger, proactiveStrategyState, continuityCueState };
+  } catch {
+    return null;
+  }
 }

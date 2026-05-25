@@ -103,6 +103,13 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "savings",
     "repayment",
     "compensation",
+    "mortgage",
+    "financial",
+    "income",
+    "invest",
+    "credit",
+    "payment",
+    "price",
     "房租",
     "账单",
     "工资",
@@ -120,6 +127,24 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "积蓄",
     "存款",
     "现金",
+    "房贷",
+    "车贷",
+    "分期",
+    "利息",
+    "转账",
+    "收入",
+    "开支",
+    "支出",
+    "理财",
+    "保险",
+    "公积金",
+    "社保",
+    "退税",
+    "奖金",
+    "提成",
+    "赚",
+    "亏",
+    "投资",
   ],
   work: [
     "work",
@@ -131,6 +156,12 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "meeting",
     "deadline",
     "career",
+    "promotion",
+    "resign",
+    "overtime",
+    "colleague",
+    "interview",
+    "review",
     "工作",
     "上班",
     "老板",
@@ -141,6 +172,24 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "绩效",
     "同事",
     "面试",
+    "辞职",
+    "跳槽",
+    "领导",
+    "团队",
+    "汇报",
+    "晋升",
+    "述职",
+    "周报",
+    "排期",
+    "需求",
+    "上线",
+    "发布",
+    "出差",
+    "培训",
+    "转正",
+    "试用期",
+    "KPI",
+    "OKR",
   ],
   pet: [
     "pet",
@@ -151,6 +200,8 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "pet care",
     "cat care",
     "dog care",
+    "veterinarian",
+    "vet",
     "宠物",
     "猫",
     "狗",
@@ -159,6 +210,25 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "喂",
     "看医生",
     "照顾",
+    "点点",
+    "猫粮",
+    "狗粮",
+    "铲屎",
+    "绝育",
+    "驱虫",
+    "宠物医院",
+    "猫砂",
+    "狗窝",
+    "遛狗",
+    "咬",
+    "毛",
+    "拉肚子",
+    "呕吐",
+    "疫苗",
+    "打针",
+    "发情",
+    "抓",
+    "挠",
   ],
   relationship_with_remi: [
     "remi",
@@ -185,8 +255,26 @@ const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
     "不想再回答",
     "不会安慰",
     "没接住",
+    "你在不在",
+    "你听到了吗",
+    "你在听吗",
+    "跟你说",
+    "告诉你",
+    "不理我",
+    "你不懂",
+    "你说什么",
+    "靠你",
+    "依赖你",
+    "习惯你",
   ],
 };
+
+export interface DomainClassification {
+  domain: EpisodeV3Domain;
+  confidence: "high" | "medium" | "low";
+  topScore: number;
+  secondScore: number;
+}
 
 const CONCERN_TERMS = [
   "担心",
@@ -285,7 +373,7 @@ function countMatches(text: string, terms: string[]): number {
   return score;
 }
 
-function pickBestDomain(text: string): EpisodeV3Domain {
+export function classifyDomain(text: string): DomainClassification {
   const scoredDomains = DOMAIN_PRIORITY.map((domain) => {
     if (domain === "other") {
       return { domain, score: 0 };
@@ -293,14 +381,36 @@ function pickBestDomain(text: string): EpisodeV3Domain {
     return { domain, score: countMatches(text, DOMAIN_KEYWORDS[domain]) };
   });
 
-  let best = scoredDomains[scoredDomains.length - 1];
-  for (const candidate of scoredDomains) {
-    if (candidate.score > best.score) {
-      best = candidate;
-    }
+  scoredDomains.sort((a, b) => b.score - a.score);
+  const topScore = scoredDomains[0].score;
+  const secondScore = scoredDomains[1].score;
+
+  if (topScore === 0) {
+    return { domain: "other", confidence: "low", topScore: 0, secondScore: 0 };
   }
 
-  return best.score > 0 ? best.domain : "other";
+  const margin = topScore - secondScore;
+  const ratio = topScore > 0 ? margin / topScore : 0;
+
+  let confidence: "high" | "medium" | "low";
+  if (topScore >= 4 && ratio >= 0.5) {
+    confidence = "high";
+  } else if (topScore >= 2 && ratio >= 0.3) {
+    confidence = "medium";
+  } else {
+    confidence = "low";
+  }
+
+  return {
+    domain: scoredDomains[0].domain,
+    confidence,
+    topScore,
+    secondScore,
+  };
+}
+
+function pickBestDomain(text: string): EpisodeV3Domain {
+  return classifyDomain(text).domain;
 }
 
 function mapPressureSource(domain: EpisodeV3Domain, text: string): EpisodeV3PressureSource {
@@ -587,4 +697,52 @@ export function momentToEpisodeV3View(
     recurrence_count: 1,
     origin_moment_summaries: [moment.summary],
   });
+}
+
+const DOMAIN_CLASSIFY_PROMPT = `你是一个文本分类器。根据用户的一段对话内容，判断它属于以下哪个领域：
+- money: 财务、金钱、收入、支出、债务、投资相关
+- work: 工作、职业、项目、同事、上班相关
+- pet: 宠物、猫狗照顾相关
+- relationship_with_remi: 与AI伴侣的关系、陪伴需求、情感连接
+- other: 以上都不匹配
+
+只回复领域名称，不要其他内容。`;
+
+export async function classifyDomainWithLlmFallback(
+  text: string,
+  llmComplete?: (messages: Array<{ role: string; content: string }>, maxTokens?: number) => Promise<string>,
+): Promise<DomainClassification> {
+  const keywordResult = classifyDomain(text);
+
+  if (keywordResult.confidence === "high") {
+    return keywordResult;
+  }
+
+  if (!llmComplete) {
+    return keywordResult;
+  }
+
+  try {
+    const response = await llmComplete(
+      [
+        { role: "system", content: DOMAIN_CLASSIFY_PROMPT },
+        { role: "user", content: text.slice(0, 300) },
+      ],
+      16,
+    );
+
+    const llmDomain = normalizeDomain(response.trim().toLowerCase());
+    if (llmDomain) {
+      return {
+        domain: llmDomain,
+        confidence: "high",
+        topScore: keywordResult.topScore,
+        secondScore: keywordResult.secondScore,
+      };
+    }
+  } catch {
+    // LLM failed — fall back to keyword result
+  }
+
+  return keywordResult;
 }

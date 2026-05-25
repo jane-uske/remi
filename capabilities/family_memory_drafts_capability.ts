@@ -57,6 +57,8 @@ export interface PendingDraft {
   ocrStatus?: "extracted" | "no_text" | "no_extractor" | "error" | "partial";
   ocrAttachmentCount?: number;
   ocrExtractedCount?: number;
+  extractedFacts?: string[];
+  extractionMetadata?: { model: string; extractedAt: string };
 }
 
 interface DraftSession {
@@ -113,6 +115,7 @@ function ocrStatusLabel(draft: PendingDraft): string {
 }
 
 function needsSummary(draft: PendingDraft): boolean {
+  if (draft.extractedFacts && draft.extractedFacts.length > 0) return false;
   return (
     draft.ocrStatus === "no_extractor" ||
     draft.ocrStatus === "no_text" ||
@@ -122,6 +125,10 @@ function needsSummary(draft: PendingDraft): boolean {
 }
 
 function ocrHint(draft: PendingDraft): string {
+  if (draft.extractedFacts && draft.extractedFacts.length > 0) {
+    const factPreview = draft.extractedFacts.slice(0, 3).join("、");
+    return `已通过 VLM 提取信息：${factPreview}。请确认是否准确。`;
+  }
   if (draft.ocrStatus === "no_extractor") {
     return "这些图片当前还不能自动识别内容，请补充摘要后确认。";
   }
@@ -419,8 +426,9 @@ export const familyMemoryDraftsCapability: DirectCapability = {
       const title = d.inferredTitle || d.originalFilenames.join(", ");
       const fileCount = d.originalFilenames.length;
       const ocr = ocrStatusLabel(d);
+      const enriched = d.extractedFacts && d.extractedFacts.length > 0 ? " ✓已识别" : "";
       const summaryNeeded = needsSummary(d) ? " ⚠需补充摘要" : "";
-      reply += `  ${i + 1}. ${title}\n     文件数：${fileCount} | OCR：${ocr}${summaryNeeded}\n`;
+      reply += `  ${i + 1}. ${title}\n     文件数：${fileCount} | OCR：${ocr}${enriched}${summaryNeeded}\n`;
     }
     reply += `\n请输入编号选择要操作的草稿（如"1"、"2"）。`;
 

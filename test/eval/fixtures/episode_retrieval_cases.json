@@ -1,0 +1,50 @@
+[
+  {
+    "id": "recall-pet-topic",
+    "query": "我家猫最近怎么样了",
+    "expectedEpisodeIds": ["ep-pet-health-001", "ep-pet-daily-002"],
+    "tags": ["pet", "recall"]
+  },
+  {
+    "id": "recall-work-stress",
+    "query": "上次聊的那个项目进展怎么样",
+    "expectedEpisodeIds": ["ep-work-project-003"],
+    "tags": ["work", "recall", "unresolved"]
+  },
+  {
+    "id": "recall-family-baby",
+    "query": "宝宝上次体检是什么时候",
+    "expectedEpisodeIds": ["ep-family-checkup-004"],
+    "tags": ["family", "recall"]
+  },
+  {
+    "id": "recall-emotion-support",
+    "query": "那天晚上我们聊到的那件事",
+    "expectedEpisodeIds": ["ep-emotion-night-005"],
+    "tags": ["emotion", "vague-recall"]
+  },
+  {
+    "id": "no-match-weather",
+    "query": "今天天气怎么样",
+    "expectedEpisodeIds": [],
+    "tags": ["negative", "no-episode"]
+  },
+  {
+    "id": "recall-hobby",
+    "query": "我之前说想学的那个东西",
+    "expectedEpisodeIds": ["ep-hobby-learning-006"],
+    "tags": ["hobby", "recall", "vague"]
+  },
+  {
+    "id": "recent-unresolved",
+    "query": "那件事你帮我想了吗",
+    "expectedEpisodeIds": ["ep-pending-decision-007"],
+    "tags": ["unresolved", "recent"]
+  },
+  {
+    "id": "multi-topic-overlap",
+    "query": "我妈那边怎么说的",
+    "expectedEpisodeIds": ["ep-family-mom-008", "ep-relationship-009"],
+    "tags": ["family", "multi-match"]
+  }
+]
