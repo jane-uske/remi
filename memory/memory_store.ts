@@ -1,6 +1,7 @@
 import {
   MemoryEntry,
   MemoryRepository,
+  UpsertOptions,
 } from "./memory_repository";
 import { createLogger } from "../infra/logger";
 
@@ -18,7 +19,7 @@ export class InMemoryRepository implements MemoryRepository {
     return this.entries.map(({ key, value }) => ({ key, value }));
   }
 
-  async upsert(key: string, value: string, importance?: number): Promise<void> {
+  async upsert(key: string, value: string, importance?: number, options?: UpsertOptions): Promise<void> {
     const now = Date.now();
     const existing = this.entries.find((e) => e.key === key);
     if (existing) {
@@ -27,6 +28,8 @@ export class InMemoryRepository implements MemoryRepository {
       if (importance !== undefined) {
         existing.importance = importance;
       }
+      if (options?.attributedTo) existing.attributedTo = options.attributedTo;
+      if (options?.validAt) existing.validAt = options.validAt;
     } else {
       this.entries.push({
         key,
@@ -35,6 +38,8 @@ export class InMemoryRepository implements MemoryRepository {
         accessCount: 0,
         createdAt: now,
         lastAccessedAt: now,
+        attributedTo: options?.attributedTo,
+        validAt: options?.validAt,
       });
     }
   }

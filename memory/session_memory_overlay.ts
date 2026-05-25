@@ -1,7 +1,7 @@
 import { createLogger } from "../infra/logger";
 import { getConfig } from "../server/config";
 import { isSystemMemoryKey } from "./relationship_state";
-import type { MemoryEntry, MemoryRepository } from "./memory_repository";
+import type { MemoryEntry, MemoryRepository, UpsertOptions } from "./memory_repository";
 import { InMemoryRepository } from "./memory_store";
 
 const logger = createLogger("session-memory-overlay");
@@ -77,9 +77,9 @@ export class SessionMemoryOverlayRepository implements MemoryRepository {
     });
   }
 
-  async upsert(key: string, value: string, importance?: number): Promise<void> {
-    await this.local.upsert(key, value, importance);
-    this.mirrorPersistent("写回", (repo) => repo.upsert(key, value, importance));
+  async upsert(key: string, value: string, importance?: number, options?: UpsertOptions): Promise<void> {
+    await this.local.upsert(key, value, importance, options);
+    this.mirrorPersistent("写回", (repo) => repo.upsert(key, value, importance, options));
   }
 
   async getAll(): Promise<MemoryEntry[]> {

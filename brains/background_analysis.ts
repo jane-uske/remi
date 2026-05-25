@@ -12,7 +12,7 @@ import {
   classifyEmbeddingError,
   getEmbeddingHealthSnapshot,
 } from "../llm/embedding_client";
-import type { MemoryRepository } from "../memory/memory_repository";
+import type { MemoryRepository, UpsertOptions } from "../memory/memory_repository";
 import {
   relationshipStateEnabled,
   savePersistentRelationshipState,
@@ -193,7 +193,7 @@ function guessSentiment(
 // ── Phase 2: LLM deep analysis ──
 
 interface LLMAnalysis {
-  user_facts?: { key: string; value: string; confidence?: number }[];
+  user_facts?: { key: string; value: string; confidence?: number; source?: "user" | "assistant" }[];
   interests?: string[];
   personality_note?: string;
   emotional_undertone?: string;
@@ -207,7 +207,7 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
 
 严格返回合法 JSON（不要 markdown 代码块），格式如下：
 {
-  "user_facts": [{"key": "...", "value": "...", "confidence": 0.9}],
+  "user_facts": [{"key": "...", "value": "...", "confidence": 0.9, "source": "user"}],
   "interests": ["..."],
   "personality_note": "对用户性格的一句话观察，没有明显观察则为空字符串",
   "emotional_undertone": "用户在这段对话中的深层情绪（一两个词）",
@@ -219,6 +219,7 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
 注意：
 - user_facts 只提取用户明确提到的事实（姓名、年龄、职业、住所等），不要猜测
 - user_facts confidence 表示事实可靠程度（0.0–1.0），用户直接说"我叫X"给0.9+，推测性的给0.5以下
+- user_facts source 标注事实来源："user" 表示用户直接陈述，"assistant" 表示助手推断
 - interests 只提取用户表现出兴趣的事物
 - conversation_summary 要覆盖整段对话，不只是最后一轮
 - proactive_topics 是未来可以自然聊到的话题，基于用户兴趣`;
@@ -237,12 +238,13 @@ async function llmAnalysis(
     .join("\n");
 
   const currentTurn = `用户：${userMessage}\nRem：${assistantReply}`;
+  const observationDate = new Date().toISOString().slice(0, 10);
 
   const messages: ChatMessage[] = [
     { role: "system", content: ANALYSIS_PROMPT },
     {
       role: "user",
-      content: `对话历史：\n${historyText}\n\n最新一轮：\n${currentTurn}`,
+      content: `观察日期：${observationDate}\n\n对话历史：\n${historyText}\n\n最新一轮：\n${currentTurn}`,
     },
   ];
 
@@ -251,11 +253,15 @@ async function llmAnalysis(
   if (!analysis) return;
 
   if (analysis.user_facts) {
-    for (const { key, value, confidence } of analysis.user_facts) {
+    for (const { key, value, confidence, source } of analysis.user_facts) {
       if (!key || !value) continue;
       const k = key.trim();
       const v = value.trim();
       store.addFact(k, v);
+      const upsertOpts: UpsertOptions = {
+        attributedTo: source === "assistant" ? "assistant" : "user",
+        validAt: Date.now(),
+      };
       try {
         await memoryRepo.upsert(
           normalizeMemoryKey(k),
@@ -263,6 +269,7 @@ async function llmAnalysis(
           typeof confidence === "number" && confidence >= 0 && confidence <= 1
             ? confidence
             : 0.55,
+          upsertOpts,
         );
       } catch (err) {
         logger.warn("记忆同步失败", { key: k, error: (err as Error).message });

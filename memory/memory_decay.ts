@@ -24,6 +24,8 @@ function mergeDecayConfig(partial?: Partial<DecayConfig>): DecayConfig {
 }
 
 export function decayScore(entry: MemoryEntry): number {
+  if (entry.invalidAt != null) return 0;
+
   const now = Date.now();
   const daysSinceAccess = (now - entry.lastAccessedAt) / MS_PER_DAY;
   const recencyFactor = 1 / (1 + daysSinceAccess * 0.1);
@@ -32,6 +34,30 @@ export function decayScore(entry: MemoryEntry): number {
     (1 + Math.log(1 + entry.accessCount)) *
     recencyFactor
   );
+}
+
+/**
+ * Mark an existing fact as superseded by a newer one (Graphiti pattern).
+ * The old entry is NOT deleted — it remains queryable for historical context.
+ */
+export async function supersede(
+  repo: MemoryRepository,
+  oldKey: string,
+  newKey: string,
+): Promise<boolean> {
+  const old = await repo.getByKey(oldKey);
+  if (!old || old.invalidAt != null) return false;
+
+  const now = Date.now();
+  const updated: MemoryEntry = {
+    ...old,
+    invalidAt: now,
+    expiredAt: now,
+    supersededBy: newKey,
+  };
+  await repo.upsert(updated.key, updated.value, updated.importance);
+  logger.info("记忆被取代", { oldKey, newKey });
+  return true;
 }
 
 export async function runDecay(

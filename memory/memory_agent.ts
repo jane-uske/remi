@@ -18,6 +18,7 @@ import {
   isLightAcknowledgementTurn,
   isExplicitMemoryRecallRequest,
   sanitizeMemoryEvidenceText,
+  filterSuperseded,
 } from "./prompt_memory_support";
 
 const logger = createLogger("memory_agent");
@@ -191,8 +192,9 @@ export async function retrievePromptMemory(
   };
 
   // Layer 0: core KV facts (名字, 城市, etc.)
-  const allEntries = await repo.getAll();
-  const coreFacts = (allEntries || [])
+  const allEntriesRaw = await repo.getAll();
+  const allEntries = filterSuperseded(allEntriesRaw);
+  const coreFacts = allEntries
     .filter(({ key }) => CORE_FACT_KEYS.has(key) && !isSystemMemoryKey(key))
     .slice(0, Math.min(MAX_CORE_FACTS, maxEntries));
   for (const entry of coreFacts) {
@@ -283,7 +285,7 @@ export async function retrievePromptMemory(
  */
 export async function retrieveMemory(repo: MemoryRepository): Promise<Memory[]> {
   const entries = await repo.getAll();
-  return entries
+  return filterSuperseded(entries)
     .filter(({ key }) => !isSystemMemoryKey(key))
     .map(({ key, value }) => ({ key, value }));
 }

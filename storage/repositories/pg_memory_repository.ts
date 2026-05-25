@@ -1,4 +1,4 @@
-import type { MemoryEntry, MemoryRepository } from "../../memory/memory_repository";
+import type { MemoryEntry, MemoryRepository, UpsertOptions } from "../../memory/memory_repository";
 import {
   upsertMemory,
   getUserMemories,
@@ -24,7 +24,7 @@ export class PgMemoryRepository implements MemoryRepository {
     return this._userId;
   }
 
-  async upsert(key: string, value: string, _importance?: number): Promise<void> {
+  async upsert(key: string, value: string, _importance?: number, _options?: UpsertOptions): Promise<void> {
     try {
       const row = await upsertMemory(this._userId, key, value);
       logger.debug("[Memory] upserted", { key, value: value.slice(0, 50) });

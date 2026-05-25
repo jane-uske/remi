@@ -21,7 +21,11 @@ export {
   isExplicitMemoryRecallRequest,
   isVolatileMemoryKey,
   hasDirectTextOverlap,
+  hybridScore,
+  filterSuperseded,
 } from "./recall_filters";
+
+export type { HybridScoreInput } from "./recall_filters";
 
 export type {
   SnapshotThreadCandidate,

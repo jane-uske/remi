@@ -2,6 +2,72 @@ import { EventEmitter } from "events";
 
 export type PipelineState = "idle" | "generating" | "speaking";
 
+// ---------------------------------------------------------------------------
+// Proactive speech scheduler (Open-LLM-VTuber pattern)
+// Fires after idle timeout — treated as a normal conversation turn with
+// empty user input. The persona prompt covers what to say unprompted.
+// ---------------------------------------------------------------------------
+
+export interface ProactiveSpeechConfig {
+  idleThresholdMs: number;
+  cooldownMs: number;
+  enabled: boolean;
+}
+
+const DEFAULT_PROACTIVE: ProactiveSpeechConfig = {
+  idleThresholdMs: 90_000,
+  cooldownMs: 180_000,
+  enabled: false,
+};
+
+export class ProactiveSpeechScheduler extends EventEmitter {
+  private timer: NodeJS.Timeout | null = null;
+  private lastFiredAt = 0;
+  private config: ProactiveSpeechConfig;
+
+  constructor(config?: Partial<ProactiveSpeechConfig>) {
+    super();
+    this.config = { ...DEFAULT_PROACTIVE, ...config };
+    if (this.config.enabled) this.resetTimer();
+  }
+
+  onUserActivity(): void {
+    this.resetTimer();
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.config.enabled = enabled;
+    if (enabled) this.resetTimer();
+    else this.clearTimer();
+  }
+
+  private resetTimer(): void {
+    this.clearTimer();
+    if (!this.config.enabled) return;
+    this.timer = setTimeout(() => this.fire(), this.config.idleThresholdMs);
+  }
+
+  private clearTimer(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  }
+
+  private fire(): void {
+    const now = Date.now();
+    if (now - this.lastFiredAt < this.config.cooldownMs) {
+      this.resetTimer();
+      return;
+    }
+    this.lastFiredAt = now;
+    this.emit("proactive-speech", { userInput: null });
+    this.resetTimer();
+  }
+
+  dispose(): void {
+    this.clearTimer();
+    this.removeAllListeners();
+  }
+}
+
 /**
  * Coordinates interruption of the LLM→TTS pipeline.
  *

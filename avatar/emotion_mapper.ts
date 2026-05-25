@@ -1,5 +1,42 @@
 import type { AvatarFrame, Emotion, FaceParams } from "./types";
 
+// ---------------------------------------------------------------------------
+// LLM output parser: inline [emotion] tags + (thought) routing
+// (Open-LLM-VTuber pattern)
+// ---------------------------------------------------------------------------
+
+export interface ParsedLLMChunk {
+  speech: string;
+  emotions: Emotion[];
+  thoughts: string[];
+}
+
+const EMOTION_TAG_RE = /\[(\w+)\]/g;
+const THOUGHT_RE = /\(([^)]+)\)/g;
+
+const VALID_EMOTIONS = new Set<string>([
+  "neutral", "happy", "curious", "shy", "sad", "concerned", "playful", "thoughtful",
+]);
+
+export function parseLLMEmotionTags(chunk: string): ParsedLLMChunk {
+  const emotions: Emotion[] = [];
+  const thoughts: string[] = [];
+
+  for (const m of chunk.matchAll(EMOTION_TAG_RE)) {
+    if (VALID_EMOTIONS.has(m[1])) emotions.push(m[1] as Emotion);
+  }
+  for (const m of chunk.matchAll(THOUGHT_RE)) {
+    thoughts.push(m[1]);
+  }
+
+  const speech = chunk
+    .replace(EMOTION_TAG_RE, "")
+    .replace(THOUGHT_RE, "")
+    .trim();
+
+  return { speech, emotions, thoughts };
+}
+
 const FACE_KEYS: (keyof FaceParams)[] = [
   "eyeOpenL",
   "eyeOpenR",

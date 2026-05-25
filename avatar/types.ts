@@ -128,11 +128,14 @@ export type InterruptionType =
   | "emotional_interrupt"
   | "unknown";
 
+export type ExpressionBlendMode = "overwrite" | "add" | "multiply";
+
 export interface AvatarFrame {
   face?: Partial<FaceParams>;
   lipSync?: LipSyncFrame;
   action?: ActionCommand;
   emotion?: Emotion;
+  blendMode?: ExpressionBlendMode;
 }
 
 export type AvatarPhase = "idle" | "speaking";
