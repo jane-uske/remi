@@ -84,16 +84,11 @@ services:
 volumes:
   rem_pgdata:
     name: ${REMI_DEV_PG_VOLUME:-remi-ai_rem_pgdata}
-    external: true
   rem_redisdata:
     name: ${REMI_DEV_REDIS_VOLUME:-remi-ai_rem_redisdata}
-    external: true
   rem_root_node_modules:
     name: ${REMI_DEV_ROOT_NODE_MODULES_VOLUME:-remi-ai_rem_root_node_modules}
-    external: true
   rem_web_node_modules:
     name: ${REMI_DEV_WEB_NODE_MODULES_VOLUME:-remi-ai_rem_web_node_modules}
-    external: true
   rem_code_server_config:
     name: ${REMI_DEV_CODE_SERVER_CONFIG_VOLUME:-remi-ai_rem_code_server_config}
-    external: true

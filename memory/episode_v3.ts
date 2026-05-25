@@ -1,12 +1,7 @@
 import type { MomentInput } from "./episode_store";
 import type { DbEpisode } from "../storage/repositories/episode_repository";
 
-export type EpisodeV3Domain =
-  | "money"
-  | "work"
-  | "pet"
-  | "relationship_with_remi"
-  | "other";
+export type EpisodeV3Domain = string;
 
 export type EpisodeV3PressureSource =
   | "financial"
@@ -29,6 +24,90 @@ export type EpisodeV3UserStance =
 export type EpisodeV3Status = "active" | "cooling" | "resolved" | "archived";
 
 export type EpisodeV3Layer = "warm";
+
+// ── Domain Registry ──────────────────────────────────────────────────────
+// To add a new domain: add one entry to DOMAIN_REGISTRY. That's it.
+
+export interface DomainDefinition {
+  name: string;
+  priority: number;
+  keywords: string[];
+  pressureSource: EpisodeV3PressureSource;
+  relationalImpact: EpisodeV3RelationalImpact;
+  stanceBias?: EpisodeV3UserStance;
+}
+
+const DOMAIN_REGISTRY: DomainDefinition[] = [
+  {
+    name: "relationship_with_remi",
+    priority: 1,
+    pressureSource: "relational",
+    relationalImpact: "high",
+    stanceBias: "seeking_support",
+    keywords: [
+      "remi", "想和你", "只想你", "陪我", "陪伴", "想你", "找你", "抱抱",
+      "别走", "在吗", "陪我说", "你陪我", "和你待", "和你多待", "我想你",
+      "安慰", "没懂", "你懂", "接住", "理解我", "不想回答你", "不想再回答",
+      "不会安慰", "没接住", "你在不在", "你听到了吗", "你在听吗", "跟你说",
+      "告诉你", "不理我", "你不懂", "你说什么", "靠你", "依赖你", "习惯你",
+    ],
+  },
+  {
+    name: "money",
+    priority: 2,
+    pressureSource: "financial",
+    relationalImpact: "medium",
+    keywords: [
+      "money", "budget", "bill", "rent", "salary", "paycheck", "debt", "loan",
+      "expense", "cash", "savings", "repayment", "compensation", "mortgage",
+      "financial", "income", "invest", "credit", "payment", "price",
+      "房租", "账单", "工资", "薪水", "钱", "费用", "信用卡", "花销", "预算",
+      "花呗", "欠", "债", "还款", "赔偿", "积蓄", "存款", "现金", "房贷",
+      "车贷", "分期", "利息", "转账", "收入", "开支", "支出", "理财", "保险",
+      "公积金", "社保", "退税", "奖金", "提成", "赚", "亏", "投资",
+    ],
+  },
+  {
+    name: "work",
+    priority: 3,
+    pressureSource: "workload",
+    relationalImpact: "medium",
+    stanceBias: "committed",
+    keywords: [
+      "work", "job", "project", "office", "boss", "team", "meeting", "deadline",
+      "career", "promotion", "resign", "overtime", "colleague", "interview", "review",
+      "工作", "上班", "老板", "项目", "会议", "开会", "加班", "绩效", "同事",
+      "面试", "辞职", "跳槽", "领导", "团队", "汇报", "晋升", "述职", "周报",
+      "排期", "需求", "上线", "发布", "出差", "培训", "转正", "试用期", "KPI", "OKR",
+    ],
+  },
+  {
+    name: "pet",
+    priority: 4,
+    pressureSource: "caretaking",
+    relationalImpact: "low",
+    stanceBias: "protective",
+    keywords: [
+      "pet", "cat", "dog", "kitten", "puppy", "pet care", "cat care", "dog care",
+      "veterinarian", "vet",
+      "宠物", "猫", "狗", "小猫", "小狗", "喂", "看医生", "照顾", "点点",
+      "猫粮", "狗粮", "铲屎", "绝育", "驱虫", "宠物医院", "猫砂", "狗窝",
+      "遛狗", "咬", "毛", "拉肚子", "呕吐", "疫苗", "打针", "发情", "抓", "挠",
+    ],
+  },
+];
+
+export function getDomainRegistry(): readonly DomainDefinition[] {
+  return DOMAIN_REGISTRY;
+}
+
+export function getRegisteredDomainNames(): string[] {
+  return [...DOMAIN_REGISTRY.map((d) => d.name), "other"];
+}
+
+function getDomainDef(name: string): DomainDefinition | undefined {
+  return DOMAIN_REGISTRY.find((d) => d.name === name);
+}
 
 export interface EpisodeV3View {
   id: string;
@@ -79,195 +158,6 @@ type PersistedEpisodeV3Source = Partial<
     | "v3_last_user_position"
   >
 >;
-
-const DOMAIN_PRIORITY: EpisodeV3Domain[] = [
-  "relationship_with_remi",
-  "money",
-  "work",
-  "pet",
-  "other",
-];
-
-const DOMAIN_KEYWORDS: Record<Exclude<EpisodeV3Domain, "other">, string[]> = {
-  money: [
-    "money",
-    "budget",
-    "bill",
-    "rent",
-    "salary",
-    "paycheck",
-    "debt",
-    "loan",
-    "expense",
-    "cash",
-    "savings",
-    "repayment",
-    "compensation",
-    "mortgage",
-    "financial",
-    "income",
-    "invest",
-    "credit",
-    "payment",
-    "price",
-    "房租",
-    "账单",
-    "工资",
-    "薪水",
-    "钱",
-    "费用",
-    "信用卡",
-    "花销",
-    "预算",
-    "花呗",
-    "欠",
-    "债",
-    "还款",
-    "赔偿",
-    "积蓄",
-    "存款",
-    "现金",
-    "房贷",
-    "车贷",
-    "分期",
-    "利息",
-    "转账",
-    "收入",
-    "开支",
-    "支出",
-    "理财",
-    "保险",
-    "公积金",
-    "社保",
-    "退税",
-    "奖金",
-    "提成",
-    "赚",
-    "亏",
-    "投资",
-  ],
-  work: [
-    "work",
-    "job",
-    "project",
-    "office",
-    "boss",
-    "team",
-    "meeting",
-    "deadline",
-    "career",
-    "promotion",
-    "resign",
-    "overtime",
-    "colleague",
-    "interview",
-    "review",
-    "工作",
-    "上班",
-    "老板",
-    "项目",
-    "会议",
-    "开会",
-    "加班",
-    "绩效",
-    "同事",
-    "面试",
-    "辞职",
-    "跳槽",
-    "领导",
-    "团队",
-    "汇报",
-    "晋升",
-    "述职",
-    "周报",
-    "排期",
-    "需求",
-    "上线",
-    "发布",
-    "出差",
-    "培训",
-    "转正",
-    "试用期",
-    "KPI",
-    "OKR",
-  ],
-  pet: [
-    "pet",
-    "cat",
-    "dog",
-    "kitten",
-    "puppy",
-    "pet care",
-    "cat care",
-    "dog care",
-    "veterinarian",
-    "vet",
-    "宠物",
-    "猫",
-    "狗",
-    "小猫",
-    "小狗",
-    "喂",
-    "看医生",
-    "照顾",
-    "点点",
-    "猫粮",
-    "狗粮",
-    "铲屎",
-    "绝育",
-    "驱虫",
-    "宠物医院",
-    "猫砂",
-    "狗窝",
-    "遛狗",
-    "咬",
-    "毛",
-    "拉肚子",
-    "呕吐",
-    "疫苗",
-    "打针",
-    "发情",
-    "抓",
-    "挠",
-  ],
-  relationship_with_remi: [
-    "remi",
-    "想和你",
-    "只想你",
-    "陪我",
-    "陪伴",
-    "想你",
-    "找你",
-    "抱抱",
-    "别走",
-    "在吗",
-    "陪我说",
-    "你陪我",
-    "和你待",
-    "和你多待",
-    "我想你",
-    "安慰",
-    "没懂",
-    "你懂",
-    "接住",
-    "理解我",
-    "不想回答你",
-    "不想再回答",
-    "不会安慰",
-    "没接住",
-    "你在不在",
-    "你听到了吗",
-    "你在听吗",
-    "跟你说",
-    "告诉你",
-    "不理我",
-    "你不懂",
-    "你说什么",
-    "靠你",
-    "依赖你",
-    "习惯你",
-  ],
-};
 
 export interface DomainClassification {
   domain: EpisodeV3Domain;
@@ -374,16 +264,12 @@ function countMatches(text: string, terms: string[]): number {
 }
 
 export function classifyDomain(text: string): DomainClassification {
-  const scoredDomains = DOMAIN_PRIORITY.map((domain) => {
-    if (domain === "other") {
-      return { domain, score: 0 };
-    }
-    return { domain, score: countMatches(text, DOMAIN_KEYWORDS[domain]) };
-  });
+  const scoredDomains = DOMAIN_REGISTRY
+    .map((def) => ({ domain: def.name, score: countMatches(text, def.keywords) }))
+    .sort((a, b) => b.score - a.score);
 
-  scoredDomains.sort((a, b) => b.score - a.score);
-  const topScore = scoredDomains[0].score;
-  const secondScore = scoredDomains[1].score;
+  const topScore = scoredDomains[0]?.score ?? 0;
+  const secondScore = scoredDomains[1]?.score ?? 0;
 
   if (topScore === 0) {
     return { domain: "other", confidence: "low", topScore: 0, secondScore: 0 };
@@ -414,30 +300,18 @@ function pickBestDomain(text: string): EpisodeV3Domain {
 }
 
 function mapPressureSource(domain: EpisodeV3Domain, text: string): EpisodeV3PressureSource {
-  if (domain === "money") return "financial";
-  if (domain === "work") return "workload";
-  if (domain === "pet") return "caretaking";
-  if (domain === "relationship_with_remi") return "relational";
+  const def = getDomainDef(domain);
+  if (def) return def.pressureSource;
 
-  const financial = countMatches(text, DOMAIN_KEYWORDS.money);
-  const workload = countMatches(text, DOMAIN_KEYWORDS.work);
-  const caretaking = countMatches(text, DOMAIN_KEYWORDS.pet);
-  const relational = countMatches(text, DOMAIN_KEYWORDS.relationship_with_remi);
-  const scores: Array<[EpisodeV3PressureSource, number]> = [
-    ["financial", financial],
-    ["workload", workload],
-    ["caretaking", caretaking],
-    ["relational", relational],
-  ];
+  const scores: Array<[EpisodeV3PressureSource, number]> = DOMAIN_REGISTRY
+    .map((d) => [d.pressureSource, countMatches(text, d.keywords)] as [EpisodeV3PressureSource, number]);
   const best = scores.reduce((left, right) => (right[1] > left[1] ? right : left), ["unknown", 0] as const);
   return best[1] > 0 ? best[0] : "unknown";
 }
 
 function mapRelationalImpact(domain: EpisodeV3Domain): EpisodeV3RelationalImpact {
-  if (domain === "relationship_with_remi") return "high";
-  if (domain === "money" || domain === "work") return "medium";
-  if (domain === "pet") return "low";
-  return "low";
+  const def = getDomainDef(domain);
+  return def?.relationalImpact ?? "low";
 }
 
 function mapUserStance(text: string, domain: EpisodeV3Domain): EpisodeV3UserStance {
@@ -445,9 +319,11 @@ function mapUserStance(text: string, domain: EpisodeV3Domain): EpisodeV3UserStan
   const concernScore = countMatches(text, CONCERN_TERMS);
   const commitmentScore = countMatches(text, COMMITMENT_TERMS);
   const avoidanceScore = countMatches(text, AVOIDANCE_TERMS);
-  const protectiveScore = domain === "pet" ? countMatches(text, PROTECTIVE_TERMS) + 1 : countMatches(text, PROTECTIVE_TERMS);
+  const protectiveScore = countMatches(text, PROTECTIVE_TERMS);
 
-  if (supportScore > 0 && domain === "relationship_with_remi") {
+  const def = getDomainDef(domain);
+
+  if (def?.stanceBias === "seeking_support" && supportScore > 0) {
     return "seeking_support";
   }
 
@@ -455,14 +331,16 @@ function mapUserStance(text: string, domain: EpisodeV3Domain): EpisodeV3UserStan
     return "avoidant";
   }
 
-  if (domain === "work" && commitmentScore > 0) {
+  if (def?.stanceBias === "committed" && commitmentScore > 0) {
     return "committed";
   }
 
-  if (domain === "money" || domain === "pet") {
-    if (concernScore > 0) return "concerned";
-    if (protectiveScore > 0) return "protective";
-    if (commitmentScore > 0) return "committed";
+  if (def?.stanceBias === "protective" && protectiveScore > 0) {
+    return "protective";
+  }
+
+  if (concernScore > 0 && (def?.pressureSource === "financial" || def?.pressureSource === "caretaking")) {
+    return "concerned";
   }
 
   if (supportScore > 0) {
@@ -492,13 +370,9 @@ function normalizeStatus(status: string | null | undefined): EpisodeV3Status {
 }
 
 function normalizeDomain(domain: string | null | undefined): EpisodeV3Domain | null {
-  return domain === "money" ||
-    domain === "work" ||
-    domain === "pet" ||
-    domain === "relationship_with_remi" ||
-    domain === "other"
-    ? domain
-    : null;
+  if (!domain) return null;
+  const registered = getRegisteredDomainNames();
+  return registered.includes(domain) ? domain : null;
 }
 
 function normalizePressureSource(
@@ -699,14 +573,20 @@ export function momentToEpisodeV3View(
   });
 }
 
-const DOMAIN_CLASSIFY_PROMPT = `你是一个文本分类器。根据用户的一段对话内容，判断它属于以下哪个领域：
-- money: 财务、金钱、收入、支出、债务、投资相关
-- work: 工作、职业、项目、同事、上班相关
-- pet: 宠物、猫狗照顾相关
-- relationship_with_remi: 与AI伴侣的关系、陪伴需求、情感连接
-- other: 以上都不匹配
+const DOMAIN_DESCRIPTIONS: Record<string, string> = {
+  money: "财务、金钱、收入、支出、债务、投资相关",
+  work: "工作、职业、项目、同事、上班相关",
+  pet: "宠物、猫狗照顾相关",
+  relationship_with_remi: "与AI伴侣的关系、陪伴需求、情感连接",
+  other: "以上都不匹配",
+};
 
-只回复领域名称，不要其他内容。`;
+function buildDomainClassifyPrompt(): string {
+  const domainList = getRegisteredDomainNames()
+    .map((name) => `- ${name}: ${DOMAIN_DESCRIPTIONS[name] ?? name}`)
+    .join("\n");
+  return `你是一个文本分类器。根据用户的一段对话内容，判断它属于以下哪个领域：\n${domainList}\n\n只回复领域名称，不要其他内容。`;
+}
 
 export async function classifyDomainWithLlmFallback(
   text: string,
@@ -725,7 +605,7 @@ export async function classifyDomainWithLlmFallback(
   try {
     const response = await llmComplete(
       [
-        { role: "system", content: DOMAIN_CLASSIFY_PROMPT },
+        { role: "system", content: buildDomainClassifyPrompt() },
         { role: "user", content: text.slice(0, 300) },
       ],
       16,

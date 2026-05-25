@@ -4,49 +4,118 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
+echo "=== Remi Dev Bootstrap ==="
+echo
+
+# ── Prerequisites ──────────────────────────────────────────────────────────
+
+MISSING=""
+
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker is required but was not found in PATH."
-  exit 1
+  MISSING="$MISSING docker"
 fi
 
 if ! docker compose version >/dev/null 2>&1; then
-  echo "docker compose plugin is required but not available."
-  exit 1
+  MISSING="$MISSING docker-compose-plugin"
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "node is recommended for native app development but was not found in PATH."
+  MISSING="$MISSING node"
 fi
 
 if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is recommended for native app development but was not found in PATH."
+  MISSING="$MISSING npm"
 fi
+
+if [ -n "$MISSING" ]; then
+  echo "[ERROR] Missing prerequisites:$MISSING"
+  echo "Install them and re-run this script."
+  exit 1
+fi
+
+echo "[OK] Prerequisites: docker, docker-compose, node, npm"
+
+# ── Ollama Check ───────────────────────────────────────────────────────────
+
+OLLAMA_OK=0
+if command -v ollama >/dev/null 2>&1; then
+  OLLAMA_OK=1
+  echo "[OK] Ollama installed"
+elif curl -sf http://127.0.0.1:11434/v1/models >/dev/null 2>&1; then
+  OLLAMA_OK=1
+  echo "[OK] Ollama API reachable at 127.0.0.1:11434"
+else
+  echo "[WARN] Ollama not found. Local LLM requires Ollama (or compatible API)."
+  echo "       Install: curl -fsSL https://ollama.com/install.sh | sh"
+  echo "       Docs:    docs/LOCAL_LLM_SETUP.md"
+fi
+
+# ── Model Check ────────────────────────────────────────────────────────────
+
+if [ "$OLLAMA_OK" = "1" ] && command -v ollama >/dev/null 2>&1; then
+  MODELS_NEEDED=""
+  if ! ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
+    MODELS_NEEDED="$MODELS_NEEDED nomic-embed-text"
+  fi
+  if ! ollama list 2>/dev/null | grep -q "qwen3:4b"; then
+    MODELS_NEEDED="$MODELS_NEEDED qwen3:4b"
+  fi
+  if ! ollama list 2>/dev/null | grep -q "qwen3:8b"; then
+    MODELS_NEEDED="$MODELS_NEEDED qwen3:8b"
+  fi
+
+  if [ -n "$MODELS_NEEDED" ]; then
+    echo "[WARN] Missing Ollama models:$MODELS_NEEDED"
+    echo "       Pull them with:"
+    for m in $MODELS_NEEDED; do
+      echo "         ollama pull $m"
+    done
+  else
+    echo "[OK] Required models available (qwen3:4b, qwen3:8b, nomic-embed-text)"
+  fi
+fi
+
+# ── Environment Files ──────────────────────────────────────────────────────
+
+echo
 
 if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example. Fill in API keys before exposing preview URLs."
-fi
-
-if [ ! -f .env.localhost ]; then
-  cp .env .env.localhost
-  echo "Created .env.localhost from current .env for local development."
-fi
-
-if [ ! -f .env.local-prod ]; then
-  cp .env .env.local-prod
-  echo "Created .env.local-prod from current .env for local production."
+  if [ "$OLLAMA_OK" = "1" ]; then
+    cp .env.local-ollama .env
+    echo "[CREATED] .env from .env.local-ollama (local Ollama preset)"
+  else
+    cp .env.example .env
+    echo "[CREATED] .env from .env.example — edit LLM settings before running"
+  fi
+else
+  echo "[OK] .env already exists"
 fi
 
 mkdir -p .cloudflared
 
-echo "Environment checks passed."
+# ── Docker Volumes ─────────────────────────────────────────────────────────
+
 echo
-echo "Suggested next steps:"
-echo "  1. Edit .env.localhost and .env.local-prod as needed."
-echo "  2. Start storage only:  npm run dev:infra"
-echo "  3. Install deps once:   npm install && npm install --prefix web"
-echo "  4. Run app natively:    npm run dev"
-echo "  5. Build local prod:    npm run prod:local:build"
-echo "  6. Start local prod:    npm run prod:local:start"
-echo "  7. After code changes:  npm run prod:local:rebuild"
-echo "  8. Optional browser IDE: npm run dev:infra:ide"
+echo "Creating Docker volumes (if needed)..."
+for vol in remi-ai_rem_pgdata remi-ai_rem_redisdata remi-ai_rem_root_node_modules remi-ai_rem_web_node_modules remi-ai_rem_code_server_config; do
+  if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+    docker volume create "$vol" >/dev/null
+    echo "  Created: $vol"
+  fi
+done
+echo "[OK] Docker volumes ready"
+
+# ── Summary ────────────────────────────────────────────────────────────────
+
+echo
+echo "=== Bootstrap Complete ==="
+echo
+echo "Next steps:"
+echo "  1. Start infra:     npm run dev:infra"
+echo "  2. Install deps:    npm install"
+echo "  3. Run migrations:  npm run migrate:up"
+echo "  4. Start dev:       npm run dev"
+echo
+if [ "$OLLAMA_OK" = "0" ]; then
+  echo "  [!] Install Ollama first — see docs/LOCAL_LLM_SETUP.md"
+fi

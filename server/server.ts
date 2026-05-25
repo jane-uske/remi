@@ -10,6 +10,34 @@ try {
   process.exit(1);
 }
 
+// Warn loudly if embedding is not configured — memory system silently degrades
+{
+  const embeddingUrl =
+    process.env.REMI_EMBEDDING_BASE_URL?.trim() ||
+    process.env.REM_EMBEDDING_BASE_URL?.trim() ||
+    process.env.EMBEDDING_BASE_URL?.trim();
+  if (!embeddingUrl) {
+    console.warn(
+      "\n" +
+      "╔══════════════════════════════════════════════════════════════╗\n" +
+      "║  [WARN] REMI_EMBEDDING_BASE_URL 未配置                      ║\n" +
+      "║                                                              ║\n" +
+      "║  记忆系统的语义检索将不可用:                                  ║\n" +
+      "║    - Episode 召回退化为关键词匹配                            ║\n" +
+      "║    - 语义相似度搜索无法工作                                  ║\n" +
+      "║    - Proactive prompt 无法按相关性排序                       ║\n" +
+      "║                                                              ║\n" +
+      "║  修复: 在 .env 中配置 Embedding (仅需 275MB 模型)            ║\n" +
+      "║    REMI_EMBEDDING_API_KEY=ollama                             ║\n" +
+      "║    REMI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1        ║\n" +
+      "║    REMI_EMBEDDING_MODEL=nomic-embed-text                    ║\n" +
+      "║                                                              ║\n" +
+      "║  详见: docs/LOCAL_LLM_SETUP.md                              ║\n" +
+      "╚══════════════════════════════════════════════════════════════╝\n",
+    );
+  }
+}
+
 import type { WebSocket } from "ws";
 import type { IncomingMessage } from "http";
 
