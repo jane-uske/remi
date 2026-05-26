@@ -30,6 +30,10 @@ export async function initDatabase(config?: {
   }
 }
 
+export function isDatabaseReady(): boolean {
+  return pool !== null;
+}
+
 export function getPool(): Pool {
   if (!pool) {
     throw new Error('Database pool is not initialized; call initDatabase first');

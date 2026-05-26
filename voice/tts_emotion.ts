@@ -24,3 +24,19 @@ const EMOTION_VOICE_MAP: Record<Emotion, EmotionVoiceParams> = {
 export function getEmotionVoiceParams(emotion: Emotion): EmotionVoiceParams {
   return EMOTION_VOICE_MAP[emotion];
 }
+
+// Qwen3-TTS CustomVoice instruct strings
+const MLX_INSTRUCT_MAP: Record<Emotion, string> = {
+  neutral:    "自然平和，语速适中，像真人说话",
+  happy:      "开心愉快，充满活力，带一点笑意",
+  curious:    "好奇探究，语调上扬，带一点期待感",
+  shy:        "轻柔克制，语速稍慢，带一点犹豫",
+  sad:        "低沉悲伤，语速缓慢，语气温柔",
+  concerned:  "关切担忧，语气稳重，带一点轻声安抚",
+  playful:    "俏皮活泼，带一点调皮和笑意",
+  thoughtful: "沉稳思考，语速偏慢，停顿自然",
+};
+
+export function getMlxInstruct(emotion: Emotion, _text?: string): string {
+  return MLX_INSTRUCT_MAP[emotion] ?? MLX_INSTRUCT_MAP.neutral;
+}

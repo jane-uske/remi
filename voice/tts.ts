@@ -13,6 +13,7 @@ import {
   type TtsProvider,
 } from "./tts_helpers";
 import { resolveVolcTtsConfig, speakWithVolc } from "./tts_volc";
+import { isMlxConfigured, speakWithMlx, streamMlxPcm } from "./tts_mlx";
 import type { TtsRequestContext } from "./tts_request_context";
 import { createLogger } from "../infra/logger";
 import { getConfig } from "../server/config";
@@ -37,6 +38,7 @@ function getProvider(): TtsProvider {
   if (p === "piper") return "piper";
   if (p === "openai") return "openai";
   if (p === "volc") return "volc";
+  if (p === "mlx") return "mlx";
   return "edge";
 }
 
@@ -44,6 +46,7 @@ function isProviderConfigured(provider: TtsProvider): boolean {
   if (provider === "edge") return true;
   if (provider === "piper") return Boolean(getPiperModel());
   if (provider === "volc") return Boolean(resolveVolcTtsConfig());
+  if (provider === "mlx") return isMlxConfigured();
   return Boolean(getConfig().tts_key && getConfig().tts_base_url);
 }
 
@@ -54,11 +57,13 @@ function getFallbackProvider(primary: TtsProvider): TtsProvider | null {
   const candidates = explicit
     ? [explicit]
     : primary === "edge"
-      ? ["piper", "openai", "volc"]
+      ? ["piper", "openai", "volc", "mlx"]
       : primary === "openai"
-        ? ["piper", "edge", "volc"]
+        ? ["piper", "edge", "volc", "mlx"]
         : primary === "volc"
-          ? ["edge", "openai", "piper"]
+          ? ["edge", "openai", "piper", "mlx"]
+          : primary === "mlx"
+            ? ["edge", "volc", "openai"]
         : ["edge", "openai"];
 
   for (const candidate of candidates) {
@@ -185,6 +190,10 @@ function warnTtsDisabledOnce(provider: TtsProvider): void {
     logger.warn(
       "已禁用：请配置 VOLC_TTS_API_KEY、VOLC_TTS_RESOURCE_ID 和 VOLC_TTS_VOICE_TYPE",
     );
+    return;
+  }
+  if (provider === "mlx") {
+    logger.warn("已禁用：mlx provider 需要本地 mlx-audio server，请先运行 start-mlx-tts.sh");
     return;
   }
   logger.warn("已禁用：请配置 tts_key 和 tts_base_url，或切到 tts_provider=edge");
@@ -962,6 +971,7 @@ async function speakWithProvider(
   if (provider === "edge") return speakWithEdge(text, signal, emotion);
   if (provider === "piper") return speakWithPiper(text, signal, emotion);
   if (provider === "volc") return speakWithVolc(text, signal, emotion, context);
+  if (provider === "mlx") return speakWithMlx(text, signal, emotion);
   return speakWithOpenAI(text, signal, emotion);
 }
 
@@ -1184,11 +1194,12 @@ export async function textToSpeech(
 
 export function canStreamTextToSpeech(): boolean {
   const streamingEnabled = getConfig().REMI_TTS_STREAM;
+  const provider = getProvider();
   return (
     streamingEnabled &&
-    getProvider() === "edge" &&
+    (provider === "edge" || provider === "mlx") &&
     isTtsEnabled() &&
-    !isEdgeStreamTemporarilyBlocked()
+    (provider !== "edge" || !isEdgeStreamTemporarilyBlocked())
   );
 }
 
@@ -1253,19 +1264,23 @@ export async function streamTextToSpeech(
     warnTtsDisabledOnce(provider);
     throw new Error("TTS_DISABLED");
   }
-  if (provider !== "edge") {
+  if (provider !== "edge" && provider !== "mlx") {
     throw new Error("TTS_STREAM_UNSUPPORTED_PROVIDER");
   }
-  if (isEdgeStreamTemporarilyBlocked()) {
+  if (provider === "edge" && isEdgeStreamTemporarilyBlocked()) {
     throw new Error("TTS_STREAM_TEMP_DISABLED");
   }
 
   try {
-    await withRetry(
-      () => streamEdgePcm(ttsText, signal, emotion, onChunk, onLipSyncChunk),
-      { retries: 1, label: "streamTextToSpeech(edge)" },
-    );
-    markEdgeStreamHealthy();
+    if (provider === "mlx") {
+      await streamMlxPcm(ttsText, signal, emotion, onChunk);
+    } else {
+      await withRetry(
+        () => streamEdgePcm(ttsText, signal, emotion, onChunk, onLipSyncChunk),
+        { retries: 1, label: "streamTextToSpeech(edge)" },
+      );
+      markEdgeStreamHealthy();
+    }
   } catch (err) {
     if ((err as Error).name !== "AbortError") {
       markEdgeStreamFailure(err as Error);

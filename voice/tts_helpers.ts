@@ -1,6 +1,6 @@
 import { getEmotionVoiceParams, type Emotion } from "./tts_emotion";
 
-export type TtsProvider = "openai" | "piper" | "edge" | "volc";
+export type TtsProvider = "openai" | "piper" | "edge" | "volc" | "mlx";
 
 export type TtsTextNormalizationConfig = {
   maxChars: number;

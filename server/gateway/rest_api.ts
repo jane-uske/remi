@@ -10,6 +10,7 @@ import { applyPersonaProfilePreset } from "../../persona";
 import { isPersonaPresetId } from "../../persona/presets";
 import { createLogger } from "../../infra/logger";
 import { getConfig } from "../config";
+import { isFamilyMemoryEnabled, queryFamilyMemory } from "../../brains/family_memory/client";
 import type { ServerMessage } from "./types";
 
 const logger = createLogger("rest-api");
@@ -136,6 +137,54 @@ async function handleExtChat(
   if (message.length > 2000) {
     jsonError(res, 400, "Message too long (max 2000 chars)");
     return;
+  }
+
+  // ── Family Memory Intercept ───────────────────────────────────────
+  if (isFamilyMemoryEnabled()) {
+    try {
+      const familyResult = await queryFamilyMemory(message);
+      if (familyResult.handled) {
+        logger.info("[family_memory] handled by family-memory service", {
+          message: message.slice(0, 50),
+          answerable: familyResult.answerable,
+          reason: familyResult.reason,
+          sourcesCount: familyResult.sources.length,
+          resultSource: familyResult.resultSource,
+        });
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Content-Type, X-Remi-Api-Key",
+        });
+        res.end(JSON.stringify({
+          type: "family_memory",
+          handled: true,
+          answerable: familyResult.answerable,
+          reason: familyResult.reason,
+          answer: familyResult.answer,
+          sources: familyResult.sources,
+          resultSource: familyResult.resultSource,
+        }));
+        return;
+      }
+      // handled=false → fall through to main LLM pipeline
+      logger.info("[family_memory] not handled, falling through to main LLM", {
+        message: message.slice(0, 50),
+        reason: familyResult.reason,
+      });
+    } catch (error) {
+      const errorMsg = (error as Error).message ?? "unknown";
+      logger.error("[family_memory] intercept failed", { error: errorMsg });
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(JSON.stringify({
+        type: "family_memory_error",
+        error: errorMsg,
+      }));
+      return;
+    }
   }
 
   res.writeHead(200, {

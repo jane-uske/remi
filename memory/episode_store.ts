@@ -2,6 +2,7 @@ import { embed } from "../llm/embedding_client";
 import { getConfig } from "../server/config";
 import { extractKeywords, normalizeText } from "./prompt_memory_support";
 import { toEpisodeV3StorageFields } from "./episode_v3";
+import { isDatabaseReady } from "../storage/database";
 import {
   insertEpisode,
   updateEpisode,
@@ -284,6 +285,9 @@ function getRecallAnchorStrength(episode: DbEpisode, userMessage: string): {
 }
 
 export async function ingest(moment: MomentInput): Promise<DbEpisode> {
+  if (!isDatabaseReady()) {
+    throw new Error("Database not available for episode ingest");
+  }
   const momentEmbedding = await embed(buildEmbeddingText(moment));
   const similarEpisodes = await findSimilarEpisodes(moment.userId, momentEmbedding, 3);
   const topEpisode = similarEpisodes[0];
@@ -416,6 +420,7 @@ export async function findRelevant(
   userMessage: string,
   topK?: number,
 ): Promise<RankedEpisode[]> {
+  if (!isDatabaseReady()) return [];
   const messageEmbedding = await embed(userMessage);
   const episodes = await findSimilarEpisodes(userId, messageEmbedding, topK ?? RELEVANCE_TOP_K);
   const now = Date.now();
@@ -468,6 +473,7 @@ export async function findRelevant(
 }
 
 export async function listUnresolved(userId: string): Promise<DbEpisode[]> {
+  if (!isDatabaseReady()) return [];
   return getUnresolvedEpisodes(userId);
 }
 

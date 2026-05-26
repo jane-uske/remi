@@ -1,3 +1,5 @@
+import { createProxyFetch } from "./proxy_fetch";
+
 export const EMBEDDING_DIMENSIONS = 768;
 
 type EmbeddingConfig = {
@@ -133,17 +135,27 @@ function extractEmbedding(responseBody: unknown): number[] {
 
 export async function embed(text: string): Promise<number[]> {
   const { apiKey, baseURL, model } = getEmbeddingConfig();
-  const response = await fetch(buildEmbeddingsUrl(baseURL), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      input: text,
-    }),
-  });
+  const proxyFetch = createProxyFetch(baseURL);
+  const fetchFn = proxyFetch ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  let response: Response;
+  try {
+    response = await fetchFn(buildEmbeddingsUrl(baseURL), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: text,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");

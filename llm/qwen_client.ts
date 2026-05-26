@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { withRetry } from "../utils/retry";
 import { getConfig } from "../server/config";
+import { createProxyFetch } from "./proxy_fetch";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -12,6 +13,7 @@ export interface CompletionOptions {
   temperature?: number;
   model?: string;
   signal?: AbortSignal;
+  reasoningEffort?: string;
 }
 
 export interface StreamTokensCallbacks {
@@ -47,7 +49,12 @@ function getClient(): OpenAI {
   const apiKey = cfg.REMI_LLM_API_KEY;
   const baseURL = cfg.REMI_LLM_BASE_URL;
   if (!apiKey || !baseURL) throw new Error("LLM 未配置：缺少 key / base_url");
-  client = new OpenAI({ apiKey, baseURL });
+  const proxyFetch = createProxyFetch(baseURL);
+  client = new OpenAI({
+    apiKey,
+    baseURL,
+    ...(proxyFetch ? { fetch: proxyFetch } : {}),
+  });
   return client;
 }
 
@@ -63,6 +70,7 @@ export async function complete(
   return completeWithOptions(messages, {
     maxTokens,
     signal,
+    reasoningEffort: getConfig().REMI_SLOW_BRAIN_REASONING_EFFORT,
   });
 }
 
@@ -74,13 +82,25 @@ export async function completeWithOptions(
   const model = options.model ?? getConfig().REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
 
+  const noThink = options.reasoningEffort === "none";
+  const effectiveMessages = noThink
+    ? messages.map((m, i) =>
+        i === 0 && m.role === "system"
+          ? { ...m, content: m.content + "\n/no_think" }
+          : m,
+      )
+    : messages;
+
   const res = await withRetry(
     () =>
       openai.chat.completions.create({
         model,
-        messages,
+        messages: effectiveMessages,
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 512,
+        ...(options.reasoningEffort && !noThink
+          ? { reasoning_effort: options.reasoningEffort as "low" | "medium" | "high" }
+          : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       }),
     { retries: 1, label: "complete" },
@@ -113,14 +133,23 @@ export async function* streamTokens(
   let hasNotifiedFirstReasoningChunk = false;
   let hasNotifiedFirstVisibleContent = false;
 
+  const noThink = options?.reasoningEffort === "none";
+  const effectiveMessages = noThink
+    ? messages.map((m, i) =>
+        i === 0 && m.role === "system"
+          ? { ...m, content: m.content + "\n/no_think" }
+          : m,
+      )
+    : messages;
+
   const stream = (await withRetry(
     () =>
       (openai.chat.completions.create as Function)({
         model,
-        messages,
+        messages: effectiveMessages,
         temperature: 0.7,
         max_tokens: 1024,
-        ...(options?.reasoningEffort
+        ...(options?.reasoningEffort && !noThink
           ? { reasoning_effort: options.reasoningEffort }
           : {}),
         stream: true,
