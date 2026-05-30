@@ -10,6 +10,7 @@ import type { Memory } from "../memory/memory_store";
 import { createLogger } from "../infra/logger";
 import { estimateTextTokens } from "./history_budget";
 import type { PersonaState } from "../persona";
+import { getConfig } from "../server/config";
 
 const logger = createLogger("reply_stream");
 
@@ -45,8 +46,7 @@ function getFastBrainReasoningEffort(): string | undefined {
 function getFastBrainModel(): string | undefined {
   const model = (
     process.env.REMI_FAST_BRAIN_MODEL ??
-    process.env.REM_FAST_BRAIN_MODEL ??
-    process.env.model
+    process.env.REM_FAST_BRAIN_MODEL
   )?.trim();
   return model || undefined;
 }
@@ -150,6 +150,7 @@ export async function* fastBrainStream(
     (sum, entry) => sum + entry.key.length + entry.value.length,
     0,
   );
+  const effectiveModel = model ?? getConfig().REMI_LLM_MODEL;
   logger.info("LLM prompt stats", {
     messages: messages.length,
     estimatedTokens: estimateTextTokens(promptText),
@@ -166,7 +167,7 @@ export async function* fastBrainStream(
     priorityChars: priorityContext?.length ?? 0,
     deliberationBudget: input.deliberationBudget ?? "unspecified",
     reasoningEffort: reasoningEffort ?? "provider_default",
-    model: model ?? "unconfigured",
+    model: effectiveModel || "unconfigured",
   });
 
   const configured = hasLlmConfig(model);
@@ -274,6 +275,7 @@ export async function fastBrainPredictOnly(
     (sum, entry) => sum + entry.key.length + entry.value.length,
     0,
   );
+  const effectiveModel = model ?? getConfig().REMI_LLM_MODEL;
   logger.debug("[预判] LLM prompt stats", {
     messages: messages.length,
     estimatedTokens: estimateTextTokens(promptText),
@@ -290,7 +292,7 @@ export async function fastBrainPredictOnly(
     priorityChars: priorityContext?.length ?? 0,
     deliberationBudget: input.deliberationBudget ?? "unspecified",
     reasoningEffort: reasoningEffort ?? "provider_default",
-    model: model ?? "unconfigured",
+    model: effectiveModel || "unconfigured",
   });
 
   const configured = hasLlmConfig(model);

@@ -32,6 +32,7 @@ export const envSchema = z.object({
   REMI_LLM_PROXY_URL: z.string().optional(),
   REMI_FAST_BRAIN_MODEL: z.string().optional(),
   REMI_FAST_BRAIN_REASONING_EFFORT: z.string().optional(),
+  REMI_LLM_THINKING: z.enum(["enabled", "disabled"]).optional().or(z.literal("")),
 
   // ── TTS ──────────────────────────────────────────────────────────────────
   REMI_TTS_PROVIDER: z

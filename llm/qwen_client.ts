@@ -30,6 +30,15 @@ export interface StreamTokensOptions {
 
 let client: OpenAI | null = null;
 
+export function buildLlmProviderOptions(thinkingMode?: string): Record<string, unknown> {
+  if (thinkingMode !== "enabled" && thinkingMode !== "disabled") return {};
+  return {
+    thinking: {
+      type: thinkingMode,
+    },
+  };
+}
+
 export function localLlmEnabled(): boolean {
   return getConfig().REMI_LOCAL_LLM_ENABLED;
 }
@@ -79,10 +88,12 @@ export async function completeWithOptions(
   options: CompletionOptions = {},
 ): Promise<string> {
   const openai = getClient();
-  const model = options.model ?? getConfig().REMI_LLM_MODEL;
+  const cfg = getConfig();
+  const model = options.model ?? cfg.REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
 
   const noThink = options.reasoningEffort === "none";
+  const providerThinkingMode = noThink ? "disabled" : cfg.REMI_LLM_THINKING;
   const effectiveMessages = noThink
     ? messages.map((m, i) =>
         i === 0 && m.role === "system"
@@ -93,18 +104,25 @@ export async function completeWithOptions(
 
   const res = await withRetry(
     () =>
-      openai.chat.completions.create({
+      (openai.chat.completions.create as Function)({
         model,
         messages: effectiveMessages,
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 512,
+        ...buildLlmProviderOptions(providerThinkingMode),
         ...(options.reasoningEffort && !noThink
           ? { reasoning_effort: options.reasoningEffort as "low" | "medium" | "high" }
           : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       }),
     { retries: 1, label: "complete" },
-  );
+  ) as {
+    choices?: {
+      message?: {
+        content?: string | null;
+      };
+    }[];
+  };
 
   const raw = res.choices?.[0]?.message?.content ?? "";
   const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
@@ -123,7 +141,8 @@ export async function* streamTokens(
   options?: StreamTokensOptions,
 ): AsyncGenerator<string> {
   const openai = getClient();
-  const model = options?.model ?? getConfig().REMI_LLM_MODEL;
+  const cfg = getConfig();
+  const model = options?.model ?? cfg.REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
   const onFirstRawChunk = callbacks?.onFirstRawChunk;
   const onFirstChunk = callbacks?.onFirstChunk;
@@ -134,6 +153,7 @@ export async function* streamTokens(
   let hasNotifiedFirstVisibleContent = false;
 
   const noThink = options?.reasoningEffort === "none";
+  const providerThinkingMode = noThink ? "disabled" : cfg.REMI_LLM_THINKING;
   const effectiveMessages = noThink
     ? messages.map((m, i) =>
         i === 0 && m.role === "system"
@@ -149,6 +169,7 @@ export async function* streamTokens(
         messages: effectiveMessages,
         temperature: 0.7,
         max_tokens: 1024,
+        ...buildLlmProviderOptions(providerThinkingMode),
         ...(options?.reasoningEffort && !noThink
           ? { reasoning_effort: options.reasoningEffort }
           : {}),
