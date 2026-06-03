@@ -54,6 +54,7 @@ import { shutdownWhisperServer, warmWhisperServer } from "../voice/stt_stream";
 import { warmupEdgeTtsConnections } from "../voice/tts";
 import { createGateway, startServer, PORT } from "./gateway";
 import { createSession } from "./session";
+import { SttStream } from "../voice/stt_stream";
 import {
   collectMemorySnapshot,
   evaluateMemoryAlert,
@@ -161,6 +162,39 @@ function stopResourceMonitoring(): void {
   }
 }
 
+function printCapabilityBanner(): void {
+  const cfg = getConfig();
+  const check = "\x1b[32m\u2713\x1b[0m";
+  const cross = "\x1b[33m\u2717\x1b[0m";
+
+  const llm = cfg.REMI_LLM_API_KEY
+    ? `${check} ${cfg.REMI_LLM_MODEL}`
+    : `${cross} not configured`;
+  const tts = `${check} ${cfg.REMI_TTS_PROVIDER} (no key needed)`;
+  const stt = new SttStream().configured
+    ? `${check} ${cfg.REMI_STT_PROVIDER}`
+    : `${cross} not configured (voice input disabled)`;
+  const memory = dbInitialized
+    ? `${check} PostgreSQL`
+    : `${cross} in-memory only (volatile)`;
+  const redis = redisInitialized
+    ? `${check} connected`
+    : `${cross} disabled`;
+
+  const url = `http://localhost:${PORT}`;
+  console.log(
+    "\n" +
+    "\x1b[36m" +
+    `  Remi ready on ${url}\n` +
+    "\x1b[0m" +
+    `  LLM:    ${llm}\n` +
+    `  TTS:    ${tts}\n` +
+    `  STT:    ${stt}\n` +
+    `  Memory: ${memory}\n` +
+    `  Redis:  ${redis}\n`,
+  );
+}
+
 async function bootstrap() {
   let memoryRepo = getMemoryRepository();
 
@@ -244,6 +278,8 @@ async function bootstrap() {
 
   const server = await createGateway({ onConnection });
   startServer(server);
+
+  printCapabilityBanner();
 
   // 启动资源监控
   startResourceMonitoring();

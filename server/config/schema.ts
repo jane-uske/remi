@@ -488,6 +488,28 @@ function applyLegacyAliases(env: NodeJS.ProcessEnv): void {
  * Validate all environment variables at startup.
  * Throws with a clear message listing all invalid/missing vars.
  */
+const MODEL_DEFAULTS_BY_HOST: Record<string, string> = {
+  "api.openai.com": "gpt-4o-mini",
+  "dashscope.aliyuncs.com": "qwen-plus",
+  "api.deepseek.com": "deepseek-chat",
+};
+
+const SCHEMA_DEFAULT_MODEL = "qwen2.5-14b-instruct";
+
+function inferModelFromBaseUrl(config: RemiEnv): RemiEnv {
+  if (config.REMI_LLM_MODEL !== SCHEMA_DEFAULT_MODEL) return config;
+  const userExplicitlySet = process.env.REMI_LLM_MODEL || process.env.model;
+  if (userExplicitlySet) return config;
+  const url = config.REMI_LLM_BASE_URL;
+  for (const [host, model] of Object.entries(MODEL_DEFAULTS_BY_HOST)) {
+    if (url.includes(host)) {
+      console.log(`[remi:config] Auto-detected LLM model: ${model} (from ${host})`);
+      return { ...config, REMI_LLM_MODEL: model };
+    }
+  }
+  return config;
+}
+
 export function validateEnv(): RemiEnv {
   applyLegacyAliases(process.env);
 
@@ -501,5 +523,5 @@ export function validateEnv(): RemiEnv {
     throw new Error(msg);
   }
 
-  return result.data;
+  return inferModelFromBaseUrl(result.data);
 }

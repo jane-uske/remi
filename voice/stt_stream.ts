@@ -5,6 +5,9 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { getConfig } from "../server/config";
+import { createLogger } from "../infra/logger";
+
+const sttLogger = createLogger("stt");
 
 import {
   realtimeSttRuntime,
@@ -357,7 +360,10 @@ export class SttStream extends EventEmitter {
 
   // -- OpenAI, WebM input --
   private async transcribeOpenAIWebm(audio: Buffer): Promise<string> {
-    if (!this.client) throw new Error("STT 未配置：请设置 stt_key 和 stt_base_url");
+    if (!this.client) {
+      sttLogger.warn("STT not configured — voice input ignored. Set REMI_STT_API_KEY + REMI_STT_BASE_URL to enable.");
+      return "";
+    }
 
     const tmp = tmpPath("webm");
     fs.writeFileSync(tmp, audio);
@@ -378,7 +384,10 @@ export class SttStream extends EventEmitter {
 
   // -- OpenAI, WAV input --
   private async transcribeOpenAIWav(wav: Buffer): Promise<string> {
-    if (!this.client) throw new Error("STT 未配置：请设置 stt_key 和 stt_base_url");
+    if (!this.client) {
+      sttLogger.warn("STT not configured — voice input ignored. Set REMI_STT_API_KEY + REMI_STT_BASE_URL to enable.");
+      return "";
+    }
 
     const tmp = tmpPath("wav");
     fs.writeFileSync(tmp, wav);

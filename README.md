@@ -98,28 +98,32 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 | 前端（旧版） | 原生 HTML/CSS/JS |
 | 部署 | Docker + Docker Compose |
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 安装后端依赖
-npm install
+git clone https://github.com/jane-uske/remi.git && cd remi
+npm install && npm install --prefix web
+cp .env.minimal .env   # fill in your LLM API key + base URL
+npm run dev             # open http://localhost:3001
+```
 
-# 安装前端依赖
-npm install --prefix web
+Only 2 environment variables are required: `REMI_LLM_API_KEY` and `REMI_LLM_BASE_URL`.
+No database, no Redis, no TTS key needed. Text chat works out of the box.
+The model name auto-detects from your base URL (OpenAI → `gpt-4o-mini`, DashScope → `qwen-plus`).
 
-# 若需本地数据库/Redis（推荐仅把这两个放 Docker）
+### Advanced Setup
+
+```bash
+# Optional: local database + Redis for persistent memory
 npm run dev:infra
 
-# 配置环境变量
-cp .env.example .env   # 然后编辑 .env 填入 API Key 等
+# Optional: full .env with all tuning knobs
+cp .env.example .env
 
-# 启动应用（同一进程内托管后端 + Next 前端，开发默认端口 3001）
-npm run dev
-
-# 仅在需要单独调 Next 前端时，再开独立前端进程
+# Standalone frontend dev (port 3001, backend on 3000)
 npm run dev:web:standalone
 
-# 仅类型检查（不写 dist）
+# Type check only (no build output)
 npm run typecheck
 ```
 
