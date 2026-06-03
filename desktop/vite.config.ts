@@ -1,11 +1,14 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, ["VITE_", "TAURI_"]);
+
+  return {
   plugins: [react(), tailwindcss()],
 
   publicDir: path.resolve(__dirname, "../web/public"),
@@ -23,19 +26,19 @@ export default defineConfig({
 
   define: {
     "process.env.NEXT_PUBLIC_WS_URL": JSON.stringify(
-      process.env.VITE_WS_URL ?? "",
+      env.VITE_WS_URL ?? "",
     ),
     "process.env.NEXT_PUBLIC_LIVE2D_MODEL_URL": JSON.stringify(
-      process.env.VITE_LIVE2D_MODEL_URL ?? "",
+      env.VITE_LIVE2D_MODEL_URL ?? "",
     ),
     "process.env.NEXT_PUBLIC_LIVE2D_MODEL_ID": JSON.stringify(
-      process.env.VITE_LIVE2D_MODEL_ID ?? "",
+      env.VITE_LIVE2D_MODEL_ID ?? "",
     ),
     "process.env.NEXT_PUBLIC_LIVE2D_CUBISM_CORE_URL": JSON.stringify(
-      process.env.VITE_LIVE2D_CUBISM_CORE_URL ?? "",
+      env.VITE_LIVE2D_CUBISM_CORE_URL ?? "",
     ),
     "process.env.NEXT_PUBLIC_VRM_URL": JSON.stringify(
-      process.env.VITE_VRM_URL ?? "",
+      env.VITE_VRM_URL ?? "",
     ),
     "process.env.NEXT_PUBLIC_REMI_AUTH_MODE": JSON.stringify("disabled"),
     "process.env.NEXT_PUBLIC_REM_DEVTOOLS": JSON.stringify("0"),
@@ -63,4 +66,5 @@ export default defineConfig({
 
   clearScreen: false,
   envPrefix: ["VITE_", "TAURI_"],
+  };
 });

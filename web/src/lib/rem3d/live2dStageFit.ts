@@ -19,8 +19,12 @@ export function computeLive2DStageFit({
 }: Live2DStageFitInput): Live2DStageFit {
   const width = containerWidth || 320;
   const height = containerHeight || 360;
+  // A very narrow window (the desktop companion pet) must scale the model by
+  // height and let the model's transparent side padding overflow off-window.
+  // Otherwise the width term wins and the character shrinks to fit the padding.
+  const companionStage = width < 240;
   const narrowStage = width < 720;
-  const widthFactor = narrowStage ? 1.52 : 0.8;
+  const widthFactor = companionStage ? 3.4 : narrowStage ? 1.52 : 0.8;
   const heightFactor = narrowStage ? 1.08 : 0.94;
   const scale = Math.min(
     (width * widthFactor) / Math.max(boundsWidth, 1),

@@ -21,6 +21,7 @@ import {
   parseServerTurnState,
 } from "./useRemiChatProtocol";
 import type { ChatMessage } from "@/types/chat";
+import { stripEmotionTags, stripTrailingEmotionWord } from "@/lib/chat/stripEmotionTags";
 
 // ── Ref shorthand ─────────────────────────────────────────
 
@@ -181,7 +182,10 @@ function handleChatEnd(
 ) {
   const av = ctx.avatarCallbacksRef.current;
   if (!ctx.allowServerGeneration("chat_end", data.generationId)) return;
-  const text = ctx.streamingBufRef.current;
+  const text = stripTrailingEmotionWord(
+    stripEmotionTags(ctx.streamingBufRef.current).trimEnd(),
+    data.emotion as string | null | undefined,
+  );
   ctx.resetStreaming();
   if (!ctx.voice.duplexRef.current) {
     ctx.waitingRef.current = false;

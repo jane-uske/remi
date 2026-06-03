@@ -1,9 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RemiAuthProvider } from "../shared/DesktopAuthProvider";
 import { CharacterStage } from "@/components/CharacterStage";
 import { useRemiChat } from "@/hooks/useRemiChat";
+
+// Pointer travel (px) past which a press is treated as a drag rather than a click.
+const DRAG_THRESHOLD = 4;
 
 export function CharacterApp() {
   const chat = useRemiChat();
@@ -15,35 +18,59 @@ export function CharacterApp() {
     lipSignalRef,
   } = chat;
 
-  const handleClick = useCallback(async () => {
-    await invoke("toggle_chat_panel");
+  // Track a press so we can tell a click (toggle chat) from a drag (move window).
+  const pressRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    pressRef.current = { x: e.clientX, y: e.clientY, dragging: false };
   }, []);
 
-  const handleDrag = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    await getCurrentWindow().startDragging();
+  const handleMouseMove = useCallback(async (e: React.MouseEvent) => {
+    const press = pressRef.current;
+    if (!press || press.dragging) return;
+    const moved =
+      Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y);
+    if (moved > DRAG_THRESHOLD) {
+      press.dragging = true;
+      await getCurrentWindow().startDragging();
+    }
+  }, []);
+
+  const handleClick = useCallback(async () => {
+    const wasDragging = pressRef.current?.dragging ?? false;
+    pressRef.current = null;
+    if (wasDragging) return; // released after a drag — don't toggle
+    try {
+      await invoke("toggle_chat_panel");
+    } catch (err) {
+      console.error("[character] toggle_chat_panel failed", err);
+    }
   }, []);
 
   return (
     <RemiAuthProvider>
-      <div style={{ width: "100vw", height: "100vh", background: "transparent", position: "relative" }}>
-        {/* Top drag handle — hold to move window */}
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          background: "transparent",
+          position: "relative",
+          display: "flex",
+        }}
+      >
+        {/* Whole body: drag to move the window, click to toggle the chat panel */}
         <div
-          onMouseDown={handleDrag}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 28,
-            cursor: "grab",
-            zIndex: 10,
-          }}
-        />
-        {/* Click area — opens chat panel */}
-        <div
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
           onClick={handleClick}
-          style={{ width: "100%", height: "100%", cursor: "pointer" }}
+          style={{
+            flex: 1,
+            display: "flex",
+            minWidth: 0,
+            minHeight: 0,
+            cursor: "grab",
+          }}
         >
           <CharacterStage
             emotion={emotion}

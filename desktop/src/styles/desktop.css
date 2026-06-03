@@ -1,13 +1,50 @@
 @import "../../../web/src/app/globals.css";
 
+/*
+ * Tailwind v4 auto-detects class sources under the desktop/ build root, but the
+ * chat/character UI reuses shared components from ../web/src. Without these the
+ * utility classes used only there (message bubbles, sr-only, etc.) are never
+ * generated and the panel renders as unstyled bare text.
+ */
+@source "../../../web/src";
+@source "../";
+
 html[data-window="character"],
 html[data-window="character"] body {
   background: transparent !important;
 }
 
-html[data-window="chat"] {
-  background: var(--remi-body-bg, #050a10);
+/*
+ * WKWebView (Safari) does not treat a flex item stretched via `align-self`
+ * as a definite height, so descendant `height: 100%` collapses to 0 and the
+ * Live2D canvas renders at 0px tall. Force the CharacterStage subtree to flow
+ * height through flex sizing instead of percentage heights. Chrome (web dev)
+ * tolerates the percentage path, so this fix only lives on the desktop client.
+ */
+html[data-window="character"] [data-character-engine] {
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-window="chat"],
+html[data-window="chat"] body {
+  background: transparent;
   color: var(--foreground, #e2e8f0);
+}
+
+/*
+ * The shared ChatWindow caps the message list height on narrow viewports
+ * because in the web layout it shares space with the avatar stage. The desktop
+ * chat window is dedicated to the conversation, so let the section and its
+ * scroller fill the full window height instead of capping at ~19rem.
+ */
+html[data-window="chat"] [data-chat-presence-phase] {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+html[data-window="chat"] .remi-chat-scroll-fade {
+  max-height: none;
+  flex: 1 1 0%;
 }
 
 [data-tauri-drag-region] {

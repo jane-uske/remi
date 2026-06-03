@@ -35,7 +35,14 @@ export function ChatPanelApp() {
 
   return (
     <RemiAuthProvider>
-      <div className="flex h-screen flex-col" style={{ background: "var(--remi-body-bg, #050a10)" }}>
+      <div
+        className="flex h-screen flex-col"
+        style={{
+          background: "rgba(5, 10, 16, 0.78)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+        }}
+      >
         {/* Status bar */}
         <header className="flex shrink-0 items-center gap-2 border-b px-4 py-2" style={{ borderColor: "var(--remi-border, #1e293b)" }}>
           <span
@@ -48,7 +55,7 @@ export function ChatPanelApp() {
         </header>
 
         {/* Messages */}
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           <ChatWindow
             messages={messages}
             hasMoreHistory={historyHasMore}

@@ -15,7 +15,7 @@
         "label": "character",
         "url": "index.html",
         "title": "Remi",
-        "width": 300,
+        "width": 150,
         "height": 400,
         "resizable": false,
         "alwaysOnTop": true,
@@ -35,7 +35,7 @@
         "minHeight": 400,
         "resizable": true,
         "decorations": true,
-        "transparent": false,
+        "transparent": true,
         "visible": false
       }
     ],

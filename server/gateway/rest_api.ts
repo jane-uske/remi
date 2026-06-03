@@ -173,17 +173,12 @@ async function handleExtChat(
         reason: familyResult.reason,
       });
     } catch (error) {
+      // The family-memory service is an optional side path. If it's down, degrade
+      // gracefully to the main LLM pipeline rather than failing the whole chat.
       const errorMsg = (error as Error).message ?? "unknown";
-      logger.error("[family_memory] intercept failed", { error: errorMsg });
-      res.writeHead(503, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      res.end(JSON.stringify({
-        type: "family_memory_error",
+      logger.error("[family_memory] intercept failed, falling through to main LLM", {
         error: errorMsg,
-      }));
-      return;
+      });
     }
   }
 

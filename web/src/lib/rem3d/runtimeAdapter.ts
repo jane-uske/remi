@@ -11,6 +11,8 @@ import type {
 } from "@/types/avatar";
 import type { ConversationPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 import type { AvatarRenderModel } from "@/runtime/avatarRenderModel";
+import { RemVrmViewer } from "./vrmViewer";
+import { RemLive2DViewer } from "./live2dViewer";
 
 export type CreateAvatarRuntimeOptions = {
   engine?: AvatarEngine;
@@ -64,8 +66,6 @@ export function createAvatarRuntime(
   let lipSignalRef: LipSignal = { envelope: 0, active: false, viseme: null };
   const runtime = createAvatarRuntimeWithFactories(container, options, {
     vrm: (host, runtimeOptions) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { RemVrmViewer } = require("./vrmViewer") as typeof import("./vrmViewer");
       const viewer = new RemVrmViewer(host, {
         modelUrl: runtimeOptions?.modelUrl,
         onStateChange: runtimeOptions?.onStateChange,
@@ -93,8 +93,6 @@ export function createAvatarRuntime(
       };
     },
     live2d: (host, runtimeOptions) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { RemLive2DViewer } = require("./live2dViewer") as typeof import("./live2dViewer");
       return new RemLive2DViewer(host, {
         modelId: runtimeOptions?.modelId,
         modelUrl: runtimeOptions?.modelUrl,

@@ -10,6 +10,7 @@ import type {
 import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { resolveMessageStorageKey, uid } from "./useRemiChatHelpers";
+import { stripEmotionTags } from "@/lib/chat/stripEmotionTags";
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
 import { useRemiConnection } from "./useRemiConnection";
 import { useRemiMessages } from "./useRemiMessages";
@@ -100,7 +101,8 @@ export function useRemiChat() {
   /* ── Streaming helpers ── */
   const appendStreaming = useCallback((chunk: string) => {
     streamingBufRef.current += chunk;
-    setStreamingText(streamingBufRef.current);
+    // Keep the raw buffer intact; strip emotion markup only for display.
+    setStreamingText(stripEmotionTags(streamingBufRef.current));
   }, []);
 
   const resetStreaming = useCallback(() => {

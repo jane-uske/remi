@@ -190,9 +190,6 @@ export const envSchema = z.object({
     .default(4),
   REMI_EPISODE_LONG_HORIZON_RANKING_ENABLED: booleanString("1"),
 
-  // ── Family Memory ───────────────────────────────────────────────────────
-  REMI_FAMILY_MEMORY_URL: z.string().default("http://127.0.0.1:3456"),
-
   // ── Embedding ───────────────────────────────────────────────────────────
   REMI_EMBEDDING_API_KEY: z.string().optional(),
   REMI_EMBEDDING_BASE_URL: z.string().optional(),
