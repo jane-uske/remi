@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for Remi desktop",
+  "windows": ["character", "chat"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}

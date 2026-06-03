@@ -1,0 +1,21 @@
+@import "../../../web/src/app/globals.css";
+
+html[data-window="character"],
+html[data-window="character"] body {
+  background: transparent !important;
+}
+
+html[data-window="chat"] {
+  background: var(--remi-body-bg, #050a10);
+  color: var(--foreground, #e2e8f0);
+}
+
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] textarea {
+  -webkit-app-region: no-drag;
+}

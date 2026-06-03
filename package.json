@@ -5,7 +5,8 @@
   "description": "这是 Remi Companion AI 项目。",
   "main": "dist/server/server.js",
   "workspaces": [
-    "web"
+    "web",
+    "desktop"
   ],
   "scripts": {
     "dev": "npm run dev:app",
@@ -43,7 +44,9 @@
     "test": "mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "start": "NODE_ENV=production node dist/server/server.js",
-    "web:build": "npm run build --prefix web"
+    "web:build": "npm run build --prefix web",
+    "desktop:dev": "npm run dev --workspace=desktop",
+    "desktop:build": "npm run build --workspace=desktop"
   },
   "keywords": [],
   "author": "jane-uske",
