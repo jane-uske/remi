@@ -7,13 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { DEFAULT_DEV_USER_ID } from "@/hooks/useRemiChatHelpers";
 
-// Shared with the Rust deep-link handler (desktop/src-tauri/src/lib.rs).
+// Shared with the Rust auth handler (desktop/src-tauri/src/lib.rs).
 const AUTH_STORE_FILE = "auth.json";
 const AUTH_TOKEN_KEY = "session_token";
 const AUTH_EVENT = "auth-token-updated";
@@ -76,24 +77,38 @@ function resolveWebBaseUrl(): string | null {
   }
 }
 
-export function getDesktopSignInUrl(): string | null {
-  const base = resolveWebBaseUrl();
-  return base ? `${base}/sign-in?desktop=1` : null;
-}
+/** Shape returned by the Rust `start_auth_loopback` command. */
+type LoopbackInfo = { port: number; state: string };
 
 /**
  * Open the web sign-in page in the system browser. Clerk (incl. Google OAuth)
- * runs in the real browser; on success the page deep-links a long-lived token
- * back into this app (handled in Rust → AUTH_EVENT).
+ * runs in the real browser; on success the page navigates back to our one-shot
+ * loopback listener (RFC 8252 §7.3), which persists the token and fires
+ * AUTH_EVENT so the app connects without a restart.
+ *
+ * We start the listener first and pass only its ephemeral `port` plus a
+ * CSRF-binding `state` nonce to the browser — never a full callback URL — so
+ * the web page rebuilds the loopback target from constants and there is no
+ * open-redirect surface.
  */
 export async function openDesktopSignIn(): Promise<void> {
-  const url = getDesktopSignInUrl();
-  if (!url) {
+  const base = resolveWebBaseUrl();
+  if (!base) {
     console.error(
       "[desktop-auth] cannot open sign-in: set VITE_WEB_URL or VITE_WS_URL",
     );
     return;
   }
+  let info: LoopbackInfo;
+  try {
+    info = await invoke<LoopbackInfo>("start_auth_loopback");
+  } catch (err) {
+    console.error("[desktop-auth] failed to start loopback listener", err);
+    return;
+  }
+  const url =
+    `${base}/sign-in?desktop=1&port=${info.port}` +
+    `&state=${encodeURIComponent(info.state)}`;
   await openExternal(url);
 }
 

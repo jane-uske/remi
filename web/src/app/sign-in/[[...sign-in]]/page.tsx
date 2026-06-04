@@ -7,22 +7,54 @@ import { useEffect, useRef, useState } from "react";
 import { RemiAuthProvider, useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { isClerkWebAuthEnabled } from "@/lib/authMode";
 
-/**
- * Custom URL scheme the Tauri desktop app registers. The redirect target is
- * built from this constant only — never from a query param — so the desktop
- * hand-off has no open-redirect surface.
- */
-const DESKTOP_DEEP_LINK_SCHEME = "ai.remi.desktop";
+type DesktopHandoff =
+  | { desktop: false }
+  | { desktop: true; valid: false }
+  | { desktop: true; valid: true; port: number; state: string };
 
-function isDesktopSignIn(): boolean {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("desktop") === "1";
+/**
+ * Read the desktop loopback hand-off params (RFC 8252 §7.3). The desktop app
+ * passes only an integer `port` and a `state` nonce — never a full callback URL.
+ * We rebuild the loopback target from constants in {@link loopbackCallbackUrl},
+ * so the redirect can never be pointed at an arbitrary origin: the hand-off has
+ * no open-redirect surface.
+ */
+function readDesktopHandoff(): DesktopHandoff {
+  if (typeof window === "undefined") return { desktop: false };
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("desktop") !== "1") return { desktop: false };
+
+  const rawPort = params.get("port");
+  const state = params.get("state");
+  const port = Number(rawPort);
+  const portValid =
+    rawPort !== null && Number.isInteger(port) && port >= 1 && port <= 65535;
+  const stateValid = !!state && /^[A-Za-z0-9-]{1,200}$/.test(state);
+  if (!portValid || !stateValid) return { desktop: true, valid: false };
+  return { desktop: true, valid: true, port, state: state as string };
+}
+
+/**
+ * Build the loopback callback URL. Scheme/host/path are constants and only the
+ * already-validated integer `port` is interpolated, preserving the
+ * no-open-redirect property of the original deep-link hand-off.
+ */
+function loopbackCallbackUrl(port: number, token: string, state: string): string {
+  const qs = new URLSearchParams({ token, state });
+  return `http://127.0.0.1:${port}/callback?${qs.toString()}`;
 }
 
 function SignInPageInner() {
   const router = useRouter();
   const auth = useRemiWebAuth();
-  const desktop = isDesktopSignIn();
+  // Computed fresh each render so a Clerk redirect that updates the query string
+  // (e.g. after sign-up) is picked up; the effect depends on primitives below.
+  const handoff = readDesktopHandoff();
+  const desktop = handoff.desktop;
+  const handoffPort =
+    handoff.desktop && handoff.valid ? handoff.port : null;
+  const handoffState =
+    handoff.desktop && handoff.valid ? handoff.state : null;
   const [exchangeError, setExchangeError] = useState<string | null>(null);
   const handedOff = useRef(false);
 
@@ -37,10 +69,18 @@ function SignInPageInner() {
       router.replace("/");
       return;
     }
+    // Desktop sign-in but the loopback params are missing/invalid — we can't
+    // hand the token back. Surface an error instead of redirecting anywhere.
+    if (handoffPort === null || handoffState === null) {
+      setExchangeError("缺少有效的桌面回调参数，请从桌面端重新发起登录。");
+      return;
+    }
 
     if (handedOff.current) return;
     handedOff.current = true;
 
+    const port = handoffPort;
+    const state = handoffState;
     let cancelled = false;
     (async () => {
       try {
@@ -58,9 +98,11 @@ function SignInPageInner() {
         if (!token) throw new Error("token missing from exchange response");
         if (cancelled) return;
 
-        // Hand the long-lived legacy token back to the desktop app.
-        window.location.href =
-          `${DESKTOP_DEEP_LINK_SCHEME}://auth?token=${encodeURIComponent(token)}`;
+        // Hand the long-lived legacy token back to the desktop app's one-shot
+        // loopback listener. This MUST be a top-level navigation (not fetch): a
+        // top-level navigation to http://127.0.0.1 is exempt from mixed-content
+        // and Private Network Access blocking, whereas a fetch would be blocked.
+        window.location.href = loopbackCallbackUrl(port, token, state);
       } catch (err) {
         if (cancelled) return;
         handedOff.current = false;
@@ -71,7 +113,7 @@ function SignInPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [auth, desktop, router]);
+  }, [auth, desktop, handoffPort, handoffState, router]);
 
   if (!isClerkWebAuthEnabled()) {
     return null;
@@ -95,13 +137,21 @@ function SignInPageInner() {
     );
   }
 
+  // Preserve port & state through Clerk's post-auth redirect so the hand-off
+  // params survive a sign-up round-trip.
+  const redirectTarget = !handoff.desktop
+    ? "/"
+    : handoff.valid
+      ? `/sign-in?desktop=1&port=${handoff.port}&state=${encodeURIComponent(handoff.state)}`
+      : "/sign-in?desktop=1";
+
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-10">
       <SignIn
         path="/sign-in"
         routing="path"
-        signUpForceRedirectUrl={desktop ? "/sign-in?desktop=1" : "/"}
-        forceRedirectUrl={desktop ? "/sign-in?desktop=1" : "/"}
+        signUpForceRedirectUrl={redirectTarget}
+        forceRedirectUrl={redirectTarget}
       />
     </main>
   );

@@ -1,51 +1,151 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::time::{Duration, Instant};
+
 use tauri::{
     Emitter, Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
-use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_store::StoreExt;
 
 /// Gap (px) between the character window and the chat panel.
 const CHAT_GAP: i32 = 8;
 
-/// Deep-link / token-store contract — keep in sync with DesktopAuthProvider.tsx.
-const AUTH_DEEP_LINK_SCHEME: &str = "ai.remi.desktop";
+/// Auth token-store contract — keep in sync with DesktopAuthProvider.tsx.
 const AUTH_STORE_FILE: &str = "auth.json";
 const AUTH_TOKEN_KEY: &str = "session_token";
 const AUTH_EVENT: &str = "auth-token-updated";
 
-/// Handle an `ai.remi.desktop://auth?token=…` deep link from the web sign-in
-/// flow: persist the long-lived token and notify the frontend so it can connect
-/// (or reconnect) without a restart.
-///
-/// We gate on the scheme (and the presence of a `token`) rather than the host,
-/// because the `url` crate parses the authority of non-special schemes
-/// inconsistently across platforms. Only our registered scheme reaches here.
-fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
-    if url.scheme() != AUTH_DEEP_LINK_SCHEME {
-        return;
-    }
-    let token = url
-        .query_pairs()
-        .find(|(key, _)| key == "token")
-        .map(|(_, value)| value.into_owned());
-    let Some(token) = token else {
-        return;
-    };
-    if token.is_empty() {
-        return;
-    }
+/// How long the one-shot loopback listener waits for the browser callback
+/// before giving up and freeing the port.
+const AUTH_CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
-    // Persist so the session survives restarts and cold-start-by-deep-link.
+/// Handed back to the frontend so it can open the browser sign-in page with the
+/// ephemeral loopback port and the CSRF-binding nonce.
+#[derive(serde::Serialize)]
+struct LoopbackInfo {
+    port: u16,
+    state: String,
+}
+
+/// Persist the long-lived token and notify the running frontend so it can
+/// connect (or reconnect) without a restart.
+fn store_auth_token(app: &tauri::AppHandle, token: String) {
     if let Ok(store) = app.store(AUTH_STORE_FILE) {
         store.set(AUTH_TOKEN_KEY, serde_json::Value::String(token.clone()));
         let _ = store.save();
     }
-    // Notify the running frontend for live (re)connect.
     let _ = app.emit(AUTH_EVENT, token);
+}
+
+/// Start a one-shot loopback HTTP listener for the browser sign-in hand-off
+/// (RFC 8252 §7.3 "Loopback Interface Redirection").
+///
+/// We bind an OS-assigned ephemeral port on `127.0.0.1` only and return
+/// `{port, state}` to the frontend, which opens
+/// `…/sign-in?desktop=1&port=<port>&state=<state>`. The browser then navigates
+/// to `http://127.0.0.1:<port>/callback?token=…&state=…`.
+///
+/// Security: loopback-only (never `0.0.0.0`), single-use, and time-bounded. The
+/// token is accepted only when the `state` nonce matches the one we generated
+/// (so a drive-by localhost request can't inject a token) and the token is
+/// non-empty.
+#[tauri::command]
+fn start_auth_loopback(app: tauri::AppHandle) -> Result<LoopbackInfo, String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let state = uuid::Uuid::new_v4().to_string();
+
+    let expected_state = state.clone();
+    let app_handle = app.clone();
+    // Non-blocking accept so the worker can honor the timeout and exit cleanly.
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + AUTH_CALLBACK_TIMEOUT;
+        loop {
+            if Instant::now() >= deadline {
+                break; // timed out: drop the listener, emit nothing
+            }
+            match listener.accept() {
+                Ok((mut stream, _addr)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    // The request line ("GET /callback?… HTTP/1.1") is all we need.
+                    let mut buf = [0u8; 4096];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let target = req
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or("");
+
+                    // A bare "/callback?…" has no base, so join onto a dummy one.
+                    let parsed =
+                        url::Url::parse("http://127.0.0.1").and_then(|base| base.join(target));
+
+                    let mut token: Option<String> = None;
+                    let mut got_state: Option<String> = None;
+                    if let Ok(url) = parsed {
+                        if url.path() == "/callback" {
+                            for (key, value) in url.query_pairs() {
+                                match key.as_ref() {
+                                    "token" => token = Some(value.into_owned()),
+                                    "state" => got_state = Some(value.into_owned()),
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    let ok = got_state.as_deref() == Some(expected_state.as_str())
+                        && token.as_deref().map(|t| !t.is_empty()).unwrap_or(false);
+
+                    let (status, body) = if ok {
+                        (
+                            "200 OK",
+                            "<!doctype html><meta charset=utf-8><title>Remi</title>\
+<body style=\"font-family:system-ui;text-align:center;margin-top:18vh;color:#0f172a\">\
+<h2>登录成功</h2><p>可以关闭此页面，回到 Remi 桌面端。</p></body>",
+                        )
+                    } else {
+                        (
+                            "400 Bad Request",
+                            "<!doctype html><meta charset=utf-8><title>Remi</title>\
+<body style=\"font-family:system-ui;text-align:center;margin-top:18vh;color:#0f172a\">\
+<h2>登录失败</h2><p>请回到 Remi 桌面端重新发起登录。</p></body>",
+                        )
+                    };
+
+                    // Content-Length + Connection: close lets the browser finish
+                    // rendering and lets us drop the listener immediately.
+                    let resp = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
+Content-Length: {len}\r\nConnection: close\r\n\r\n{body}",
+                        len = body.len()
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
+                    let _ = stream.flush();
+
+                    if ok {
+                        // Safe: `ok` proved `token` is Some and non-empty.
+                        store_auth_token(&app_handle, token.unwrap());
+                    }
+                    break; // single-shot: one request handled, shut down
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => break,
+            }
+        }
+        // listener dropped here → socket closed
+    });
+
+    Ok(LoopbackInfo { port, state })
 }
 
 /// Place the chat panel beside the character window, preferring the right side
@@ -147,21 +247,6 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
-            // macOS registers the custom scheme from the bundle's Info.plist
-            // (generated from tauri.conf.json); Linux/Windows need a runtime
-            // registration, and dev builds benefit from it on every platform.
-            #[cfg(any(target_os = "linux", windows, debug_assertions))]
-            {
-                let _ = app.deep_link().register_all();
-            }
-
-            let deep_link_handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    handle_auth_deep_link(&deep_link_handle, &url);
-                }
-            });
-
             let quit =
                 MenuItem::with_id(app, "quit", "Quit Remi", true, None::<&str>)?;
             let show =
@@ -199,7 +284,10 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![toggle_chat_panel])
+        .invoke_handler(tauri::generate_handler![
+            toggle_chat_panel,
+            start_auth_loopback
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Remi desktop");
 }
