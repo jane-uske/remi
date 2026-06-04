@@ -20,6 +20,7 @@ import {
 import { createWsRateLimiter, createRateLimiter } from "../../infra/rate_limiter";
 import type { ServerMessage } from "./types";
 import { handleExtApi } from "./rest_api";
+import { handleDesktopExchangeToken } from "./desktop_auth";
 
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
@@ -453,6 +454,14 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
           res.end(JSON.stringify({ error: "Invalid or expired token" }));
           return;
         }
+      }
+
+      // Desktop sign-in flow exchanges a Clerk session token for a long-lived
+      // legacy JWT. Auth is enforced inside the handler (clerk mode skips the
+      // gateway-level HTTP auth check above).
+      if (pathname === "/api/desktop/exchange-token") {
+        await handleDesktopExchangeToken(req, res);
+        return;
       }
 
       if (pathname?.startsWith("/api/ext/")) {

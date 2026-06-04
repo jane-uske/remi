@@ -1,13 +1,52 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{
-    Manager,
+    Emitter, Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_store::StoreExt;
 
 /// Gap (px) between the character window and the chat panel.
 const CHAT_GAP: i32 = 8;
+
+/// Deep-link / token-store contract — keep in sync with DesktopAuthProvider.tsx.
+const AUTH_DEEP_LINK_SCHEME: &str = "ai.remi.desktop";
+const AUTH_STORE_FILE: &str = "auth.json";
+const AUTH_TOKEN_KEY: &str = "session_token";
+const AUTH_EVENT: &str = "auth-token-updated";
+
+/// Handle an `ai.remi.desktop://auth?token=…` deep link from the web sign-in
+/// flow: persist the long-lived token and notify the frontend so it can connect
+/// (or reconnect) without a restart.
+///
+/// We gate on the scheme (and the presence of a `token`) rather than the host,
+/// because the `url` crate parses the authority of non-special schemes
+/// inconsistently across platforms. Only our registered scheme reaches here.
+fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
+    if url.scheme() != AUTH_DEEP_LINK_SCHEME {
+        return;
+    }
+    let token = url
+        .query_pairs()
+        .find(|(key, _)| key == "token")
+        .map(|(_, value)| value.into_owned());
+    let Some(token) = token else {
+        return;
+    };
+    if token.is_empty() {
+        return;
+    }
+
+    // Persist so the session survives restarts and cold-start-by-deep-link.
+    if let Ok(store) = app.store(AUTH_STORE_FILE) {
+        store.set(AUTH_TOKEN_KEY, serde_json::Value::String(token.clone()));
+        let _ = store.save();
+    }
+    // Notify the running frontend for live (re)connect.
+    let _ = app.emit(AUTH_EVENT, token);
+}
 
 /// Place the chat panel beside the character window, preferring the right side
 /// but flipping to the left when it would overflow the screen, and clamping the
@@ -78,6 +117,8 @@ fn toggle_chat_panel(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_deep_link::init())
         .on_window_event(|window, event| match event {
             // The chat window's close button should hide it, not destroy it,
             // so toggle_chat_panel can show it again later.
@@ -106,6 +147,21 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            // macOS registers the custom scheme from the bundle's Info.plist
+            // (generated from tauri.conf.json); Linux/Windows need a runtime
+            // registration, and dev builds benefit from it on every platform.
+            #[cfg(any(target_os = "linux", windows, debug_assertions))]
+            {
+                let _ = app.deep_link().register_all();
+            }
+
+            let deep_link_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    handle_auth_deep_link(&deep_link_handle, &url);
+                }
+            });
+
             let quit =
                 MenuItem::with_id(app, "quit", "Quit Remi", true, None::<&str>)?;
             let show =

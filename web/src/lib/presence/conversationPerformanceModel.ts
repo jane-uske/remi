@@ -165,7 +165,7 @@ function resolveAssistantText(
 function lastBoundary(text: string): ConversationLanguageBoundary {
   const trimmed = text.trim();
   if (!trimmed) return "none";
-  const lastChar = trimmed.at(-1) ?? "";
+  const lastChar = trimmed[trimmed.length - 1] ?? "";
   if (/[!！?？]/u.test(lastChar)) return "emphasis";
   if (/[,，、]/u.test(lastChar)) return "comma";
   if (/[.。;；:：]/u.test(lastChar)) return "terminal";

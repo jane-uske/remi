@@ -9,6 +9,14 @@ import { useRemiChat } from "@/hooks/useRemiChat";
 const DRAG_THRESHOLD = 4;
 
 export function CharacterApp() {
+  return (
+    <RemiAuthProvider>
+      <Character />
+    </RemiAuthProvider>
+  );
+}
+
+function Character() {
   const chat = useRemiChat();
   const {
     emotion,
@@ -49,43 +57,41 @@ export function CharacterApp() {
   }, []);
 
   return (
-    <RemiAuthProvider>
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "transparent",
+        position: "relative",
+        display: "flex",
+      }}
+    >
+      {/* Whole body: drag to move the window, click to toggle the chat panel */}
       <div
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onClick={handleClick}
         style={{
-          width: "100vw",
-          height: "100vh",
-          background: "transparent",
-          position: "relative",
+          flex: 1,
           display: "flex",
+          minWidth: 0,
+          minHeight: 0,
+          cursor: "grab",
         }}
       >
-        {/* Whole body: drag to move the window, click to toggle the chat panel */}
-        <div
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onClick={handleClick}
-          style={{
-            flex: 1,
-            display: "flex",
-            minWidth: 0,
-            minHeight: 0,
-            cursor: "grab",
-          }}
-        >
-          <CharacterStage
-            emotion={emotion}
-            turnState={runtimeState.turn.serverState ?? "confirmed_end"}
-            avatarIntent={avatarIntent}
-            avatarFrame={avatarFrame}
-            voiceActive={runtimeState.assistant.playbackActive}
-            busy={runtimeState.phase === "thinking"}
-            userSpeaking={runtimeState.user.speaking}
-            recording={runtimeState.user.recording}
-            lipSignalRef={lipSignalRef}
-            runtimeState={runtimeState}
-          />
-        </div>
+        <CharacterStage
+          emotion={emotion}
+          turnState={runtimeState.turn.serverState ?? "confirmed_end"}
+          avatarIntent={avatarIntent}
+          avatarFrame={avatarFrame}
+          voiceActive={runtimeState.assistant.playbackActive}
+          busy={runtimeState.phase === "thinking"}
+          userSpeaking={runtimeState.user.speaking}
+          recording={runtimeState.user.recording}
+          lipSignalRef={lipSignalRef}
+          runtimeState={runtimeState}
+        />
       </div>
-    </RemiAuthProvider>
+    </div>
   );
 }

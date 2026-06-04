@@ -28,6 +28,11 @@ export default defineConfig(({ mode }) => {
     "process.env.NEXT_PUBLIC_WS_URL": JSON.stringify(
       env.VITE_WS_URL ?? "",
     ),
+    // HTTP base of the web app, used to open the sign-in page in the browser.
+    // Falls back to the WS URL's origin when unset (see DesktopAuthProvider).
+    "process.env.NEXT_PUBLIC_WEB_URL": JSON.stringify(
+      env.VITE_WEB_URL ?? "",
+    ),
     "process.env.NEXT_PUBLIC_LIVE2D_MODEL_URL": JSON.stringify(
       env.VITE_LIVE2D_MODEL_URL ?? "",
     ),
