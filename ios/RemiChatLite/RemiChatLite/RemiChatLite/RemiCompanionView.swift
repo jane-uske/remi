@@ -9,6 +9,7 @@ struct RemiCompanionView: View {
     @StateObject private var avatarState: RemiAvatarStateStore
     @StateObject private var renderer = RemiLive2DRenderer()
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isInputFocused: Bool
     @State private var chatSheetFraction: CGFloat = 0.4
 
@@ -57,11 +58,14 @@ struct RemiCompanionView: View {
             .onTapGesture { isInputFocused = false }
         }
         .onAppear {
+            renderer.lipSyncEngine = store.lipSyncEngine
             store.start()
-            renderer.loadModel()
         }
         .onChange(of: identityKey) { _, _ in
             store.restartForIdentityChangeIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            renderer.setSceneActive(newPhase == .active)
         }
         .onDisappear { store.stop() }
     }
@@ -132,20 +136,19 @@ struct RemiCompanionView: View {
     private var backgroundLayer: some View {
         ZStack {
             LinearGradient(
-                colors: colorScheme == .dark
-                    ? [
-                        Color(red: 0.05, green: 0.07, blue: 0.10),
-                        Color(red: 0.08, green: 0.11, blue: 0.16),
-                        Color(red: 0.11, green: 0.16, blue: 0.20),
-                      ]
-                    : [
-                        Color(red: 0.95, green: 0.97, blue: 0.99),
-                        Color(red: 0.89, green: 0.93, blue: 0.97),
-                        Color(red: 0.83, green: 0.91, blue: 0.92),
-                      ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: RemiDesignTokens.backgroundStops(colorScheme),
+                startPoint: .top,
+                endPoint: .bottom
             )
+
+            // Volumetric stage light — soft depth glow centred on the avatar.
+            RadialGradient(
+                colors: [RemiDesignTokens.stageHaloColor(colorScheme), .clear],
+                center: UnitPoint(x: 0.5, y: 0.34),
+                startRadius: 8,
+                endRadius: 540
+            )
+            .blendMode(colorScheme == .dark ? .screen : .plusLighter)
         }
     }
 }
@@ -179,6 +182,8 @@ struct RemiCompanionInputBar: View {
                     .background(RemiDesignTokens.accent(colorScheme), in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("发送")
+            .accessibilityHint("发送当前输入的消息")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -209,6 +214,9 @@ struct RemiCompanionInputBar: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.42 : 1)
+        .accessibilityLabel("全双工语音")
+        .accessibilityValue(active ? "已开启" : "已关闭")
+        .accessibilityHint("开启后可随时说话，无需按住")
     }
 
     private var pushToTalkButton: some View {
@@ -239,6 +247,11 @@ struct RemiCompanionInputBar: View {
                     store.endPushToTalk()
                 }
         )
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("按住说话")
+        .accessibilityValue(active ? "录音中" : "")
+        .accessibilityHint(disabled ? "全双工开启时不可用" : "双击并按住开始录音，松开发送")
     }
 
     private func submitDraft() {

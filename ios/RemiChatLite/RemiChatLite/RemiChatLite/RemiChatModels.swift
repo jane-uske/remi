@@ -75,6 +75,15 @@ enum AvatarEmotion: String, CaseIterable {
         case .sad:     0x5c7f90
     }}
 
+    /// Human-readable emotion name for VoiceOver / accessibility.
+    var displayName: String { switch self {
+        case .neutral: "平静"
+        case .happy:   "开心"
+        case .curious: "好奇"
+        case .shy:     "害羞"
+        case .sad:     "难过"
+    }}
+
     init(rawEmotion: String) {
         self = AvatarEmotion(rawValue: rawEmotion) ?? .neutral
     }

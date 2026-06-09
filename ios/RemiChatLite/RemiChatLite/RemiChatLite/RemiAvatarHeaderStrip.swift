@@ -7,6 +7,14 @@ struct RemiAvatarHeaderStrip: View {
     let onSignOut: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
+    private var connectionText: String {
+        switch connectionPhase {
+        case .connecting: "连接中"
+        case .open:       "已连接"
+        case .closed:     "已断开"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
@@ -23,6 +31,9 @@ struct RemiAvatarHeaderStrip: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(RemiDesignTokens.primaryText(colorScheme).opacity(0.9))
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("连接状态")
+            .accessibilityValue(connectionText)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Remi")
@@ -34,6 +45,7 @@ struct RemiAvatarHeaderStrip: View {
                     .foregroundStyle(RemiDesignTokens.secondaryText(colorScheme))
                     .lineLimit(1)
             }
+            .accessibilityElement(children: .combine)
 
             Spacer(minLength: 10)
 

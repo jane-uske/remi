@@ -51,4 +51,29 @@ enum RemiDesignTokens {
             opacity: alpha
         )
     }
+
+    // MARK: - Aurora Glass surfaces
+    // Deep, dimensional scene background (night = deep space, day = dawn mist) with a
+    // soft volumetric "stage light" so the avatar reads as floating in depth.
+
+    static func backgroundStops(_ colorScheme: ColorScheme) -> [Color] {
+        colorScheme == .dark
+            ? [
+                Color(red: 0.04, green: 0.05, blue: 0.09),
+                Color(red: 0.06, green: 0.09, blue: 0.15),
+                Color(red: 0.05, green: 0.12, blue: 0.17),
+              ]
+            : [
+                Color(red: 0.97, green: 0.98, blue: 1.00),
+                Color(red: 0.90, green: 0.94, blue: 0.98),
+                Color(red: 0.85, green: 0.92, blue: 0.94),
+              ]
+    }
+
+    /// Radial halo behind the whole scene — pulls the eye to the avatar and adds depth.
+    static func stageHaloColor(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.16, green: 0.45, blue: 0.46).opacity(0.50)
+            : Color.white.opacity(0.70)
+    }
 }

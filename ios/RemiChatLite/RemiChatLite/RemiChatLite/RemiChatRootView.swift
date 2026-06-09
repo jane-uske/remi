@@ -9,10 +9,6 @@ import ClerkKitUI
 #endif
 
 struct RemiChatRootView: View {
-    #if canImport(ClerkKit)
-    @Environment(Clerk.self) private var clerk
-    #endif
-
     private let authSource = RemiRuntimeAuthSource.shared
     @StateObject private var store: RemiChatStore
 
@@ -31,13 +27,7 @@ struct RemiChatRootView: View {
     @ViewBuilder
     private var clerkAuthShell: some View {
         #if canImport(ClerkKit) && canImport(ClerkKitUI)
-        if !clerk.isLoaded {
-            loadingView
-        } else if let currentUserId = clerk.user?.id {
-            chatView(showSignOutButton: true, currentUserId: currentUserId)
-        } else {
-            AuthView(isDismissable: false)
-        }
+        RemiClerkAuthShell(store: store, onSignOut: signOut)
         #else
         unsupportedClerkView
         #endif
@@ -81,16 +71,24 @@ struct RemiChatRootView: View {
         .padding(24)
     }
 
-    private func chatView(showSignOutButton: Bool, currentUserId: String?) -> AnyView {
+    @ViewBuilder
+    private func chatView(showSignOutButton: Bool, currentUserId: String?) -> some View {
         let identityKey = currentUserId ?? "legacy-user"
-        return AnyView(
+        if showSignOutButton {
             RemiCompanionView(
                 store: store,
                 identityKey: identityKey,
-                showSignOutButton: showSignOutButton,
-                onSignOut: showSignOutButton ? signOut : nil
+                showSignOutButton: true,
+                onSignOut: signOut
             )
-        )
+        } else {
+            RemiCompanionView(
+                store: store,
+                identityKey: identityKey,
+                showSignOutButton: false,
+                onSignOut: nil
+            )
+        }
     }
 
     private func signOut() {
@@ -103,3 +101,53 @@ struct RemiChatRootView: View {
         }
     }
 }
+
+#if canImport(ClerkKit) && canImport(ClerkKitUI)
+private struct RemiClerkAuthShell: View {
+    @Environment(Clerk.self) private var clerk
+
+    @ObservedObject var store: RemiChatStore
+    let onSignOut: () -> Void
+
+    var body: some View {
+        if !clerk.isLoaded {
+            loadingView
+        } else if let currentUserId = clerk.user?.id {
+            RemiCompanionView(
+                store: store,
+                identityKey: currentUserId,
+                showSignOutButton: true,
+                onSignOut: onSignOut
+            )
+        } else {
+            AuthView(isDismissable: false)
+        }
+    }
+
+    private var loadingView: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.95, green: 0.97, blue: 0.99),
+                    Color(red: 0.89, green: 0.93, blue: 0.97),
+                    Color(red: 0.83, green: 0.91, blue: 0.92),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+
+                Text("Loading sign-in…")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(.primary.opacity(0.8))
+            }
+            .padding(24)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+    }
+}
+#endif
