@@ -14,7 +14,7 @@ import Foundation
 //   3. Static constants (pushToTalkResultTimeoutNs, etc.) must also be internal.
 //   4. The free function encodePcmAudioFrame is defined at the bottom of this file.
 
-private enum VoiceCaptureMode {
+enum VoiceCaptureMode {
     case duplex
     case pushToTalk
 }
