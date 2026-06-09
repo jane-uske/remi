@@ -11,6 +11,9 @@ struct VisemeCue {
 final class RemiLipSyncEngine {
     private(set) var mouthOpen: Float = 0
     private(set) var mouthForm: Float = 0
+    /// True while the current cue timeline is still playing (incl. a short tail).
+    /// The renderer uses this to decide when visemes should drive the mouth.
+    private(set) var isActive = false
 
     private var cues: [VisemeCue] = []
     private var timelineBaseMs: Double = 0
@@ -44,6 +47,9 @@ final class RemiLipSyncEngine {
     func sample(nowMs: Double) -> (mouthOpen: Float, mouthForm: Float) {
         let elapsed = nowMs - timelineBaseMs
         lastSampleMs = nowMs
+
+        let latestEnd = cues.reduce(0.0) { max($0, $1.startMs + $1.durationMs) }
+        isActive = !cues.isEmpty && elapsed >= -50 && elapsed <= latestEnd + 250
 
         var bestOpen: Float = 0
         var bestForm: Float = 0
@@ -79,6 +85,7 @@ final class RemiLipSyncEngine {
         mouthOpen = 0
         mouthForm = 0
         currentGenerationId = nil
+        isActive = false
     }
 
     private func nowMs() -> Double {
