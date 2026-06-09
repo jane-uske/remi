@@ -51,6 +51,10 @@ enum WatchConfig {
         return payload
     }
 
+    /// Resolve a config value from the process environment, then Info.plist.
+    /// Exposed for `WatchAuth`.
+    static func envOrPlist(_ key: String) -> String? { value(forKey: key) }
+
     private static func value(forKey key: String) -> String? {
         if let raw = ProcessInfo.processInfo.environment[key]?
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {

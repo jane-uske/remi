@@ -11,6 +11,9 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
+                        if store.historyHasMore || store.historyLoadingMore {
+                            loadEarlierRow
+                        }
                         if store.messages.isEmpty {
                             emptyState
                         }
@@ -31,12 +34,23 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom) { inputBar }
             .navigationTitle("Remi")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) { muteButton }
                 ToolbarItem(placement: .topBarTrailing) { statusDot }
             }
         }
     }
 
     // MARK: - Pieces
+
+    private var muteButton: some View {
+        Button {
+            store.ttsEnabled.toggle()
+        } label: {
+            Image(systemName: store.ttsEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .foregroundStyle(store.ttsEnabled ? .primary : .secondary)
+        }
+        .accessibilityLabel(store.ttsEnabled ? "Mute Remi's voice" : "Unmute Remi's voice")
+    }
 
     private var statusDot: some View {
         HStack(spacing: 4) {
@@ -57,6 +71,21 @@ struct ContentView: View {
         }
     }
 
+    private var loadEarlierRow: some View {
+        HStack {
+            Spacer()
+            if store.historyLoadingMore {
+                ProgressView().scaleEffect(0.7)
+            } else {
+                Button("Load earlier") { store.loadMoreHistory() }
+                    .font(.caption2)
+                    .buttonStyle(.bordered)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 6) {
             Text("Talk to Remi")
@@ -72,7 +101,7 @@ struct ContentView: View {
 
     private var statusCaption: String {
         switch store.phase {
-        case .open: return "Connected"
+        case .open: return store.authMode.isSignedIn ? "Connected · signed in" : "Connected · local"
         case .connecting: return "Connecting…"
         case .closed: return "Offline — retrying"
         }
@@ -101,6 +130,12 @@ struct ContentView: View {
                 .padding(.horizontal, 2)
             }
             HStack(spacing: 6) {
+                TextFieldLink(prompt: Text("Speak to Remi")) {
+                    Image(systemName: "mic.fill")
+                } onSubmit: { text in
+                    store.send(text)
+                }
+                .buttonStyle(.bordered)
                 TextField("Message", text: $draft)
                     .submitLabel(.send)
                     .onSubmit(sendDraft)

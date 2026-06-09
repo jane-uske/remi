@@ -7,120 +7,195 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1FF6575B31E07524301D3E7F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F38E4C5998879C5FDAD0E4 /* ContentView.swift */; };
-		32C1E26FCED647EC18A72384 /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5E6AD950C8767F4A35927ED /* WatchModels.swift */; };
-		4C6FEFF88336F49D01CA1988 /* RemiWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09F00B916C889CAADA646CD /* RemiWatchApp.swift */; };
-		609EEE80E8D8195838A2455A /* WatchChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773482CD1699E659C0CDAE04 /* WatchChatStore.swift */; };
-		7567CF4F46183965E20C7B83 /* RemiEmotionTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372028576684A97493A5DA1B /* RemiEmotionTag.swift */; };
-		7F7E5735750EA7A541F82F91 /* WatchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14EDF887B85D5368383D661A /* WatchConfig.swift */; };
-		94F6B016BB12936D66DEC38A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D48F359117BDA7FEB70F0703 /* Assets.xcassets */; };
-		AEE0EE02CE3A9135C3306124 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C93728CF493F049A1A5DFFC /* Foundation.framework */; };
+		0325F440D23ADE389E7A12F2 /* RemiComplication.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 22281E6BCC57E6657A6C0CB2 /* RemiComplication.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		110A4008F9D86AF87F1C5248 /* WatchVoicePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85DACF3E9F9CC00BD677B8FA /* WatchVoicePlayer.swift */; };
+		383A20DF6247087626502428 /* WatchAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8122D3B35AA191CFE83FBA0A /* WatchAuth.swift */; };
+		57103E086571DA89728A03ED /* WatchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25848F6B1D15FCF8BF073F7E /* WatchConfig.swift */; };
+		6630460FA498250B1787F43C /* RemiWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F825C8ED6909A78AF3446BF /* RemiWatchApp.swift */; };
+		84B7685DA0ADFE1DA0F0F3C0 /* RemiEmotionTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B20126A926D8B56A9F8A023 /* RemiEmotionTag.swift */; };
+		87C168A715FF388F552555D2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 96F626CDCE51DFAA226C5441 /* Assets.xcassets */; };
+		BAFE50C5BB6C27B8DBEE6D12 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFC52932EE833ABC2B33545F /* Foundation.framework */; };
+		C330CBE5DF516D3AA7D14882 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFC52932EE833ABC2B33545F /* Foundation.framework */; };
+		CB4B8E1F73F4CB0B8E54B91C /* RemiComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D7F20E10EB763CB61A703F4 /* RemiComplication.swift */; };
+		D35967BE2A77A9DE586EEC59 /* WatchChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 258E841AEBE9ECBB16CDC421 /* WatchChatStore.swift */; };
+		DECE9A7AFBA47A3A8E301C04 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CB01E5515FB80D42F9C4FE /* ContentView.swift */; };
+		EDA22782A49AA8EE707F4CE8 /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBB9B5F6084685F60EA51E8 /* WatchModels.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		D718AC11598CD07870E86184 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E5662514EFC0EECC20519EBB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 452A3A159E876729F9D7C656;
+			remoteInfo = RemiComplication;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A0F76264F129D931C23A4082 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0325F440D23ADE389E7A12F2 /* RemiComplication.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
-		14EDF887B85D5368383D661A /* WatchConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConfig.swift; sourceTree = "<group>"; };
-		2765E340FB9F353CD6EEE370 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		372028576684A97493A5DA1B /* RemiEmotionTag.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemiEmotionTag.swift; sourceTree = "<group>"; };
-		773482CD1699E659C0CDAE04 /* WatchChatStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchChatStore.swift; sourceTree = "<group>"; };
-		8C93728CF493F049A1A5DFFC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		A09F00B916C889CAADA646CD /* RemiWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemiWatchApp.swift; sourceTree = "<group>"; };
-		A8F38E4C5998879C5FDAD0E4 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		D48F359117BDA7FEB70F0703 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E5E6AD950C8767F4A35927ED /* WatchModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
-		F81117A09DFB631C042E746F /* RemiWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemiWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0F825C8ED6909A78AF3446BF /* RemiWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemiWatchApp.swift; sourceTree = "<group>"; };
+		12EED3BCB99E67B15E9A436B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		22281E6BCC57E6657A6C0CB2 /* RemiComplication.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RemiComplication.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		25848F6B1D15FCF8BF073F7E /* WatchConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConfig.swift; sourceTree = "<group>"; };
+		258E841AEBE9ECBB16CDC421 /* WatchChatStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchChatStore.swift; sourceTree = "<group>"; };
+		28CB01E5515FB80D42F9C4FE /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6EE604D0AE4E1416B0367ABC /* RemiWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemiWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CBB9B5F6084685F60EA51E8 /* WatchModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
+		8122D3B35AA191CFE83FBA0A /* WatchAuth.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchAuth.swift; sourceTree = "<group>"; };
+		85DACF3E9F9CC00BD677B8FA /* WatchVoicePlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchVoicePlayer.swift; sourceTree = "<group>"; };
+		8B20126A926D8B56A9F8A023 /* RemiEmotionTag.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemiEmotionTag.swift; sourceTree = "<group>"; };
+		8D7F20E10EB763CB61A703F4 /* RemiComplication.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemiComplication.swift; sourceTree = "<group>"; };
+		96F626CDCE51DFAA226C5441 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BFC52932EE833ABC2B33545F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		EFD96B1231B9726D04B42CF1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		67437B1DCA67D4A266B57055 /* Frameworks */ = {
+		3F236ED45FFE0430FC09D968 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AEE0EE02CE3A9135C3306124 /* Foundation.framework in Frameworks */,
+				C330CBE5DF516D3AA7D14882 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6828779F819EA5B92FEB2CA5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BAFE50C5BB6C27B8DBEE6D12 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		01901EDDEF07D4EA692E1662 /* watchOS */ = {
+		4816873ECB0A4EBE090B959A = {
 			isa = PBXGroup;
 			children = (
-				8C93728CF493F049A1A5DFFC /* Foundation.framework */,
+				76C62EC60F6A0B8AC3B02B0D /* Products */,
+				F9532335A67F6C0D24A4D6C5 /* Frameworks */,
+				5544B60A0DD3C92192AFD104 /* RemiWatch */,
+				967292C39FCA93C4AF77C565 /* RemiComplication */,
 			);
-			name = watchOS;
 			sourceTree = "<group>";
 		};
-		0A95ED8849CE50087D871C98 /* Frameworks */ = {
+		5544B60A0DD3C92192AFD104 /* RemiWatch */ = {
 			isa = PBXGroup;
 			children = (
-				01901EDDEF07D4EA692E1662 /* watchOS */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		300A81EDDDED54B1AC086B30 /* RemiWatch */ = {
-			isa = PBXGroup;
-			children = (
-				A8F38E4C5998879C5FDAD0E4 /* ContentView.swift */,
-				372028576684A97493A5DA1B /* RemiEmotionTag.swift */,
-				A09F00B916C889CAADA646CD /* RemiWatchApp.swift */,
-				773482CD1699E659C0CDAE04 /* WatchChatStore.swift */,
-				14EDF887B85D5368383D661A /* WatchConfig.swift */,
-				E5E6AD950C8767F4A35927ED /* WatchModels.swift */,
-				D48F359117BDA7FEB70F0703 /* Assets.xcassets */,
-				2765E340FB9F353CD6EEE370 /* Info.plist */,
+				28CB01E5515FB80D42F9C4FE /* ContentView.swift */,
+				8B20126A926D8B56A9F8A023 /* RemiEmotionTag.swift */,
+				0F825C8ED6909A78AF3446BF /* RemiWatchApp.swift */,
+				8122D3B35AA191CFE83FBA0A /* WatchAuth.swift */,
+				258E841AEBE9ECBB16CDC421 /* WatchChatStore.swift */,
+				25848F6B1D15FCF8BF073F7E /* WatchConfig.swift */,
+				7CBB9B5F6084685F60EA51E8 /* WatchModels.swift */,
+				85DACF3E9F9CC00BD677B8FA /* WatchVoicePlayer.swift */,
+				96F626CDCE51DFAA226C5441 /* Assets.xcassets */,
+				12EED3BCB99E67B15E9A436B /* Info.plist */,
 			);
 			name = RemiWatch;
 			path = RemiWatch;
 			sourceTree = "<group>";
 		};
-		8868E7CE924227EA4F063610 = {
+		76C62EC60F6A0B8AC3B02B0D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				E2A30A53A3E03BE1CCF9385E /* Products */,
-				0A95ED8849CE50087D871C98 /* Frameworks */,
-				300A81EDDDED54B1AC086B30 /* RemiWatch */,
-			);
-			sourceTree = "<group>";
-		};
-		E2A30A53A3E03BE1CCF9385E /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				F81117A09DFB631C042E746F /* RemiWatch.app */,
+				6EE604D0AE4E1416B0367ABC /* RemiWatch.app */,
+				22281E6BCC57E6657A6C0CB2 /* RemiComplication.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		84FE902A614EF49A3A7D2457 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				BFC52932EE833ABC2B33545F /* Foundation.framework */,
+			);
+			name = watchOS;
+			sourceTree = "<group>";
+		};
+		967292C39FCA93C4AF77C565 /* RemiComplication */ = {
+			isa = PBXGroup;
+			children = (
+				8D7F20E10EB763CB61A703F4 /* RemiComplication.swift */,
+				EFD96B1231B9726D04B42CF1 /* Info.plist */,
+			);
+			name = RemiComplication;
+			path = RemiComplication;
+			sourceTree = "<group>";
+		};
+		F9532335A67F6C0D24A4D6C5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				84FE902A614EF49A3A7D2457 /* watchOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F743FF4E10AC33E1DE37F01B /* RemiWatch */ = {
+		452A3A159E876729F9D7C656 /* RemiComplication */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5BB993A79FB9A03337276E2A /* Build configuration list for PBXNativeTarget "RemiWatch" */;
+			buildConfigurationList = A9651E1CAEFD9108C0A34095 /* Build configuration list for PBXNativeTarget "RemiComplication" */;
 			buildPhases = (
-				59865877F52038264C2E6E2E /* Sources */,
-				67437B1DCA67D4A266B57055 /* Frameworks */,
-				35C1D5341EB44D8EE914F73D /* Resources */,
+				0D59CDE3AE2C465668DC2935 /* Sources */,
+				3F236ED45FFE0430FC09D968 /* Frameworks */,
+				8F71981885D0F66644A7CE86 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
+			name = RemiComplication;
+			productName = RemiComplication;
+			productReference = 22281E6BCC57E6657A6C0CB2 /* RemiComplication.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		5B84E3557939A660F7219C4A /* RemiWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 98214915D19A6B2015157A43 /* Build configuration list for PBXNativeTarget "RemiWatch" */;
+			buildPhases = (
+				86513E98E3BCD1ACC795B4BC /* Sources */,
+				6828779F819EA5B92FEB2CA5 /* Frameworks */,
+				4026ACAE74268F3FDE2E999D /* Resources */,
+				A0F76264F129D931C23A4082 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F18E4E8B01999A42FEA20521 /* PBXTargetDependency */,
+			);
 			name = RemiWatch;
 			productName = RemiWatch;
-			productReference = F81117A09DFB631C042E746F /* RemiWatch.app */;
+			productReference = 6EE604D0AE4E1416B0367ABC /* RemiWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		3D287D41C42AD6B4943E6F89 /* Project object */ = {
+		E5662514EFC0EECC20519EBB /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 1600;
 			};
-			buildConfigurationList = 0FAB7525A1EC1222F1A0D11D /* Build configuration list for PBXProject "RemiWatch" */;
+			buildConfigurationList = 3D94898A0C991D2EBECCDDFF /* Build configuration list for PBXProject "RemiWatch" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -128,47 +203,200 @@
 				en,
 				Base,
 			);
-			mainGroup = 8868E7CE924227EA4F063610;
+			mainGroup = 4816873ECB0A4EBE090B959A;
 			minimizedProjectReferenceProxies = 0;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = E2A30A53A3E03BE1CCF9385E /* Products */;
+			productRefGroup = 76C62EC60F6A0B8AC3B02B0D /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F743FF4E10AC33E1DE37F01B /* RemiWatch */,
+				5B84E3557939A660F7219C4A /* RemiWatch */,
+				452A3A159E876729F9D7C656 /* RemiComplication */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		35C1D5341EB44D8EE914F73D /* Resources */ = {
+		4026ACAE74268F3FDE2E999D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				94F6B016BB12936D66DEC38A /* Assets.xcassets in Resources */,
+				87C168A715FF388F552555D2 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F71981885D0F66644A7CE86 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		59865877F52038264C2E6E2E /* Sources */ = {
+		0D59CDE3AE2C465668DC2935 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1FF6575B31E07524301D3E7F /* ContentView.swift in Sources */,
-				7567CF4F46183965E20C7B83 /* RemiEmotionTag.swift in Sources */,
-				4C6FEFF88336F49D01CA1988 /* RemiWatchApp.swift in Sources */,
-				609EEE80E8D8195838A2455A /* WatchChatStore.swift in Sources */,
-				7F7E5735750EA7A541F82F91 /* WatchConfig.swift in Sources */,
-				32C1E26FCED647EC18A72384 /* WatchModels.swift in Sources */,
+				CB4B8E1F73F4CB0B8E54B91C /* RemiComplication.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		86513E98E3BCD1ACC795B4BC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DECE9A7AFBA47A3A8E301C04 /* ContentView.swift in Sources */,
+				84B7685DA0ADFE1DA0F0F3C0 /* RemiEmotionTag.swift in Sources */,
+				6630460FA498250B1787F43C /* RemiWatchApp.swift in Sources */,
+				383A20DF6247087626502428 /* WatchAuth.swift in Sources */,
+				D35967BE2A77A9DE586EEC59 /* WatchChatStore.swift in Sources */,
+				57103E086571DA89728A03ED /* WatchConfig.swift in Sources */,
+				EDA22782A49AA8EE707F4CE8 /* WatchModels.swift in Sources */,
+				110A4008F9D86AF87F1C5248 /* WatchVoicePlayer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		F18E4E8B01999A42FEA20521 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RemiComplication;
+			target = 452A3A159E876729F9D7C656 /* RemiComplication */;
+			targetProxy = D718AC11598CD07870E86184 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
-		43B1DA861EA7C46088A88237 /* Debug */ = {
+		00E0794A13EDF70910CC7C62 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RemiWatch/Info.plist;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = run.remi.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		21CF18FB1CD8A16420DDF54A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RemiComplication/Info.plist;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = run.remi.watch.complication;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		41EDC9053256967255A6839E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		67B8E39A242681C2987175BC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = RemiComplication/Info.plist;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = run.remi.watch.complication;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		E8DC3AC1C6164FDF6F523CA7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -231,32 +459,7 @@
 			};
 			name = Debug;
 		};
-		62AE60F1D6660DC95A7EF59C /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = RemiWatch/Info.plist;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = run.remi.watch;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Release;
-		};
-		AC13AA8221BBC37A33F4AFCA /* Debug */ = {
+		FDEEE85D3B0DF52AECEEE7C0 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -282,84 +485,37 @@
 			};
 			name = Debug;
 		};
-		FE6D3815E45493E7F99DF5C6 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0FAB7525A1EC1222F1A0D11D /* Build configuration list for PBXProject "RemiWatch" */ = {
+		3D94898A0C991D2EBECCDDFF /* Build configuration list for PBXProject "RemiWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				43B1DA861EA7C46088A88237 /* Debug */,
-				FE6D3815E45493E7F99DF5C6 /* Release */,
+				E8DC3AC1C6164FDF6F523CA7 /* Debug */,
+				41EDC9053256967255A6839E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		5BB993A79FB9A03337276E2A /* Build configuration list for PBXNativeTarget "RemiWatch" */ = {
+		98214915D19A6B2015157A43 /* Build configuration list for PBXNativeTarget "RemiWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				62AE60F1D6660DC95A7EF59C /* Release */,
-				AC13AA8221BBC37A33F4AFCA /* Debug */,
+				00E0794A13EDF70910CC7C62 /* Release */,
+				FDEEE85D3B0DF52AECEEE7C0 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A9651E1CAEFD9108C0A34095 /* Build configuration list for PBXNativeTarget "RemiComplication" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				21CF18FB1CD8A16420DDF54A /* Release */,
+				67B8E39A242681C2987175BC /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 3D287D41C42AD6B4943E6F89 /* Project object */;
+	rootObject = E5662514EFC0EECC20519EBB /* Project object */;
 }

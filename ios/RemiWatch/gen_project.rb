@@ -64,6 +64,49 @@ target.build_configurations.each do |config|
   end
 end
 
+# --- Watch-face complication (WidgetKit app-extension target) ---------------
+COMPLICATION_DIR = File.join(ROOT, "RemiComplication")
+ext = project.new_target(:app_extension, "RemiComplication", :watchos, "10.0")
+ext_group = project.new_group("RemiComplication", "RemiComplication")
+complication_files = Dir.glob(File.join(COMPLICATION_DIR, "*.swift")).sort
+complication_files.each do |path|
+  ext.add_file_references([ext_group.new_reference(path)])
+end
+ext_group.new_reference(File.join(COMPLICATION_DIR, "Info.plist"))
+
+ext_common = {
+  "PRODUCT_NAME"              => "$(TARGET_NAME)",
+  "PRODUCT_BUNDLE_IDENTIFIER" => "#{BUNDLE_ID}.complication",
+  "SDKROOT"                   => "watchos",
+  "TARGETED_DEVICE_FAMILY"    => "4",
+  "WATCHOS_DEPLOYMENT_TARGET" => "10.0",
+  "SWIFT_VERSION"             => "5.0",
+  "GENERATE_INFOPLIST_FILE"   => "NO",
+  "INFOPLIST_FILE"            => "RemiComplication/Info.plist",
+  "CODE_SIGN_STYLE"           => "Automatic",
+  "CODE_SIGNING_REQUIRED"     => "NO",
+  "CODE_SIGNING_ALLOWED"      => "NO",
+  "MARKETING_VERSION"         => "1.0",
+  "CURRENT_PROJECT_VERSION"   => "1",
+  "SKIP_INSTALL"              => "YES",
+  "SWIFT_EMIT_LOC_STRINGS"    => "YES",
+}
+ext.build_configurations.each do |config|
+  config.build_settings.merge!(ext_common)
+  if config.name == "Debug"
+    config.build_settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "DEBUG"
+    config.build_settings["SWIFT_OPTIMIZATION_LEVEL"] = "-Onone"
+  end
+end
+
+# Embed the extension into the app bundle's PlugIns and depend on it.
+target.add_dependency(ext)
+embed_phase = target.new_copy_files_build_phase("Embed Foundation Extensions")
+embed_phase.symbol_dst_subfolder_spec = :plug_ins
+embed_phase.dst_path = ""
+embed_file = embed_phase.add_file_reference(ext.product_reference)
+embed_file.settings = { "ATTRIBUTES" => ["RemoveHeadersOnCopy"] }
+
 # Project-level deployment target so the watchOS SDK resolves cleanly.
 project.build_configurations.each do |config|
   config.build_settings["WATCHOS_DEPLOYMENT_TARGET"] = "10.0"
@@ -78,4 +121,5 @@ scheme.set_launch_target(target)
 scheme.save_as(PROJ_PATH, "RemiWatch", true)
 
 puts "Generated #{PROJ_PATH}"
-puts "Sources: #{swift_files.map { |f| File.basename(f) }.join(", ")}"
+puts "App sources: #{swift_files.map { |f| File.basename(f) }.join(", ")}"
+puts "Complication sources: #{complication_files.map { |f| File.basename(f) }.join(", ")}"

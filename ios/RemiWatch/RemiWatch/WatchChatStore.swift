@@ -14,6 +14,23 @@ final class WatchChatStore: ObservableObject {
     @Published private(set) var phase: WatchConnectionPhase = .closed
     @Published private(set) var emotion: String = "neutral"
     @Published private(set) var awaitingReply = false
+    @Published private(set) var historyHasMore = false
+    @Published private(set) var historyLoadingMore = false
+    @Published var ttsEnabled = true {
+        didSet { voicePlayer.enabled = ttsEnabled }
+    }
+    @Published private(set) var authMode: WatchAuthMode = .none
+
+    enum WatchAuthMode: String {
+        case bearer   // Clerk session token (or legacy JWT)
+        case devKey   // local X-Remi-Mobile-Key
+        case none     // unauthenticated — relies on gateway loopback bypass
+
+        var isSignedIn: Bool { self == .bearer }
+    }
+
+    private var historyCursor: WatchHistoryCursor?
+    private let voicePlayer = WatchVoicePlayer()
 
     private var socket: URLSessionWebSocketTask?
     private var shouldReconnect = false
@@ -65,12 +82,14 @@ final class WatchChatStore: ObservableObject {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         didSendClientContext = false
+        voicePlayer.stopAll()
         phase = .closed
     }
 
     func send(_ rawText: String) {
         let content = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
+        voicePlayer.stopAll()  // barge-in: cut any TTS still playing from the last turn
         appendMessage(WatchChatMessage(role: .user, text: content))
         awaitingReply = true
         sendPayload(["type": "chat", "content": content])
@@ -87,9 +106,17 @@ final class WatchChatStore: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        if let key = WatchConfig.mobileDevKey {
+        // Auth precedence: Clerk/JWT bearer token > local dev-key > none (loopback bypass).
+        if let token = WatchAuth.bearerToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            authMode = .bearer
+        } else if let key = WatchConfig.mobileDevKey {
             request.setValue(key, forHTTPHeaderField: "X-Remi-Mobile-Key")
+            authMode = .devKey
+        } else {
+            authMode = .none
         }
+        Self.log.notice("ws connect auth=\(self.authMode.rawValue, privacy: .public)")
 
         phase = .connecting
         didSendClientContext = false
@@ -140,10 +167,57 @@ final class WatchChatStore: ObservableObject {
             awaitingReply = false
         case .emotion(let emo):
             emotion = emo
+        case .voice(let audioBase64, _):
+            if let data = Data(base64Encoded: audioBase64) {
+                voicePlayer.enqueue(data)
+            }
+        case .historyPage(let mode, let pageMessages, let cursor, let hasMore):
+            applyHistory(mode: mode, pageMessages: pageMessages, cursor: cursor, hasMore: hasMore)
         case .error(let text):
             appendMessage(WatchChatMessage(role: .system, text: text))
             awaitingReply = false
         }
+    }
+
+    // MARK: - History
+
+    func loadMoreHistory() {
+        guard !historyLoadingMore, historyHasMore, let cursor = historyCursor else { return }
+        historyLoadingMore = true
+        sendPayload(["type": "history_more", "cursor": ["id": cursor.id, "createdAt": cursor.createdAt]])
+    }
+
+    private func applyHistory(
+        mode: WatchHistoryMode,
+        pageMessages: [WatchHistoryMessage],
+        cursor: WatchHistoryCursor?,
+        hasMore: Bool
+    ) {
+        let mapped: [WatchChatMessage] = pageMessages.compactMap { hm in
+            let text = hm.role == .remi
+                ? displayText(forRaw: hm.text).trimmingCharacters(in: .whitespacesAndNewlines)
+                : hm.text
+            guard !text.isEmpty else { return nil }
+            return WatchChatMessage(id: hm.id, role: hm.role, text: text)
+        }
+        switch mode {
+        case .replace:
+            // Server history is the source of truth at connect time. Preserve any
+            // locally-appended messages that the page doesn't already contain
+            // (e.g. a message the user sent before history arrived).
+            let historyIds = Set(mapped.map(\.id))
+            let localExtras = messages.filter { $0.role != .system && !historyIds.contains($0.id) }
+            messages = mapped + localExtras
+        case .prepend:
+            let existingIds = Set(messages.map(\.id))
+            let older = mapped.filter { !existingIds.contains($0.id) }
+            messages.insert(contentsOf: older, at: 0)
+        }
+        historyCursor = cursor
+        historyHasMore = hasMore && cursor != nil
+        historyLoadingMore = false
+        trim()
+        Self.log.notice("history \(String(describing: mode), privacy: .public): +\(mapped.count) -> total \(self.messages.count), hasMore=\(self.historyHasMore)")
     }
 
     private func handleFailure(_ error: Error) {
@@ -151,6 +225,7 @@ final class WatchChatStore: ObservableObject {
         phase = .closed
         didSendClientContext = false
         awaitingReply = false
+        historyLoadingMore = false
         keepAliveTask?.cancel(); keepAliveTask = nil
         socket = nil
         streamingMessageByGeneration.removeAll()
