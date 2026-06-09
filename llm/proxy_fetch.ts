@@ -1,5 +1,3 @@
-import { fetch as undiciFetch, ProxyAgent } from "undici";
-
 type OpenAiFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 function resolveProxyUrl(targetUrl: string): string | undefined {
@@ -22,6 +20,7 @@ export function createProxyFetch(baseURL: string): OpenAiFetch | undefined {
   const proxyUrl = resolveProxyUrl(baseURL);
   if (!proxyUrl) return undefined;
 
+  const { fetch: undiciFetch, ProxyAgent } = require("undici") as typeof import("undici");
   const dispatcher = new ProxyAgent(proxyUrl);
   return (input: string | URL | Request, init?: RequestInit) =>
     undiciFetch(input as Parameters<typeof undiciFetch>[0], {
