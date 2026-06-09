@@ -122,4 +122,37 @@ describe("web auth identity helpers", () => {
       }
     }
   });
+
+  it("rewrites lvh.me websocket env targets on the public host", () => {
+    const previousWindow = global.window;
+    const previousWsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    global.window = {
+      location: {
+        protocol: "https:",
+        hostname: "ai.remi.run",
+        host: "ai.remi.run",
+        port: "",
+        href: "https://ai.remi.run/",
+        search: "",
+      },
+    };
+    process.env.NEXT_PUBLIC_WS_URL = "ws://lvh.me:3000/ws";
+
+    try {
+      expect(getRemWsUrl()).to.equal(
+        "wss://ai.remi.run/ws?client=web&tts_transport=pcm_stream_v1",
+      );
+    } finally {
+      if (previousWindow === undefined) {
+        delete global.window;
+      } else {
+        global.window = previousWindow;
+      }
+      if (previousWsUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_WS_URL;
+      } else {
+        process.env.NEXT_PUBLIC_WS_URL = previousWsUrl;
+      }
+    }
+  });
 });

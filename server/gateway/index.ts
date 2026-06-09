@@ -323,24 +323,54 @@ function hasValidWsAuth(req: IncomingMessage): boolean {
 
 function isLoopbackAddress(address: string | undefined): boolean {
   if (!address) return false;
-  const normalized = address.trim().toLowerCase();
+  const normalized = address.trim().toLowerCase().replace(/^::ffff:/, "");
   return (
     normalized === "::1" ||
-    normalized === "127.0.0.1" ||
-    normalized === "::ffff:127.0.0.1"
+    normalized === "127.0.0.1"
   );
 }
 
-function requestHost(req: IncomingMessage): string {
-  const host = req.headers.host;
-  if (typeof host !== "string" || host.trim() === "") return "";
-  return host.split(":")[0].trim().toLowerCase();
+function isDockerBridgeAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.trim().toLowerCase().replace(/^::ffff:/, "");
+  const parts = normalized.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false;
+  const [a, b, c, d] = parts;
+  if ([a, b, c, d].some((part) => part < 0 || part > 255)) return false;
+  return a === 172 && b >= 16 && b <= 31;
+}
+
+function normalizeRequestHost(hostHeader: string | undefined): string {
+  if (typeof hostHeader !== "string" || hostHeader.trim() === "") return "";
+  const trimmed = hostHeader.trim().toLowerCase();
+  if (trimmed.startsWith("[")) {
+    const end = trimmed.indexOf("]");
+    return end >= 0 ? trimmed.slice(1, end) : trimmed;
+  }
+  return trimmed.split(":")[0];
+}
+
+function isLoopbackHostname(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "lvh.me" ||
+    host.endsWith(".lvh.me")
+  );
+}
+
+export function isLocalLoopbackRequestParts(
+  hostHeader: string | undefined,
+  remoteAddress: string | undefined,
+): boolean {
+  const host = normalizeRequestHost(hostHeader);
+  if (!isLoopbackHostname(host)) return false;
+  return isLoopbackAddress(remoteAddress) || isDockerBridgeAddress(remoteAddress);
 }
 
 function isLocalLoopbackRequest(req: IncomingMessage): boolean {
-  const host = requestHost(req);
-  if (host !== "localhost" && host !== "127.0.0.1") return false;
-  return isLoopbackAddress(req.socket.remoteAddress);
+  return isLocalLoopbackRequestParts(req.headers.host, req.socket.remoteAddress);
 }
 
 function canBypassLoopbackAuth(req: IncomingMessage): boolean {
