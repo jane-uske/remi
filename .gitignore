@@ -1,6 +1,9 @@
 /dist
 /node_modules
 /web/node_modules
+/desktop/node_modules
+/web/.node_modules-*
+/web/node_modules.partial.*
 /web/.next
 /web/.next-dev
 .env

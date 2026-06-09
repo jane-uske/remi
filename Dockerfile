@@ -3,7 +3,7 @@ FROM node:20-alpine AS backend-build
 WORKDIR /app
 COPY package*.json ./
 COPY web/package.json ./web/package.json
-RUN npm ci
+RUN npm ci --registry=https://registry.npmjs.org/ --replace-registry-host=always --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --fetch-timeout=300000
 COPY tsconfig.json ./
 COPY server/ ./server/
 COPY agents/ ./agents/
@@ -20,7 +20,7 @@ COPY avatar/ ./avatar/
 COPY storage/ ./storage/
 COPY infra/ ./infra/
 COPY persona/ ./persona/
-COPY runtime/ ./runtime/
+COPY plugin/ ./plugin/
 RUN npx tsc
 
 # Stage 2: Build frontend
@@ -44,10 +44,9 @@ ENV NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT=$NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTR
 ENV NEXT_PUBLIC_REM_DEVTOOLS=$NEXT_PUBLIC_REM_DEVTOOLS
 COPY package*.json ./
 COPY web/package.json ./web/package.json
-RUN npm ci
+RUN npm ci --registry=https://registry.npmjs.org/ --replace-registry-host=always --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --fetch-timeout=300000
 COPY web/ ./web/
 COPY avatar/ ./avatar/
-COPY runtime/ ./runtime/
 RUN npm run build --prefix web
 
 # Stage 3: Production
@@ -55,7 +54,7 @@ FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 COPY web/package.json ./web/package.json
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --registry=https://registry.npmjs.org/ --replace-registry-host=always --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --fetch-timeout=300000
 RUN apk add --no-cache ffmpeg
 COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/web/.next ./web/.next
