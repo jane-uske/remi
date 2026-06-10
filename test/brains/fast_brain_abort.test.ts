@@ -42,6 +42,7 @@ describe("fast_brain abort handling", () => {
     base_url: process.env.base_url,
     model: process.env.model,
     REMI_LOCAL_LLM_ENABLED: process.env.REMI_LOCAL_LLM_ENABLED,
+    REMI_LLM_MODEL: process.env.REMI_LLM_MODEL,
     REMI_FAST_BRAIN_MODEL: process.env.REMI_FAST_BRAIN_MODEL,
     REMI_FAST_BRAIN_REASONING_EFFORT: process.env.REMI_FAST_BRAIN_REASONING_EFFORT,
   };
@@ -51,6 +52,7 @@ describe("fast_brain abort handling", () => {
     process.env.base_url = "http://localhost:11434/v1";
     process.env.model = "test-model";
     delete process.env.REMI_LOCAL_LLM_ENABLED;
+    delete process.env.REMI_LLM_MODEL;
     delete process.env.REMI_FAST_BRAIN_MODEL;
   });
 
@@ -68,6 +70,12 @@ describe("fast_brain abort handling", () => {
       delete process.env.REMI_LOCAL_LLM_ENABLED;
     } else {
       process.env.REMI_LOCAL_LLM_ENABLED = originalEnv.REMI_LOCAL_LLM_ENABLED;
+    }
+
+    if (originalEnv.REMI_LLM_MODEL === undefined) {
+      delete process.env.REMI_LLM_MODEL;
+    } else {
+      process.env.REMI_LLM_MODEL = originalEnv.REMI_LLM_MODEL;
     }
 
     if (originalEnv.REMI_FAST_BRAIN_MODEL === undefined) {
@@ -251,7 +259,40 @@ describe("fast_brain abort handling", () => {
         assert.deepEqual(chunks, ["ok"]);
       },
     );
-    assert.deepEqual(seenOptions, { reasoningEffort: "minimal", model: "test-model" });
+    assert.deepEqual(seenOptions, { reasoningEffort: "minimal" });
+  });
+
+  it("does not let the legacy shared model override canonical LLM config", async () => {
+    process.env.model = "legacy-shared-model";
+    process.env.REMI_LLM_MODEL = "canonical-shared-model";
+    let seenOptions = null;
+    await withMockedQwenClient(
+      {
+        async *streamTokens(_, __, ___, options) {
+          seenOptions = options;
+          yield "ok";
+        },
+        async complete() {
+          return "";
+        },
+        async completeWithOptions() {
+          return "";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你好",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+        })) {
+          chunks.push(token);
+        }
+        assert.deepEqual(chunks, ["ok"]);
+      },
+    );
+    assert.deepEqual(seenOptions, {});
   });
 
   it("prefers REMI_FAST_BRAIN_MODEL over the shared model", async () => {

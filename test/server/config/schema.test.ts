@@ -73,4 +73,12 @@ describe("server/config", () => {
     delete process.env.REMI_FAMILY_MEMORY_SERVICE_URL;
     delete process.env.REMI_FAMILY_MEMORY_AI_TOKEN;
   });
+
+  it("parses optional LLM thinking mode", () => {
+    process.env.REMI_LLM_THINKING = "disabled";
+    resetConfig();
+    const cfg = getConfig();
+    assert.equal(cfg.REMI_LLM_THINKING, "disabled");
+    delete process.env.REMI_LLM_THINKING;
+  });
 });

@@ -37,16 +37,20 @@ export class EmotionTagParser {
           this.tagContent = "";
         } else {
           // Tag close not yet in buffer — might be split across chunks
-          // Keep buffering, but if buffer is too long it's probably not a real tag
-          if (this.buffer.length > 50) {
+          const partialCloseIdx = this.findPartialTagClose(this.buffer);
+          const completePart =
+            partialCloseIdx >= 0 ? this.buffer.slice(0, partialCloseIdx) : this.buffer;
+          const pendingPart = partialCloseIdx >= 0 ? this.buffer.slice(partialCloseIdx) : "";
+          this.tagContent += completePart;
+          this.buffer = pendingPart;
+
+          // Keep buffering, but if content is too long it's probably not a real tag.
+          if (this.tagContent.length + this.buffer.length > 50) {
             // False positive — flush as regular text
             cleanText += TAG_OPEN + this.tagContent + this.buffer;
             this.buffer = "";
             this.tagContent = "";
             this.tagStarted = false;
-          } else {
-            this.tagContent += this.buffer;
-            this.buffer = "";
           }
           break;
         }
@@ -98,6 +102,17 @@ export class EmotionTagParser {
     for (let i = Math.max(0, text.length - TAG_OPEN.length + 1); i < text.length; i++) {
       const tail = text.slice(i);
       if (TAG_OPEN.startsWith(tail)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private findPartialTagClose(text: string): number {
+    // Check if end of text could be start of "</emotion>"
+    for (let i = Math.max(0, text.length - TAG_CLOSE.length + 1); i < text.length; i++) {
+      const tail = text.slice(i);
+      if (TAG_CLOSE.startsWith(tail)) {
         return i;
       }
     }
