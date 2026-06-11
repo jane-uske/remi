@@ -258,11 +258,12 @@ remi/
 ├── agents/
 │   └── conversation_agent.ts  # 对话 Agent 门面
 ├── brains/
-│   ├── brain_router.ts        # 双脑路由（情绪 + 记忆 + 快慢脑调度）
-│   ├── fast_brain.ts          # 快脑：低延迟流式 LLM 回复
-│   ├── slow_brain.ts          # 慢脑：后台对话分析与长期上下文
-│   ├── slow_brain_store.ts    # SlowBrainStore（每连接实例）
-│   └── rem_session_context.ts # C1：每连接情绪 + 慢脑 + 历史 + 会话记忆
+│   ├── context_orchestrator.ts    # 上下文编排（情绪 + 记忆 + 快慢路径调度，原 brain_router）
+│   ├── reply_stream.ts            # 低延迟流式 LLM 回复（原 fast_brain）
+│   ├── background_analysis.ts     # 后台对话分析与长期上下文（原 slow_brain）
+│   ├── background_analysis_store.ts # 分析结果存储（每连接实例）
+│   ├── proactive_planner.ts       # V2 主动策略规划
+│   └── remi_session_context.ts    # 每连接情绪 + 后台分析 + 历史 + 会话记忆
 ├── brain/
 │   ├── personality.ts         # Remi 人设定义
 │   ├── character_rules.ts     # 说话风格规则
@@ -270,7 +271,7 @@ remi/
 ├── llm/
 │   └── qwen_client.ts         # OpenAI 兼容流式 LLM 客户端
 ├── memory/
-│   ├── memory_agent.ts        # 记忆提取（正则匹配 + 慢脑二次提取）
+│   ├── memory_agent.ts        # 记忆召回（episode store 主路径 + 向量补充两层）
 │   ├── memory_store.ts        # 内存 KV 记忆存储（InMemoryRepository）
 │   ├── session_memory_overlay.ts # 会话内本地优先 overlay：启动预加载 + 异步写回持久层
 │   ├── memory_repository.ts   # MemoryRepository 接口定义

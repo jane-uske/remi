@@ -12,23 +12,21 @@
 
 ---
 
-## ⚠️ 前置：结构性止血（Phase 0）
+## ✅ 结构性止血（Phase 0 + Phase 1）— 已完成（2026-06-11 按实际代码核对）
 
-**在继续主线前，必须先完成结构性技术债修复。详见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)。**
+**七项结构性技术债已全部落地，本节仅作记录。详见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)。**
 
-不修这些问题，主线（在场感体验）的每次迭代都会因为缺测试、记忆不可靠、人格约束力弱而反复返工。
-
-| ID | Task | Status | Priority |
+| ID | Task | Status | 代码证据 |
 |---|---|---|---|
-| `SD-01` | 环境变量治理（zod schema + 统一命名 + .env.minimal） | `todo` | Phase 0 |
-| `SD-02` | 数据库迁移系统（node-pg-migrate） | `todo` | Phase 0 |
-| `SD-03` | "双脑"命名重构 → context_orchestrator/reply_stream/background_analysis | `todo` | Phase 0 |
-| `SD-04` | 记忆系统收敛（6层→2层，regex→LLM结构化提取） | `todo` | Phase 1 |
-| `SD-05` | 情绪引擎替换（关键词→LLM自标注） | `todo` | Phase 1 |
-| `SD-06` | 人格深度增强（一句话→结构化persona） | `todo` | Phase 1 |
-| `SD-07` | useRemiChat.ts 拆分（2044行→5个子hook+组合层） | `todo` | Phase 1 |
+| `SD-01` | 环境变量治理（zod schema + 统一命名 + .env.minimal） | `done` | `server/config/schema.ts`、`.env.minimal` |
+| `SD-02` | 数据库迁移系统（node-pg-migrate） | `done` | `migrations/`、`npm run migrate:up` |
+| `SD-03` | "双脑"命名重构 → context_orchestrator/reply_stream/background_analysis | `done` | `brains/` 下旧文件名已不存在 |
+| `SD-04` | 记忆系统收敛（6层→2层） | `done` | `memory/memory_agent.ts`（episode store 主路径 + vector supplement 两层，291 行） |
+| `SD-05` | 情绪引擎替换（关键词→LLM自标注） | `done` | `brain/prompt_builder.ts` `<emotion>` 指令 + `utils/emotion_tag_parser.ts`；流式跨 chunk 闭合标签 bug 已于 2026-06-11 修复（`35a174bc`）并经真实链路验证（11 轮 0 泄漏，情绪通道与内容一致） |
+| `SD-06` | 人格深度增强（一句话→结构化persona） | `done` | `persona/`（index/presets/remi_default/style_override） |
+| `SD-07` | useRemiChat.ts 拆分（2044行→子hook+组合层） | `done` | `web/src/hooks/` 拆为 connection/messages/voice/avatar/protocol/turn 等子 hook，主 hook ~500 行 |
 
-**执行规则：SD-01/02/03 完成后，再开始 SD-04~07。SD-04~07 全部完成后，再回到下方主线。**
+注意：`done` 指"代码已落地且主路径在用"，不代表各项的体验指标已最优。遗留小尾巴记在各模块 MODULE.md / STRUCTURAL_DEBT.md 内。
 
 ---
 
