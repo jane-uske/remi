@@ -25,27 +25,29 @@ export class EmotionTagParser {
 
     while (this.buffer.length > 0) {
       if (this.tagStarted) {
-        const closeIdx = this.buffer.indexOf(TAG_CLOSE);
+        // TAG_CLOSE itself is usually split across streamed tokens ("</" +
+        // "emotion" + ">"), so search the accumulated content, not just the
+        // freshly arrived chunk.
+        const combined = this.tagContent + this.buffer;
+        const closeIdx = combined.indexOf(TAG_CLOSE);
         if (closeIdx >= 0) {
-          this.tagContent += this.buffer.slice(0, closeIdx);
-          this.buffer = this.buffer.slice(closeIdx + TAG_CLOSE.length);
-          this.tagStarted = false;
-          const candidate = this.tagContent.trim().toLowerCase();
+          const candidate = combined.slice(0, closeIdx).trim().toLowerCase();
           if (isValidEmotion(candidate)) {
             this.detectedEmotion = candidate;
           }
+          this.buffer = combined.slice(closeIdx + TAG_CLOSE.length);
+          this.tagStarted = false;
           this.tagContent = "";
         } else {
-          // Tag close not yet in buffer — might be split across chunks
-          // Keep buffering, but if buffer is too long it's probably not a real tag
-          if (this.buffer.length > 50) {
-            // False positive — flush as regular text
-            cleanText += TAG_OPEN + this.tagContent + this.buffer;
+          // Tag close not seen yet — keep buffering, but a real tag body is
+          // short; past 50 chars it's almost certainly a false positive
+          if (combined.length > 50) {
+            cleanText += TAG_OPEN + combined;
             this.buffer = "";
             this.tagContent = "";
             this.tagStarted = false;
           } else {
-            this.tagContent += this.buffer;
+            this.tagContent = combined;
             this.buffer = "";
           }
           break;
