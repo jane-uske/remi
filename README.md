@@ -6,7 +6,7 @@ Remi 的终极目标不是做一个“功能更多的聊天机器人”，而是
 
 - 像真人对话：能听、能停顿、能接话、能被打断、能顺着语境自然回应
 - 像持续存在的人：有人格稳定性、有长期记忆、有关系感，越聊越像“她”
-- 像跨终端持续在线的存在：手机、电脑、网页、耳机，未来都应该能接续她的存在
+- 像跨终端持续在线的存在：手机、电脑、网页、手表，各终端用最适合自己的形态承载她的存在
 - 像真实角色在场：最好有语音、表情、3D 形象、嘴型同步和状态反馈
 - 像产品而不是 demo：低延迟、稳定、可扩展，最后真的有人愿意天天打开
 
@@ -17,66 +17,30 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 - 插件系统 / capability system
 - 直播平台接入
 - 游戏接入
-- 机器人 / IoT / 穿戴设备接入
+- 机器人 / IoT 接入
+- 穿戴设备深度整合（watchOS 已有基础，AirPods / 耳机模式待接入）
 - 特殊硬件接入
 
 这些不是当前主线程，但架构上要避免把未来扩展堵死。
 
 ## 当前主线
 
-当前主线程不是继续堆新功能，而是：
+**Web 端 10 分钟在场感体验** — 默认人格稳定 → 严肃场景承接 → Web 在场感统一 → 10 分钟压测。
 
-- **Memory V2 验证 + 读路径迁移（V2.1）**
-
-这阶段的核心任务是：
-
-- 验证 episode 写路径在真实对话里是否稳定
-- 把读路径从 V1 relationship episodes 迁到 V2 episode store
-- 让主动策略逐步基于 unresolved episodes 工作
-- 在增强关系连续性的同时，不破坏实时交互质量
-
-短版执行说明见 [CURRENT_FOCUS.md](./docs/ops/CURRENT_FOCUS.md)。
-
-## Canonical Docs
-
-启动或新 agent 接手时，只把下面这些当事实源：
-
-- [AGENTS.md](./docs/guides/AGENTS.md) — 北极星、改动边界、汇报要求
-- [CURRENT_FOCUS.md](./docs/ops/CURRENT_FOCUS.md) — 当前主线程与交付判断
-- [TASKS.md](./docs/ops/TASKS.md) — 当前执行板与并行任务
-- [TEST_MAP.md](./docs/guides/TEST_MAP.md) — 改目录后先跑什么测试
-- [PROJECT_CONTEXT.md](./docs/ops/PROJECT_CONTEXT.md) — 完整产品语境
-- [ARCHITECTURE.md](./docs/design/ARCHITECTURE.md) — 系统结构总览
-- [PIPELINE.md](./docs/design/PIPELINE.md) — 实时链路与状态流转
-- [MEMORY_V2_DESIGN.md](./docs/design/MEMORY_V2_DESIGN.md) — Memory V2 设计
-- [VOICE_ROADMAP.md](./docs/design/VOICE_ROADMAP.md) — 语音路线图
-
-其他历史、运维、评测和参考文档已下沉到 `docs/`：
-
-- `docs/archive/` — 历史入口、阶段性优化记录
-- `docs/design/` — 架构、管线、设计方案
-- `docs/guides/` — 插件开发、Agent 使用、测试地图
-- `docs/ops/` — 任务执行、当前焦点、远程开发操作手册
-- `docs/evals/` — 手工测试与对话样例
-- `docs/reference/` — 参考设计文档
-
-高风险目录内额外补了 `MODULE.md`，用于说明职责、禁区、热点文件和必跑测试：
-
-- `server/session/MODULE.md`
-- `brains/MODULE.md`
-- `memory/MODULE.md`
-- `web/src/hooks/MODULE.md`
+详见 [CLAUDE.md](./CLAUDE.md)（开发入口）和 [TASKS.md](./docs/ops/TASKS.md)（执行看板）。
 
 ## 核心功能
 
 - **自然语言对话** — 双脑架构（Fast Brain 低延迟流式回复 + Slow Brain 后台深度分析），支持多轮上下文
 - **用户记忆** — 从对话中自动提取用户信息（姓名、城市、职业、偏好等），支持长期关系连续性
 - **关系层 / Memory V2** — episode store、向量召回、主动策略规划主路径已接通；当前处于观察期与补验收证据阶段
-- **情绪系统** — 基于关键词识别用户情绪，维护 AI 情绪状态（neutral / happy / curious / shy / sad），影响回复风格
+- **情绪系统** — 基于关键词识别用户情绪，维护 AI 情绪状态（neutral / happy / curious / shy / sad / concerned / playful / thoughtful 共 8 种），影响回复风格与虚拟形象表现
 - **语音输入（STT）** — 支持 Whisper API 和 whisper-cpp，实时双工 PCM 流式传输 + VAD 语音活动检测
 - **语音输出（TTS）** — 支持 Edge TTS / Piper / OpenAI TTS / 火山 TTS，逐句流式合成
-- **虚拟形象** — VRM 三维角色（Three.js）+ 情绪驱动；旧版含 SVG 表情头像
+- **虚拟形象** — VRM 三维角色（Three.js）+ Live2D（Pixi.js）+ 情绪驱动；iOS 含 Metal 渲染骨架
 - **实时通信** — WebSocket 全双工通信，支持打断控制、流式 token 推送、音频流传输
+- **多端客户端** — Web（Next.js）、Desktop（Tauri v2 透明悬浮窗）、iOS（原生 Swift）、watchOS（情绪手环）四端共享同一 WebSocket 协议
+- **watchOS 情绪手环** — 极简表情脸显示 Remi 情绪状态，PTT 语音交互 + haptic 反馈，HealthKit 主动关怀（心率异常/久坐检测），Complication 常驻表盘
 - **3D Demo** — 独立 `/demo` 路由可离线切换模型、情绪、状态和动作，便于人工验收
 - **长期扩展能力** — 目标上支持插件化 capability 接入，为直播、游戏、机器人和实体设备能力预留架构边界
 
@@ -95,6 +59,9 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 | 认证 | JWT（jsonwebtoken） |
 | 日志 | pino 结构化日志 |
 | 前端 | Next.js 15 + React 19 + Tailwind CSS v4 |
+| 桌面客户端 | Tauri v2 + React 19 + Vite 6（双窗口：透明角色 + 聊天面板） |
+| iOS 客户端 | Swift (SwiftUI)，原生 WebSocket + 语音双工 + Live2D |
+| watchOS 客户端 | Swift (SwiftUI)，情绪表情脸 + PTT 语音 + HealthKit 关怀 |
 | 前端（旧版） | 原生 HTML/CSS/JS |
 | 部署 | Docker + Docker Compose |
 
@@ -279,7 +246,7 @@ remi/
 ├── emotion/
 │   ├── emotion_engine.ts      # 情绪识别（关键词 + 标点）
 │   ├── emotion_runtime.ts     # 每连接情绪状态与强度（C1）
-│   └── emotion_state.ts       # Emotion 类型别名
+│   └── emotion_state.ts       # Emotion 类型别名（8 种情绪）
 ├── voice/
 │   ├── stt_stream.ts          # STT（Whisper API / whisper-cpp，WebM + PCM 双模式）
 │   ├── tts.ts                 # TTS（Edge / Piper / OpenAI 三后端）
@@ -313,12 +280,20 @@ remi/
 │   ├── index.ts               # Avatar 统一导出
 │   └── assets/                # SVG 表情头像（neutral/happy/curious/shy/sad）
 ├── public/                    # 旧版原生 JS 前端
-├── web/                       # Next.js 前端
+├── web/                       # Next.js 前端（npm workspace）
 │   ├── docs/                  # 前端踩坑与排障（FRONTEND_PITFALLS.md）
 │   ├── src/components/        # RemiChatApp、Remi3DAvatar、输入栏等
 │   ├── src/hooks/             # useRemiChat（WebSocket）、useAudioBase64Queue
-│   ├── src/lib/               # wsUrl、rem3d（VRM viewer）等
+│   ├── src/lib/               # wsUrl、rem3d（VRM viewer + Live2D viewer）
 │   └── src/types/             # 消息类型定义
+├── desktop/                   # Tauri v2 桌面客户端（npm workspace）
+│   ├── src/                   # React 前端（双窗口：CharacterApp + ChatPanelApp）
+│   └── src-tauri/             # Rust 后端（透明窗口 + 系统托盘 + 窗口联动）
+├── ios/                       # 原生 Swift 客户端
+│   └── RemiChatLite/          # iOS 主应用
+│       ├── RemiChatLite/      # SwiftUI 界面 + WebSocket 传输 + 语音双工 + Live2D 骨架
+│       ├── RemiWatch/         # watchOS 应用（情绪表情脸 + PTT 语音 + HealthKit）
+│       └── RemiWatchWidget/   # watchOS 表盘 Complication（WidgetKit）
 ├── Dockerfile                 # 多阶段构建
 ├── docker-compose.yml         # App + PostgreSQL + Redis
 ├── package.json
@@ -350,10 +325,14 @@ remi/
 | P2 | TTS 情绪语调适配 | **已完成** |
 | P2 | 情绪日志记录 | **已完成** |
 | P3 | Avatar 驱动协议 + 动作触发 + 控制器 | **已完成** |
-| P3 | 口型同步 | 未完成（需音素提取 + 前端 3D 渲染） |
-| P4 | JWT 认证 + 限流 | **已完成**（HTTP 限流可继续加强） |
+| P3 | 口型同步（TTS lip sync cue → Live2D/VRM） | **已完成**（服务端 viseme 生成 + Web/iOS 消费） |
+| P4 | JWT 认证 + Clerk 登录 + 限流 | **已完成** |
 | P4 | 结构化日志（pino） | **已完成** |
 | P4 | Docker 容器化部署 | **已完成** |
+| P5 | Tauri v2 桌面客户端（透明角色窗 + 聊天面板） | **已完成**（脚手架 + 双窗口联动） |
+| P5 | iOS 原生客户端（WebSocket + 语音双工 + Live2D 骨架） | **已完成**（Cubism SDK 待接入） |
+| P5 | watchOS 客户端（情绪手环：表情脸 + PTT + HealthKit） | **已完成**（代码完成，待 Xcode 建 target） |
+| P5 | watchOS Complication（WidgetKit 表盘组件） | **已完成** |
 
 ### 当前阶段判断
 
@@ -361,10 +340,11 @@ remi/
 - **Memory V1 / 关系层第一阶段**：已完成并验收
 - **Memory V2 / relationship episode store**：基础设施已完成，正在验证写路径并准备迁移读路径
 - **3D / 在场感表现层**：已有可用 MVP，但还不是最终沉浸态
+- **多端覆盖**：Web + Desktop + iOS + watchOS 四端代码已就绪，服务端已支持 `web` / `ios_lite` / `watch` 三种客户端类型自动协商
 
 如果只用一句话概括当前项目状态：
 
-**Remi 已经从“能跑通的系统原型”进入“围绕活人感持续打磨的产品原型”阶段。**
+**Remi 已经从”能跑通的系统原型”进入”围绕活人感持续打磨的产品原型”阶段，并完成了跨终端存在的基础架构。**
 
 > 主管线已拆分为 `server/gateway` / `session` / `pipeline`，多数模块已集成；细节见 [ARCHITECTURE.md](docs/design/ARCHITECTURE.md)。历史优化记录与阶段性工程日志已归档到 [docs/archive/OPTIMIZATION.md](docs/archive/OPTIMIZATION.md)。
 
