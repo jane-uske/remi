@@ -103,6 +103,19 @@
 
 ### 并行支线（不抢主线程）
 
+- [ ] **RW-P1 RemiWorld 终局线 Phase 1："她在生活"（in_progress，2026-06-12 开工）**
+  - 终局方向、硬约束与阶段定义：[REMIWORLD_NORTH_STAR.md](../design/REMIWORLD_NORTH_STAR.md)
+  - 定位：**在场感主线的空间化载体**，不是第二条主线；吃 W-PRES-01/02 大脑侧产出，复用 W-PRES-03 的语音/口型/表情零件
+  - 已有基建：RemiWorld v0.1 已可玩（`/world`：小岛/房间/庭院/记忆墙、剧本任务线、localStorage 存档、像素纹理+逐顶点AO+bloom 日落渲染、剧本状态机 6 单测）；对话接缝在 `web/src/lib/world/script.ts` 的 `ScriptUi.openDialogue`
+  - 决策记录（2026-06-12）：`RW-P1-0` VRM 用本地文件不走 CDN（缺失时体素兜底）；W-PRES-03 笔记中的 world SDK bridge 在冻结分支上**暂不合并、不依赖**，对话接入以 `web/src/hooks/useRemiChat.ts` 为接缝
+  - ✅ 已完成（2026-06-13）：`RW-P1-1` 行为调度器（`web/src/lib/world/behavior.ts`：5 行为+墙钟+路点BFS行走）/ `RW-P1-2` 注意力（task/attend/talk 三模式）/ `RW-P1-5` 打断恢复；12 单测全过（worldBehavior 6 + worldScript 6），tsc/lint/build 绿，截图验证她在书架/电脑前做事且靠近抬头
+  - ✅ `RW-P1-3a` 对话接真管线·文本流（2026-06-13）：`/world` 包 `RemiAuthProvider`、消费 `useRemiChat`（同一个 Remi/连接/记忆/人格）；开场白后 `talkToRemi`→`openLiveChat`；世界内实时对话面板（输入框+流式回复，引擎 `setChatActive` 挂起 FPS 控制让鼠标去打字）；`chat.emotion`→`actor.setEmotion`（VRM happy/sad/angry/relaxed/surprised 平滑过渡）。真机验证：连本地后端 :3000，发"你刚在做什么"→ 真实 LLM 回复带人格+记忆（提到用户的猫/昨天的杯子），行为进 talking 态。14 单测全过、tsc/lint/build 绿
+  - ✅ `RW-P1-3b` 语音口型（2026-06-13）：`engine.setLipSource(chat.lipSignalRef)` 每帧喂 actor；VRM 用 `Aa`/`Oh` 表情（viseme 优先，否则 envelope）、体素头加可缩放嘴；TTS 自动播放路径复用 `useAudioBase64Queue`。render 映射已注入验证（envelope 0.85→嘴 scale.y 6.5、oh viseme→加宽 1.54、闭合→1）。⚠️ **未在 headless 预览里看到真实 TTS 音频播放**（fresh AudioContext 已 running、userActivation 有，排除 autoplay；疑后端 Edge TTS 在该 Docker local-prod 未出声）——口型代码正确，待用户在真机/正常 dev 栈确认声音+嘴动
+  - ✅ `RW-P1-4a` 感知→大脑（2026-06-13）：世界情境注入 prompt。`web/src/hooks/useRemiChat.ts` 的 `sendText(text, situational?)` 加可选第二参 → `chat` 消息带 `situational` 字段 → `server/session/text_chat.ts`（封顶 600 字）→ `runPipeline` 的 `situationalContext` → `RouteMessageOptions` → `context_orchestrator` 前置进 `strategyHints` → reply_stream priorityContext → prompt `【你此刻的处境】`。世界端 `buildSituationalContext({activity,save})` 拼"她在做什么/用户在身边/花·灯·第几天"。验证：服务端 2 单测证明情境进 strategyHints、web 3 单测验内容、tsc(前后端)/build 绿、brains+pipeline 0 回归（失败用例 stash 对比确认为环境性既存）。⚠️ 待真机：她口头引用情境需后端跑本分支（当前 :3000 是旧 Docker 不含本改动）
+  - ✅ `RW-P1-4b` 世界事件进记忆（2026-06-13）：`world_event` WS 消息 → `server/session/world_event.ts`（纯函数 `buildWorldEventMoment` 映射 种花/点灯/回访 → `MomentInput`）→ `episodeStore.ingest()`（复用慢脑同一 episode store，语义合并去重，异步 fire-and-forget，无 DB 优雅降级）。message_router 加 `world_event` case，index.ts 加 `handleWorldEvent`（即发即忘）。客户端 `useRemiChat.sendWorldEvent` + RemiWorld 连接前缓冲补发。验证：4 服务端单测、前后端 tsc/build 绿、brains 71/9（+6 新测，失败数不变）pipeline 11/1 → 0 回归
+  - **Phase 1 全部完成**（RW-P1-1~4b）。⚠️ 真机收尾：4a/4b 的"她引用情境/回指世界记忆"需后端跑本分支（:3000 旧 Docker 不含服务端改动）。下一步＝合并/重建后端真机过四基准，或进 Phase 2（作息/离线推演/主动开场）
+  - 验收：四项活人感基准（隔天回来/打断恢复/十分钟观察/记忆回指）+ 2 分钟连续体验录屏
+
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
   - 当前状态：主链路已接通，但真实样本不足；继续围绕 `audit / hygiene` 扩工具，只会得到低信号 proxy 结论
   - 当前真实判断：
