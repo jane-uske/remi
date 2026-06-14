@@ -300,7 +300,7 @@ export function useRemiChat() {
 
   /* ── Text chat ── */
   const sendText = useCallback(
-    (text: string) => {
+    (text: string, situational?: string) => {
       const ws = conn.wsRef.current;
       const trimmed = text.trim();
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -337,7 +337,14 @@ export function useRemiChat() {
         interruptedGeneration,
         contentLength: trimmed.length,
       });
-      ws.send(JSON.stringify({ type: "chat", content: trimmed }));
+      ws.send(
+        JSON.stringify({
+          type: "chat",
+          content: trimmed,
+          // 世界情境（RW-P1-4）：仅 RemiWorld 传入，普通聊天为 undefined 不影响
+          ...(situational?.trim() ? { situational: situational.trim() } : {}),
+        }),
+      );
       waitingRef.current = true;
       setWaiting(true);
       setTyping(true);
@@ -353,6 +360,19 @@ export function useRemiChat() {
       unlockPlayback,
       voice,
     ],
+  );
+
+  /**
+   * 世界事件 → 长期记忆（RW-P1-4b）。仅 RemiWorld 调用：种花/点灯/回访等
+   * 有情感重量的动作发给后端落 episode。即发即忘，不进对话流、不显示气泡。
+   */
+  const sendWorldEvent = useCallback(
+    (event: "flower_planted" | "lantern_lit" | "revisit") => {
+      const ws = conn.wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "world_event", event }));
+    },
+    [conn.wsRef],
   );
 
   const loadMoreHistory = useCallback(() => {
@@ -486,6 +506,7 @@ export function useRemiChat() {
     currentUserId,
     wsTargetLabel,
     sendText,
+    sendWorldEvent,
     requestPersonaPreset,
     updatePersonaPreset,
     loadMoreHistory,
