@@ -93,6 +93,8 @@ export type RunPipelineOptions = {
   structuredAnalysis?: TurnAnalysisBundle | null;
   /** 打断承接提示，帮助本轮回复接住上一轮被打断的语义。 */
   carryForwardHint?: string;
+  /** 世界情境（RW-P1-4）：RemiWorld 对话时描述她所处场景，作为 ground truth 进 prompt。 */
+  situationalContext?: string;
   interruptionType?: InterruptionType;
   inputSource?: "text" | "voice";
   ttsTransport?: SessionTtsTransport;
@@ -260,7 +262,7 @@ export async function runPipeline(
     let firstTokenReceived = false;
     let firstSentenceSent = false;
 
-    const routeOptions = options?.silenceNudge
+    const baseRouteOptions = options?.silenceNudge
       ? { systemTriggered: true, traceId }
       : options?.pregeneratedReply
         ? {
@@ -284,6 +286,11 @@ export async function runPipeline(
             : {
                 traceId,
               };
+    // 世界情境与上述各分支正交，统一附加（silence nudge 不带情境）
+    const routeOptions =
+      options?.situationalContext && !options?.silenceNudge
+        ? { ...baseRouteOptions, situationalContext: options.situationalContext }
+        : baseRouteOptions;
 
     const emotionParser = new EmotionTagParser();
 

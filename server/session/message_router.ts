@@ -95,6 +95,7 @@ export function attachSessionMessageHandlers(input: {
   handlePlaybackEnd: (data?: any) => void;
   handleClientContext: (data: any) => void;
   handleChat: (data: any) => void;
+  handleWorldEvent: (data: any) => void;
 }): void {
   input.ws.on("message", (raw) => {
     const binary = parseBinaryAudioFrame(raw);
@@ -187,6 +188,9 @@ export function attachSessionMessageHandlers(input: {
         break;
       case "client_context":
         input.handleClientContext(data);
+        break;
+      case "world_event":
+        input.handleWorldEvent(data);
         break;
       default:
         input.handleChat(data);

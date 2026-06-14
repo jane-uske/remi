@@ -143,6 +143,7 @@ import {
 } from "./voice_submit";
 import { computeSessionPrediction } from "./prediction";
 import { handleSessionTextChat } from "./text_chat";
+import { handleSessionWorldEvent } from "./world_event";
 import {
   normalizeClientContextTtsTransport,
   resolveSessionTransportFromRequest,
@@ -2836,7 +2837,16 @@ export class ConnectionSession {
       handlePlaybackEnd: (data) => this.handlePlaybackEnd(data),
       handleClientContext: (data) => this.handleClientContext(data),
       handleChat: (data) => this.handleChat(data),
+      handleWorldEvent: (data) => this.handleWorldEvent(data),
     });
+  }
+
+  /** RemiWorld 世界事件 → 长期记忆（RW-P1-4b）。异步落库，不阻塞任何路径。 */
+  private handleWorldEvent(data: any): void {
+    void handleSessionWorldEvent(
+      { connId: this.connId, userId: this.storageUserId },
+      data,
+    );
   }
 
   private runDevCommand(task: Promise<void>): void {

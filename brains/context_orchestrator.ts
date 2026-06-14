@@ -294,6 +294,12 @@ export interface RouteMessageOptions {
   structuredAnalysis?: TurnAnalysisBundle | null;
   /** 打断承接提示，帮助快脑把新一轮回复接在正确的会话分支上。 */
   carryForwardHint?: string;
+  /**
+   * 世界情境（RW-P1-4）：用户在 RemiWorld 里和她对话时，描述她此刻所处的场景、
+   * 正在做的事、用户在身边、世界状态（花/灯/天数）。作为 ground truth 进 prompt，
+   * 让她"知道自己在世界里"，而不是凭空对话。
+   */
+  situationalContext?: string;
   /** 仅文本主链路启用语气 review，先不影响语音链路。 */
   inputSource?: "text" | "voice";
   /** 延迟追踪 trace id，用于把 memory/analysis 开销记到同一轮。 */
@@ -452,6 +458,7 @@ export async function* routeMessage(
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
+  const situationalContext = opts?.situationalContext?.trim();
   const slowBrainSnapshot = ctx.slowBrain.getSnapshot();
   const analysisInput = {
     userMessage,
@@ -599,6 +606,8 @@ export async function* routeMessage(
       : undefined;
   const historyForPrompt = trimHistoryToTokenBudget([...ctx.history], historyTokenBudget);
   const strategyHintsForPrompt = [
+    // 世界情境放最前，作为本轮对话的场景地基（RW-P1-4）
+    situationalContext ? `【你此刻的处境】\n${situationalContext}` : undefined,
     analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
     carryForwardHint,
   ]

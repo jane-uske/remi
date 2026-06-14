@@ -60,13 +60,18 @@ export type SessionTextChatRuntime = {
 
 export function handleSessionTextChat(
   runtime: SessionTextChatRuntime,
-  data: { content?: string | null },
+  data: { content?: string | null; situational?: string | null },
 ): void {
   const content = data.content ?? "";
   if (!content?.trim()) {
     send(runtime.ws, { type: "error", content: "消息内容为空" });
     return;
   }
+  // 世界情境（RW-P1-4）：来自 RemiWorld 客户端，封顶防滥用
+  const situationalContext =
+    typeof data.situational === "string" && data.situational.trim()
+      ? data.situational.trim().slice(0, 600)
+      : undefined;
 
   logger.info(`[用户] ${content}`, { connId: runtime.connId });
   runtime.touchUserActivity(content);
@@ -149,6 +154,7 @@ export function handleSessionTextChat(
         traceId,
         {
           carryForwardHint,
+          situationalContext,
           interruptionType: interruptionType ?? undefined,
           inputSource: "text",
           ttsTransport: runtime.getResolvedTtsTransport(),
