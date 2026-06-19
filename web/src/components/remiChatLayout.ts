@@ -20,3 +20,26 @@ export const remiChatLayoutClasses = {
   chatComposerFrame:
     "pointer-events-auto mx-auto w-full max-w-[min(100%,34rem)] shrink-0 px-0 md:max-w-none",
 } as const;
+
+const nsfwChatLayoutClasses = {
+  ...remiChatLayoutClasses,
+  mainShell:
+    "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden",
+  stageShell: "hidden",
+  chatAside:
+    "pointer-events-auto relative z-20 flex min-h-0 flex-1 flex-col gap-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+5rem)] sm:px-4 md:px-8 md:pt-24",
+  chatCard:
+    "remi-chat-shell pointer-events-auto flex h-full max-h-none min-h-0 w-full flex-col gap-2 overflow-hidden rounded-none border-transparent bg-transparent shadow-none backdrop-blur-0 md:max-h-full md:gap-0",
+  chatWindowFrame:
+    "pointer-events-auto mx-auto flex min-h-0 w-full max-w-[min(100%,42rem)] flex-1 flex-col md:max-w-[48rem]",
+  chatComposerFrame:
+    "pointer-events-auto mx-auto w-full max-w-[min(100%,42rem)] shrink-0 px-0 md:max-w-[48rem]",
+} as const;
+
+export type RemiChatLayoutClasses = {
+  [K in keyof typeof remiChatLayoutClasses]: string;
+};
+
+export function remiChatLayoutForNsfw(nsfw: boolean): RemiChatLayoutClasses {
+  return nsfw ? nsfwChatLayoutClasses : remiChatLayoutClasses;
+}

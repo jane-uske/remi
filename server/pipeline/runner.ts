@@ -26,6 +26,13 @@ import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { SessionTtsTransport } from "../session/tts_transport";
 import { getOutputGuardHooks } from "../../plugin/registry";
 import { getConfig } from "../config";
+import { isNsfwEnabled } from "../../brains/nsfw_mode";
+import {
+  containsImageMarkdown,
+  prepareTextForTtsChunking,
+  resolveTtsQueueText,
+  stripImageMarkdownForTts,
+} from "../../voice/tts_helpers";
 
 const logger = createLogger("pipeline");
 
@@ -98,6 +105,8 @@ export type RunPipelineOptions = {
   interruptionType?: InterruptionType;
   inputSource?: "text" | "voice";
   ttsTransport?: SessionTtsTransport;
+  /** Lazy DB session creator — called once before first message persist. */
+  ensureSessionId?: () => Promise<string | null>;
 };
 
 export async function runPipeline(
@@ -132,11 +141,21 @@ export async function runPipeline(
       send(ws, { type: "avatar_frame", frame });
     }
 
-    if (isDbReady() && sessionId && !options?.silenceNudge) {
+    // ── Lazy session: create DB row only when we actually persist a message ──
+    let effectiveSessionId = sessionId;
+    if (isDbReady() && !effectiveSessionId && options?.ensureSessionId && !options?.silenceNudge) {
       try {
-        await saveMessage(sessionId, "user", text);
+        effectiveSessionId = await options.ensureSessionId();
       } catch (err) {
-        logger.warn("[Storage] Failed to save user message", { error: err, sessionId });
+        logger.warn("[Storage] Lazy session creation failed", { error: err });
+      }
+    }
+
+    if (isDbReady() && effectiveSessionId && !options?.silenceNudge) {
+      try {
+        await saveMessage(effectiveSessionId, "user", text);
+      } catch (err) {
+        logger.warn("[Storage] Failed to save user message", { error: err, sessionId: effectiveSessionId });
       }
     }
 
@@ -152,9 +171,57 @@ export async function runPipeline(
     let waitResolve: (() => void) | null = null;
 
     let enqueuedSegmentCount = 0;
+    let ttsSuppressed = ctx.skipTtsThisTurn;
+    let firstAudioSent = false;
+    let thinkingFillerTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearThinkingFillerTimer = () => {
+      if (thinkingFillerTimer) {
+        clearTimeout(thinkingFillerTimer);
+        thinkingFillerTimer = null;
+      }
+    };
+
+    function suppressTts(reason: string): void {
+      if (ttsSuppressed) return;
+      ttsSuppressed = true;
+      sentenceQueue.length = 0;
+      sentenceIdx = 0;
+      clearThinkingFillerTimer();
+      logger.info("[TTS suppressed]", { connId, generationId, reason });
+      if (waitResolve) {
+        const r = waitResolve;
+        waitResolve = null;
+        r();
+      }
+    }
 
     function pushSentence(s: string, boundaryType: SentenceChunkBoundaryType) {
-      sentenceQueue.push(s);
+      if (ctx.skipTtsThisTurn) {
+        suppressTts("image_turn");
+      }
+      if (ttsSuppressed || containsImageMarkdown(s)) {
+        if (containsImageMarkdown(s)) {
+          suppressTts("image_markdown_segment");
+        }
+        return;
+      }
+      const speakablePunct = getConfig().REMI_TTS_SPEAKABLE_PUNCT;
+      const ttsText = resolveTtsQueueText(s, {
+        nsfw: isNsfwEnabled(connId),
+        speakablePunct,
+      });
+      if (!ttsText) {
+        if (isNsfwEnabled(connId)) {
+          logger.debug("[TTS segment skipped]", {
+            connId,
+            generationId,
+            reason: "nsfw_narration",
+            preview: ttsSegmentPreview(s),
+          });
+        }
+        return;
+      }
+      sentenceQueue.push(ttsText);
       enqueuedSegmentCount += 1;
       logger.debug("[TTS segment queued]", {
         connId,
@@ -162,6 +229,7 @@ export async function runPipeline(
         segmentIndex: enqueuedSegmentCount,
         boundaryType,
         chars: s.length,
+        ttsChars: ttsText.length,
         preview: ttsSegmentPreview(s),
       });
       if (waitResolve) {
@@ -183,15 +251,7 @@ export async function runPipeline(
     const onAbort = () => endProducer();
     signal.addEventListener("abort", onAbort, { once: true });
 
-    let firstAudioSent = false;
-    let thinkingFillerTimer: ReturnType<typeof setTimeout> | null = null;
-    const clearThinkingFillerTimer = () => {
-      if (thinkingFillerTimer) {
-        clearTimeout(thinkingFillerTimer);
-        thinkingFillerTimer = null;
-      }
-    };
-    if (thinkingFiller && isTtsEnabled() && !signal.aborted) {
+    if (thinkingFiller && isTtsEnabled() && !signal.aborted && !ttsSuppressed) {
         thinkingFillerTimer = setTimeout(() => {
           thinkingFillerTimer = null;
           if (signal.aborted || firstAudioSent) return;
@@ -214,7 +274,7 @@ export async function runPipeline(
 
     const ttsTask = (async () => {
       while (true) {
-        if (signal.aborted) break;
+        if (signal.aborted || ttsSuppressed) break;
 
         if (sentenceIdx < sentenceQueue.length) {
           const rawSentence = sentenceQueue[sentenceIdx++];
@@ -256,7 +316,13 @@ export async function runPipeline(
 
     // ── LLM streaming (producer) ──
 
-    const chunker = new SentenceChunker();
+    const nsfwActive = isNsfwEnabled(connId);
+    // In NSFW mode, use shorter max chunk so moaning/speech segments stay under
+    // ~3-4s of audio each — the NSFW instruct speaks slower (with breathing),
+    // and long segments cause perceptible gaps between TTS synthesis calls.
+    const chunker = new SentenceChunker(
+      nsfwActive ? { maxChunkChars: 50 } : undefined,
+    );
     chunker.setEager(true);
     let full = "";
     let firstTokenReceived = false;
@@ -317,13 +383,25 @@ export async function runPipeline(
       if (parsed.cleanText) {
         full += parsed.cleanText;
         ctx.currentAssistantDraft = full;
+        if (ctx.skipTtsThisTurn) {
+          suppressTts("image_turn");
+        }
+        if (containsImageMarkdown(full)) {
+          suppressTts("image_markdown_full");
+        }
         send(ws, { type: "chat_chunk", content: parsed.cleanText, generationId });
 
-        for (const sentence of chunker.pushDetailed(parsed.cleanText)) {
+        const chunkToken = prepareTextForTtsChunking(
+          parsed.cleanText,
+          getConfig().REMI_TTS_SPEAKABLE_PUNCT,
+        );
+        for (const sentence of chunker.pushDetailed(chunkToken)) {
           pushSentence(sentence.text, sentence.boundaryType);
           if (!firstSentenceSent) {
             firstSentenceSent = true;
-            chunker.setEager(false);
+            if (sentence.boundaryType === "hard_end") {
+              chunker.setEager(false);
+            }
           }
         }
       }
@@ -337,7 +415,11 @@ export async function runPipeline(
         full += flushed.cleanText;
         ctx.currentAssistantDraft = full;
         send(ws, { type: "chat_chunk", content: flushed.cleanText, generationId });
-        for (const sentence of chunker.pushDetailed(flushed.cleanText)) {
+        const flushedChunkToken = prepareTextForTtsChunking(
+          flushed.cleanText,
+          getConfig().REMI_TTS_SPEAKABLE_PUNCT,
+        );
+        for (const sentence of chunker.pushDetailed(flushedChunkToken)) {
           pushSentence(sentence.text, sentence.boundaryType);
         }
       }
@@ -376,6 +458,7 @@ export async function runPipeline(
       emotion: finalReplyEmotion,
       content: signal.aborted ? "[interrupted]" : undefined,
       generationId,
+      ttsPending: isTtsEnabled() && !ttsSuppressed && enqueuedSegmentCount > 0,
     });
 
     // 保存被打断的回复内容，用于后续查询「刚才说到哪了」
@@ -389,7 +472,12 @@ export async function runPipeline(
     const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
 
     for (const guard of getOutputGuardHooks()) {
-      const result = guard.review(full, { userMessage: text, persona: ctx.persona, connId });
+      const result = guard.review(full, {
+        userMessage: text,
+        persona: ctx.persona,
+        connId,
+        nsfwEnabled: isNsfwEnabled(connId),
+      });
       if (result.action === "modify") {
         full = result.modified;
       } else if (result.action === "block") {
@@ -398,11 +486,11 @@ export async function runPipeline(
       }
     }
 
-    if (isDbReady() && sessionId && full && !signal.aborted && shouldPersistAssistantReply) {
+    if (isDbReady() && effectiveSessionId && full && !signal.aborted && shouldPersistAssistantReply) {
       try {
-        await saveMessage(sessionId, "assistant", full);
+        await saveMessage(effectiveSessionId, "assistant", full);
       } catch (err) {
-        logger.warn("[Storage] Failed to save assistant message", { error: err, sessionId });
+        logger.warn("[Storage] Failed to save assistant message", { error: err, sessionId: effectiveSessionId });
       }
     }
 
@@ -464,6 +552,8 @@ export async function runPipeline(
       return;
     }
 
+    send(ws, { type: "tts_end", generationId });
+
     decayEmotion(ctx.emotion);
 
     latencyTracer.mark("tts_end", traceId);
@@ -477,6 +567,7 @@ export async function runPipeline(
     if (ctx.currentAssistantDraft !== null) {
       ctx.currentAssistantDraft = null;
     }
+    ctx.skipTtsThisTurn = false;
     ic.finish(interruptRunToken);
   }
 }
@@ -529,6 +620,11 @@ async function ttsSend(
             if (chunk.cues.length > 0 || chunk.complete) {
               sendTtsLipSync(ws, generationId, chunk);
             }
+          },
+          {
+            connId: ctx.connId,
+            generationId,
+            usage: "reply",
           },
         );
         if (!signal?.aborted) {

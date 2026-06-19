@@ -113,7 +113,9 @@
   - ✅ `RW-P1-3b` 语音口型（2026-06-13）：`engine.setLipSource(chat.lipSignalRef)` 每帧喂 actor；VRM 用 `Aa`/`Oh` 表情（viseme 优先，否则 envelope）、体素头加可缩放嘴；TTS 自动播放路径复用 `useAudioBase64Queue`。render 映射已注入验证（envelope 0.85→嘴 scale.y 6.5、oh viseme→加宽 1.54、闭合→1）。⚠️ **未在 headless 预览里看到真实 TTS 音频播放**（fresh AudioContext 已 running、userActivation 有，排除 autoplay；疑后端 Edge TTS 在该 Docker local-prod 未出声）——口型代码正确，待用户在真机/正常 dev 栈确认声音+嘴动
   - ✅ `RW-P1-4a` 感知→大脑（2026-06-13）：世界情境注入 prompt。`web/src/hooks/useRemiChat.ts` 的 `sendText(text, situational?)` 加可选第二参 → `chat` 消息带 `situational` 字段 → `server/session/text_chat.ts`（封顶 600 字）→ `runPipeline` 的 `situationalContext` → `RouteMessageOptions` → `context_orchestrator` 前置进 `strategyHints` → reply_stream priorityContext → prompt `【你此刻的处境】`。世界端 `buildSituationalContext({activity,save})` 拼"她在做什么/用户在身边/花·灯·第几天"。验证：服务端 2 单测证明情境进 strategyHints、web 3 单测验内容、tsc(前后端)/build 绿、brains+pipeline 0 回归（失败用例 stash 对比确认为环境性既存）。⚠️ 待真机：她口头引用情境需后端跑本分支（当前 :3000 是旧 Docker 不含本改动）
   - ✅ `RW-P1-4b` 世界事件进记忆（2026-06-13）：`world_event` WS 消息 → `server/session/world_event.ts`（纯函数 `buildWorldEventMoment` 映射 种花/点灯/回访 → `MomentInput`）→ `episodeStore.ingest()`（复用慢脑同一 episode store，语义合并去重，异步 fire-and-forget，无 DB 优雅降级）。message_router 加 `world_event` case，index.ts 加 `handleWorldEvent`（即发即忘）。客户端 `useRemiChat.sendWorldEvent` + RemiWorld 连接前缓冲补发。验证：4 服务端单测、前后端 tsc/build 绿、brains 71/9（+6 新测，失败数不变）pipeline 11/1 → 0 回归
-  - **Phase 1 全部完成**（RW-P1-1~4b）。⚠️ 真机收尾：4a/4b 的"她引用情境/回指世界记忆"需后端跑本分支（:3000 旧 Docker 不含服务端改动）。下一步＝合并/重建后端真机过四基准，或进 Phase 2（作息/离线推演/主动开场）
+  - **Phase 1 全部完成**（RW-P1-1~4b）。用户已验收 P1，当前已直接进入 Phase 2。
+  - ✅ `RW-P2-1/2` 时间与日常第一刀（2026-06-14）：`web/src/lib/world/worldTime.ts` 定义清晨/午后/黄昏/深夜；`scheduledBehaviorAt()` 按时间段行为池调度；HUD / prompt 情境不再固定黄昏；`WorldSave.lastSeenAt` + `buildOfflineReturnOpener()` 让离线回来后的首轮真实对话带入"你不在的时候…"。24 个 world 单测、web lint/build 绿。
+  - 下一步：`RW-P2-3` 天气 v0（本地视觉 + prompt 情境，不阻塞 fast path）或 `RW-P2-4` 主动开场白（复用 `proactive_planner` 的关系阶段/退避/冷却门控）
   - 验收：四项活人感基准（隔天回来/打断恢复/十分钟观察/记忆回指）+ 2 分钟连续体验录屏
 
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
@@ -143,8 +145,21 @@
   - 验收标准：真机按住说话能稳定出现 transcript 或最终用户气泡，并触发 assistant 回复
 
 - [ ] **T-042** Prompt / latency budget 收口
-  - 当前判断：这仍重要，但不能继续稀释“像她”的主线
+  - 当前判断：这仍重要，但不能继续稀释”像她”的主线
   - 当前边界：只做对 Web 默认体验直接有帮助的压缩和稳定性修复
+
+- [ ] **T-043** TTS 长对话中间跳过句子
+  - 现象：长回复（尤其 NSFW 模式 200+ 字）偶发跳过中间某段语音，播放从第 N 段直接跳到第 N+2 段
+  - 已排除的原因：
+    - ~~第一人称台词被 NSFW 过滤器误删~~ → 已修（`isNsfwDescriptiveNarrationClause` 长度猜测规则已移除）
+    - ~~段落换行被 `.trim()` 吞掉~~ → 已修（`normalizeSpeakablePunctForChunking` 保留 `\n`）
+    - ~~括号舞台说明被朗读~~ → 已修（NSFW 路径先跑 `stripParentheticalStageDirections`）
+  - 仍可能的原因：
+    - 客户端 `useAudioBase64Queue` 在快速连续 `voice_pcm_chunk` 时丢帧或 AudioContext 调度竞态
+    - MLX TTS 对某些段返回极短/静音 buffer（`< 0.1s`），客户端 playback lifecycle 误判为”已播完”提前触发 `playback_end`
+    - 顺序 TTS 合成的 inter-segment gap 过大（1.5-3.8s），客户端在 gap 期间判定播放结束
+  - 当前边界：不阻塞主线，待收集更多复现样本后定位
+  - 已有保护措施：`PLAYBACK_END_DEBOUNCE_MS=360ms`、`serverTtsStreaming` 标记在音频到达时立即设置
 
 ### 当前禁止并行修改的热点文件
 

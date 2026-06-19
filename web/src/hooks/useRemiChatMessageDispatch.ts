@@ -8,9 +8,13 @@ import type {
   TtsLipSyncPatch,
 } from "@/types/avatar";
 import { mergeAvatarRuntimeSnapshot, pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
-import { shouldAwaitPlaybackDrain } from "./useRemiChatTurnState";
+import {
+  shouldAwaitPlaybackDrain,
+  shouldFinalizeDeferredChatEnd,
+} from "./useRemiChatTurnState";
 import {
   isListeningFallbackText,
+  dedupeChatMessagesById,
   mergeSttPartialText,
   resolveLegacyMessageStorageKey,
   uid,
@@ -46,6 +50,7 @@ interface TurnEngineCtx {
   pendingChatEndRef: Ref<{
     generationId: number | null;
     awaitingPlaybackDrain: boolean;
+    awaitingTtsEnd: boolean;
   } | null>;
   pendingChatEndTimerRef: Ref<ReturnType<typeof setTimeout> | null>;
   sttPredictionPreviewRef: Ref<string | null>;
@@ -91,7 +96,9 @@ interface MessagesCtx {
   ) => void;
   setHistoryHasMore: (v: boolean) => void;
   setHistoryLoadingMore: (v: boolean) => void;
-  setLiveMessages: (v: ChatMessage[]) => void;
+  setLiveMessages: (
+    v: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
+  ) => void;
   appendLiveMessage: (msg: ChatMessage) => void;
   appendUserTranscript: (text: string) => void;
   markHistoryMutation: (kind: string) => void;
@@ -109,6 +116,7 @@ export interface MessageDispatchCtx {
   setTyping: (v: boolean) => void;
   setSttPartialText: (v: string | ((prev: string) => string)) => void;
   setPersonaPreset: (v: string | null) => void;
+  setNsfwEnabled: (v: boolean) => void;
 
   pendingDevCommandRef: Ref<{ kind: string; scope?: string } | null>;
   setDevStatus: (v: { tone: string; message: string }) => void;
@@ -116,6 +124,7 @@ export interface MessageDispatchCtx {
   messageStorageKey: string;
 
   voiceActive: boolean;
+  markServerTtsStreaming: (streaming: boolean) => void;
   clearQueue: () => void;
   enqueueBase64: (data: string, generationId: number | null) => void;
   enqueuePcmChunk: (
@@ -163,13 +172,20 @@ function handleHistoryPage(
 
   if (mode === "replace") {
     if (shouldAdoptServerHistory) {
-      ctx.msgs.setHistoryMessages(pageMessages);
+      const deduped = dedupeChatMessagesById(pageMessages);
+      const historyIds = new Set(deduped.map((message) => message.id));
+      ctx.msgs.setHistoryMessages(deduped);
+      ctx.msgs.setLiveMessages((live) =>
+        live.filter((message) => !historyIds.has(message.id)),
+      );
       ctx.msgs.markHistoryMutation("replace");
     }
   } else if (pageMessages.length > 0) {
     ctx.msgs.setHistoryMessages((current) => {
       const seenIds = new Set(current.map((m) => m.id));
-      const older = pageMessages.filter((m) => !seenIds.has(m.id));
+      const older = dedupeChatMessagesById(pageMessages).filter(
+        (m) => !seenIds.has(m.id),
+      );
       return older.length > 0 ? [...older, ...current] : current;
     });
     ctx.msgs.markHistoryMutation("prepend");
@@ -215,9 +231,12 @@ function handleChatEnd(
       endGenerationId != null &&
       ctx.turnEngine.playedGenerationIdsRef.current.has(endGenerationId),
   });
+  const awaitingTtsEnd = Boolean(data.ttsPending);
+  ctx.markServerTtsStreaming(awaitingTtsEnd);
   ctx.turnEngine.pendingChatEndRef.current = {
     generationId: endGenerationId,
     awaitingPlaybackDrain,
+    awaitingTtsEnd,
   };
   if (!awaitingPlaybackDrain) {
     if (ctx.turnEngine.pendingChatEndTimerRef.current) {
@@ -232,8 +251,38 @@ function handleChatEnd(
         return;
       if (ctx.turnEngine.pendingChatEndRef.current.awaitingPlaybackDrain)
         return;
+      if (ctx.turnEngine.pendingChatEndRef.current.awaitingTtsEnd)
+        return;
       ctx.turnEngine.finalizePendingChatEnd(endGenerationId);
     }, 220);
+  }
+}
+
+function handleTtsEnd(
+  ctx: MessageDispatchCtx,
+  data: Record<string, unknown>,
+) {
+  if (!ctx.allowServerGeneration("tts_end", data.generationId)) return;
+  const generationId = parseGenerationId(data.generationId);
+  const pending = ctx.turnEngine.pendingChatEndRef.current;
+  if (!pending || pending.generationId !== generationId) return;
+
+  pending.awaitingTtsEnd = false;
+  ctx.markServerTtsStreaming(false);
+
+  if (!pending.awaitingPlaybackDrain) {
+    ctx.turnEngine.finalizePendingChatEnd(generationId);
+    return;
+  }
+
+  if (
+    shouldFinalizeDeferredChatEnd({
+      awaitingPlaybackDrain: true,
+      awaitingTtsEnd: false,
+      voiceActive: ctx.voiceActive,
+    })
+  ) {
+    ctx.turnEngine.finalizePendingChatEnd(generationId);
   }
 }
 
@@ -244,6 +293,7 @@ function handleVoice(
   if (!ctx.allowServerGeneration("voice", data.generationId)) return;
   if (typeof data.audio !== "string") return;
   const generationId = parseGenerationId(data.generationId);
+  ctx.markServerTtsStreaming(true);
   ctx.turnEngine.rememberPlayedGeneration(generationId);
   if (
     ctx.turnEngine.pendingChatEndRef.current?.generationId === generationId
@@ -251,6 +301,8 @@ function handleVoice(
     ctx.turnEngine.pendingChatEndRef.current = {
       generationId,
       awaitingPlaybackDrain: true,
+      awaitingTtsEnd:
+        ctx.turnEngine.pendingChatEndRef.current.awaitingTtsEnd,
     };
     if (ctx.turnEngine.pendingChatEndTimerRef.current) {
       clearTimeout(ctx.turnEngine.pendingChatEndTimerRef.current);
@@ -279,6 +331,7 @@ function handleVoicePcmChunk(
   if (typeof data.audio !== "string") return;
   const rate = Number(data.sampleRate);
   const generationId = parseGenerationId(data.generationId);
+  ctx.markServerTtsStreaming(true);
   ctx.turnEngine.rememberPlayedGeneration(generationId);
   if (
     ctx.turnEngine.pendingChatEndRef.current?.generationId === generationId
@@ -286,6 +339,8 @@ function handleVoicePcmChunk(
     ctx.turnEngine.pendingChatEndRef.current = {
       generationId,
       awaitingPlaybackDrain: true,
+      awaitingTtsEnd:
+        ctx.turnEngine.pendingChatEndRef.current.awaitingTtsEnd,
     };
     if (ctx.turnEngine.pendingChatEndTimerRef.current) {
       clearTimeout(ctx.turnEngine.pendingChatEndTimerRef.current);
@@ -445,6 +500,7 @@ function handleInterrupt(
 ) {
   const av = ctx.avatarCallbacksRef.current;
   const interruptedGeneration = parseGenerationId(data.generationId);
+  ctx.markServerTtsStreaming(false);
   ctx.turnEngine.clearPendingChatEnd(interruptedGeneration);
   if (interruptedGeneration != null) {
     ctx.turnEngine.blockGeneration(interruptedGeneration);
@@ -679,6 +735,10 @@ export function createMessageDispatch(
         handleChatEnd(ctx, data);
         break;
 
+      case "tts_end":
+        handleTtsEnd(ctx, data);
+        break;
+
       case "voice":
         handleVoice(ctx, data);
         break;
@@ -783,6 +843,10 @@ export function createMessageDispatch(
         ctx.setPersonaPreset(presetId);
         break;
       }
+
+      case "nsfw_mode_state":
+        ctx.setNsfwEnabled(Boolean(data.enabled));
+        break;
 
       case "dev_preset_applied":
       case "dev_tts_voice_applied":

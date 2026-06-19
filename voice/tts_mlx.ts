@@ -1,4 +1,5 @@
 import { getConfig } from "../server/config";
+import { isNsfwEnabled } from "../brains/nsfw_mode";
 import { createLogger } from "../infra/logger";
 import { getMlxInstruct, type Emotion } from "./tts_emotion";
 import type { TtsPcmChunk } from "./tts";
@@ -15,26 +16,54 @@ export function isMlxConfigured(): boolean {
   return Boolean(getConfig().REMI_TTS_MLX_URL);
 }
 
-function buildRequestBody(text: string, emotion?: Emotion, stream = false): Record<string, unknown> {
+function resolveMlxInstruct(
+  text: string,
+  emotion: Emotion | undefined,
+  connId?: string | null,
+): string {
+  const nsfwInstruct = getConfig().REMI_TTS_MLX_NSFW_INSTRUCT?.trim();
+  const nsfwActive = Boolean(connId && isNsfwEnabled(connId));
+  if (nsfwActive && nsfwInstruct) {
+    logger.debug("mlx instruct", { profile: "nsfw", instruct: nsfwInstruct });
+    return nsfwInstruct;
+  }
   const envInstruct = getConfig().REMI_TTS_MLX_INSTRUCT?.trim();
-  return {
+  const resolved = envInstruct || getMlxInstruct(emotion ?? "neutral", text);
+  logger.debug("mlx instruct", {
+    profile: nsfwActive ? "nsfw_missing_instruct" : "default",
+    instruct: resolved,
+  });
+  return resolved;
+}
+
+function buildRequestBody(
+  text: string,
+  emotion?: Emotion,
+  stream = false,
+  connId?: string | null,
+): Record<string, unknown> {
+  const temperature = getConfig().REMI_TTS_MLX_TEMPERATURE;
+  const body: Record<string, unknown> = {
     model: getConfig().REMI_TTS_MLX_MODEL,
     input: text,
     voice: getConfig().REMI_TTS_MLX_SPEAKER,
-    instruct: envInstruct || getMlxInstruct(emotion ?? "neutral", text),
+    instruct: resolveMlxInstruct(text, emotion, connId),
     language: getConfig().REMI_TTS_MLX_LANGUAGE,
     response_format: "wav",
     stream,
   };
+  if (temperature !== undefined) body.temperature = temperature;
+  return body;
 }
 
 export async function speakWithMlx(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  connId?: string | null,
 ): Promise<Buffer> {
   const baseUrl = getMlxBaseUrl();
-  const body = buildRequestBody(text, emotion, false);
+  const body = buildRequestBody(text, emotion, false, connId);
 
   logger.debug("mlx 合成请求", {
     speaker: body.voice,
@@ -70,9 +99,10 @@ export async function streamMlxPcm(
   signal: AbortSignal | undefined,
   emotion: Emotion | undefined,
   onChunk: (chunk: TtsPcmChunk) => void,
+  connId?: string | null,
 ): Promise<void> {
   const baseUrl = getMlxBaseUrl();
-  const body = buildRequestBody(text, emotion, true);
+  const body = buildRequestBody(text, emotion, true, connId);
 
   const t0 = Date.now();
   let firstChunkMs: number | null = null;

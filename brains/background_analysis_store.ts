@@ -51,6 +51,17 @@ import {
   type DerivedTopicSignal,
 } from "./analysis_store_support";
 
+// ── interests / personalityNotes 护栏 ─────────────────────
+const MAX_INTERESTS = 12; // 与 normalizePersistentRelationshipState toStringList(12) 对齐
+const MAX_PERSONALITY_NOTES = 5;
+
+/** 两个字符串是否互为子串包含（忽略标点/空白差异），用于近重复过滤。 */
+function subsumes(a: string, b: string): boolean {
+  const na = a.replace(/[\s,，、。；;!！?？~～/／—–()（）""''"'-]+/gu, "");
+  const nb = b.replace(/[\s,，、。；;!！?？~～/／—–()（）""''"'-]+/gu, "");
+  return na.includes(nb) || nb.includes(na);
+}
+
 export interface UserProfile {
   facts: Map<string, string>;
   interests: string[];
@@ -347,22 +358,41 @@ export class SlowBrainStore {
   }
 
   addInterest(interest: string): void {
-    if (!this.profile.interests.includes(interest)) {
-      this.profile.interests.push(interest);
-      this.invalidateDerivedCache();
+    const trimmed = interest.trim();
+    if (!trimmed) return;
+    // 语义去重：丢弃与已有条目互为子串的近重复（如 "AI绘画" vs "AI生成图像"，
+    // "成人向/暧昧氛围的故事" vs "…互动模式"），避免无上限近重复堆叠膨胀 prompt。
+    if (this.profile.interests.some((it) => subsumes(it, trimmed))) return;
+    // 新条目更具体时，替换掉被它包含的旧粗粒度条目。
+    this.profile.interests = this.profile.interests.filter(
+      (it) => !subsumes(trimmed, it),
+    );
+    this.profile.interests.push(trimmed);
+    // FIFO 上限：与 normalizePersistentRelationshipState 的 12 上限对齐，丢最旧。
+    if (this.profile.interests.length > MAX_INTERESTS) {
+      this.profile.interests.splice(
+        0,
+        this.profile.interests.length - MAX_INTERESTS,
+      );
     }
+    this.invalidateDerivedCache();
   }
 
   addPersonalityNote(note: string): void {
+    const trimmed = note.trim();
+    if (!trimmed) return;
+    // 子串近重复（互为改写的画像描述）直接跳过，不占额度。
+    if (this.profile.personalityNotes.some((n) => subsumes(n, trimmed))) return;
+    this.profile.personalityNotes = this.profile.personalityNotes.filter(
+      (n) => !subsumes(trimmed, n),
+    );
     let changed = false;
-    if (this.profile.personalityNotes.length >= 5) {
+    if (this.profile.personalityNotes.length >= MAX_PERSONALITY_NOTES) {
       this.profile.personalityNotes.shift();
       changed = true;
     }
-    if (!this.profile.personalityNotes.includes(note)) {
-      this.profile.personalityNotes.push(note);
-      changed = true;
-    }
+    this.profile.personalityNotes.push(trimmed);
+    changed = true;
     if (changed) {
       this.invalidateDerivedCache();
     }
