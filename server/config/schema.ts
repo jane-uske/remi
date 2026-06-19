@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { applyOverlayToEnv } from "./overlay";
+
 const boolLiterals = z.union([
   z.literal("0"),
   z.literal("1"),
@@ -49,6 +51,9 @@ export const envSchema = z.object({
     .default("mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"),
   REMI_TTS_MLX_SPEAKER: z.string().default("Vivian"),
   REMI_TTS_MLX_LANGUAGE: z.string().default("Chinese"),
+  // Optional override for the instruct field sent to Qwen3-TTS.
+  // When set, this replaces the per-emotion instruct from tts_emotion.ts.
+  REMI_TTS_MLX_INSTRUCT: z.string().optional(),
   tts_key: z.string().optional(),
   tts_base_url: z.string().optional(),
   tts_model: z.string().default("tts-1"),
@@ -164,6 +169,29 @@ export const envSchema = z.object({
   REMI_FAMILY_MEMORY_ENABLED: booleanString("0"),
   REMI_FAMILY_MEMORY_SERVICE_URL: z.string().default("http://localhost:3456"),
   REMI_FAMILY_MEMORY_AI_TOKEN: z.string().default(""),
+
+  // ── ComfyUI image generation (local only) ─────────────────────────────────
+  COMFYUI_ENABLED: booleanString("1"),
+  COMFYUI_BASE_URL: z.string().default("http://127.0.0.1:8188"),
+  // Where downloaded images are saved (relative paths resolve from cwd).
+  COMFYUI_OUTPUT_DIR: z.string().default("artifacts/comfyui"),
+  COMFYUI_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  // Optional path to a user-supplied "Save (API Format)" workflow JSON.
+  COMFYUI_WORKFLOW_PATH: z.string().default(""),
+  COMFYUI_CHECKPOINT: z.string().default(""),
+  COMFYUI_DEFAULT_NEGATIVE: z
+    .string()
+    .default("text, watermark, lowres, bad anatomy, worst quality, low quality"),
+  COMFYUI_DEFAULT_WIDTH: z.coerce.number().int().positive().default(512),
+  COMFYUI_DEFAULT_HEIGHT: z.coerce.number().int().positive().default(512),
+
+  // ── Adult / NSFW mode (off by default; toggled per-session via chat) ───────
+  // Master switch — when off, the "开启成人模式" chat command is a no-op.
+  REMI_NSFW_ENABLED: booleanString("0"),
+  // Optional ComfyUI overrides used only while a session is in NSFW mode.
+  // Empty → fall back to the regular COMFYUI_CHECKPOINT / COMFYUI_DEFAULT_NEGATIVE.
+  COMFYUI_NSFW_CHECKPOINT: z.string().default(""),
+  COMFYUI_NSFW_NEGATIVE: z.string().default(""),
 
   REMI_WORKING_MEMORY_ENABLED: booleanString("0"),
   REMI_EPISODE_MEMORY_ENABLED: booleanString("1"),
@@ -509,6 +537,9 @@ function inferModelFromBaseUrl(config: RemiEnv): RemiEnv {
 
 export function validateEnv(): RemiEnv {
   applyLegacyAliases(process.env);
+  // Layer the in-app settings overlay on top of .env so the settings page wins
+  // and hot-applies (POST /api/settings → saveOverlay → resetConfig).
+  applyOverlayToEnv(process.env);
 
   const result = envSchema.safeParse(process.env);
 
