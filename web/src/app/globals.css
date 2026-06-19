@@ -615,3 +615,23 @@ html[data-ios-safari="true"] .remi-app-shell::after {
     height: 18px;
   }
 }
+
+/* ── Remi 极光门户（RemiLanding）动画 ───────────────────────────── */
+@keyframes remPortalBreathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.25); opacity: 0.7; }
+}
+.remi-portal-pulse { animation: remPortalBreathe 3.6s ease-in-out infinite; }
+
+@keyframes remPortalFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-14px); }
+}
+.remi-portal-orb {
+  animation: remPortalFloat 6s ease-in-out infinite;
+  transition: background 0.7s ease, box-shadow 0.7s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remi-portal-pulse, .remi-portal-orb { animation: none !important; }
+}
