@@ -55,6 +55,11 @@ import {
 } from "./duplex_audio";
 import { parseHistoryCursor, sendSessionHistoryPage } from "./history";
 import { cleanupSessionResources, attachSessionCloseHandlers } from "./lifecycle";
+import {
+  relationshipStateEnabled,
+  savePersistentRelationshipState,
+} from "../../memory/relationship_state";
+import { bindNsfwNotifier, sendNsfwModeState } from "../../brains/nsfw_mode";
 import { attachSessionMessageHandlers } from "./message_router";
 import { getConfig } from "../config";
 import { isPersonaPresetId } from "../../persona/presets";
@@ -235,6 +240,24 @@ export class ConnectionSession {
   private personaPresetBootstrapReady = false;
 
   sessionId: string | null = null;
+  /**
+   * Lazy DB session creator — set by bootstrap, invoked by runner on first
+   * message persist. Avoids creating empty session rows for connections that
+   * never send a message (98%+ of ws connections in production).
+   */
+  private _dbSessionPending: (() => Promise<string>) | null = null;
+  setDbSessionCreator(fn: () => Promise<string>): void {
+    this._dbSessionPending = fn;
+  }
+  async ensureDbSession(): Promise<string | null> {
+    if (this.sessionId) return this.sessionId;
+    const creator = this._dbSessionPending;
+    if (!creator) return null;
+    this._dbSessionPending = null; // one-shot
+    const id = await creator();
+    this.sessionId = id;
+    return id;
+  }
   pipelineChain: Promise<void> = Promise.resolve();
   private sttChain: Promise<void> = Promise.resolve();
   duplexActive: boolean = false;
@@ -403,6 +426,7 @@ export class ConnectionSession {
     this.brain = new RemiSessionContext(this.connId);
     notifySessionStart(this.connId);
     this.ws = ws;
+    bindNsfwNotifier(this.connId, this.ws);
     this.stt = new SttStream();
     this.vad = new VadDetector();
     this.interrupt = new InterruptController();
@@ -465,12 +489,16 @@ export class ConnectionSession {
         setSessionId: (sessionId) => {
           this.sessionId = sessionId;
         },
+        setDbSessionCreator: (fn) => {
+          this.setDbSessionCreator(fn);
+        },
         sendHistoryPage: (mode) => this.sendHistoryPage(mode),
       });
     } finally {
       this.personaPresetBootstrapReady = true;
     }
     this.sendPersonaPresetState();
+    sendNsfwModeState(this.connId);
   }
 
   private sendPersonaPresetState(): void {
@@ -2974,6 +3002,7 @@ export class ConnectionSession {
       interrupt: this.interrupt,
       avatar: this.avatar,
       sessionId: this.sessionId,
+      ensureDbSession: () => this.ensureDbSession(),
       currentPartialText: this.currentPartialText,
       predictedReply: this.predictedReply,
       predictedStructuredAnalysis: this.predictedStructuredAnalysis,
@@ -3444,6 +3473,7 @@ export class ConnectionSession {
         interrupt: this.interrupt,
         avatar: this.avatar,
         sessionId: this.sessionId,
+        ensureDbSession: () => this.ensureDbSession(),
         activeGenerationId: this.activeGenerationId,
         touchUserActivity: (userMessage?: string) => this.touchUserActivity(userMessage),
         classifyCarryForward: (userText: string) => this.classifyCarryForward(userText),
@@ -3569,6 +3599,18 @@ export class ConnectionSession {
       resetPreRoll: () => {
         this.preRollChunks = [];
         this.preRollBytes = 0;
+      },
+      saveRelationshipState: async () => {
+        if (!relationshipStateEnabled()) return;
+        const repo =
+          this.brain.persistentRelationshipRepo ??
+          this.brain.memory.getPersistentBackend() ??
+          this.brain.memory;
+        if (!repo) return;
+        await savePersistentRelationshipState(
+          repo,
+          this.brain.slowBrain.exportPersistentState(),
+        );
       },
     });
   }

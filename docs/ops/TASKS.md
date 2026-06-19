@@ -120,6 +120,12 @@
 
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
   - 当前状态：主链路已接通，但真实样本不足；继续围绕 `audit / hygiene` 扩工具，只会得到低信号 proxy 结论
+  - **2026-06-20 记忆层优化已落地**：
+    - ✅ P0 NSFW 内容隔离：NSFW 模式下 slow brain 不再持久化 interests/personalityNotes/conversationSummary/proactiveTopics/user_facts 到 DB，防止成人对话内容污染正常人格画像
+    - ✅ P1 PG importance 参数化：`upsertMemory` 的 importance 从硬编码 `1.0` 改为参数传入，调用方的 confidence 值不再被丢弃
+    - ✅ P1 断连关系状态保存：WebSocket 断开时 fire-and-forget 保存 relationship state，不再丢失会话中积累的亲密度/话题/情绪轨迹
+    - ✅ P2 记忆衰减 TTL 接入：`runDecay` 接上了 `maxAgeMs`+`minImportance` 联合过滤，超龄低重要度记忆自动清理
+    - ✅ 已有保护：瞬时键过滤（`isVolatileMemoryKey`）、interests 近重复去重（`subsumes`+FIFO 12 条上限）、personalityNotes 上限 5 条、lazy session creation（首条消息才建 DB session）
   - 当前真实判断：
     - 热层方向对，但 `working memory / current focus` 还没收成稳定、极薄的层
     - 温层主链路已通，但 `episode` 事件表达还太粗

@@ -72,7 +72,18 @@ export async function runDecay(
     score: decayScore(entry),
   }));
 
+  const now = Date.now();
   const toRemove = new Set<string>();
+
+  // 超龄 + 低重要度的记忆直接淘汰
+  for (const { entry } of scored) {
+    if (
+      now - entry.lastAccessedAt > merged.maxAgeMs &&
+      entry.importance < merged.minImportance
+    ) {
+      toRemove.add(entry.key);
+    }
+  }
 
   if (scored.length > merged.maxMemories) {
     const sorted = [...scored].sort((a, b) => a.score - b.score);

@@ -19,25 +19,30 @@ export async function upsertMemory(
   userId: string,
   key: string,
   value: string,
-  embedding?: number[]
+  embedding?: number[],
+  importance?: number,
 ): Promise<DbMemory> {
   try {
+    const imp = typeof importance === "number" && importance >= 0 && importance <= 1
+      ? importance
+      : 1.0;
     const hasEmbedding = embedding !== undefined;
-    const params: unknown[] = [userId, key, value];
+    const params: unknown[] = [userId, key, value, imp];
     let sql = `INSERT INTO memories (user_id, key, value, importance`;
     if (hasEmbedding) {
       sql += `, embedding`;
       params.push(embeddingToVectorLiteral(embedding));
     }
     sql += `)
-       VALUES ($1, $2, $3, 1.0`;
+       VALUES ($1, $2, $3, $4`;
     if (hasEmbedding) {
-      sql += `, $4::vector`;
+      sql += `, $${params.length}::vector`;
     }
     sql += `)
        ON CONFLICT (user_id, key)
        DO UPDATE SET
-         value = EXCLUDED.value,`;
+         value = EXCLUDED.value,
+         importance = EXCLUDED.importance,`;
     if (hasEmbedding) {
       sql += `
          embedding = EXCLUDED.embedding,`;

@@ -18,10 +18,14 @@ import {
   savePersistentRelationshipState,
 } from "../memory/relationship_state";
 import { momentToEpisodeV3View, toEpisodeV3View } from "../memory/episode_v3";
-import { isLightAcknowledgementTurn } from "../memory/prompt_memory_support";
+import {
+  isLightAcknowledgementTurn,
+  isVolatileMemoryKey,
+} from "../memory/prompt_memory_support";
 import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
+import { isNsfwEnabled } from "./nsfw_mode";
 
 const logger = createLogger("background_analysis");
 
@@ -77,6 +81,7 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
         slowBrain,
         memoryRepo,
         input.signal,
+        input.connId,
       );
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -89,11 +94,12 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
   }
 
   updateRelationship(slowBrain, userMessage);
-  const sharedMomentRecord = !lightTouchTurn
+  const nsfwActive = isNsfwEnabled(input.connId);
+  const sharedMomentRecord = !lightTouchTurn && !nsfwActive
     ? await maybeRecordSharedMoment(slowBrain, userMessage, assistantReply, userId)
     : null;
 
-  if (relationshipStateEnabled() && relationshipRepo) {
+  if (relationshipStateEnabled() && relationshipRepo && !nsfwActive) {
     try {
       await savePersistentRelationshipState(
         relationshipRepo,
@@ -231,6 +237,7 @@ async function llmAnalysis(
   store: SlowBrainStore,
   memoryRepo: MemoryRepository,
   signal?: AbortSignal,
+  connId?: string,
 ): Promise<void> {
   const recentHistory = history.slice(-8);
   const historyText = recentHistory
@@ -252,12 +259,31 @@ async function llmAnalysis(
   const analysis = parseAnalysis(raw);
   if (!analysis) return;
 
+  // NSFW 模式下跳过所有可能污染持久化人格画像的字段（interests /
+  // personalityNotes / conversationSummary / proactiveTopics），
+  // 只保留客观 user_facts 和 emotional_undertone。
+  const nsfwActive = isNsfwEnabled(connId);
+  if (nsfwActive) {
+    logger.debug("NSFW 模式：跳过 interests/personalityNotes/summary/proactiveTopics 持久化", {
+      connId,
+    });
+  }
+
   if (analysis.user_facts) {
     for (const { key, value, confidence, source } of analysis.user_facts) {
       if (!key || !value) continue;
       const k = key.trim();
       const v = value.trim();
+      // 瞬时键（当前时间 / 现在 / 今天…）不是长期记忆，跳过持久化，
+      // 否则会以 "当前时间:23:14" 这类噪声污染 facts 和 memories 表。
+      if (isVolatileMemoryKey(k)) {
+        logger.debug("跳过瞬时 fact 持久化", { key: k });
+        continue;
+      }
       store.addFact(k, v);
+      // NSFW 模式下仍在内存保留 fact（当前会话可用），但不写入 DB，
+      // 避免 NSFW 对话上下文产生的 fact（如角色扮演角色名）污染长期记忆。
+      if (nsfwActive) continue;
       const upsertOpts: UpsertOptions = {
         attributedTo: source === "assistant" ? "assistant" : "user",
         validAt: Date.now(),
@@ -277,13 +303,13 @@ async function llmAnalysis(
     }
   }
 
-  if (analysis.interests) {
+  if (analysis.interests && !nsfwActive) {
     for (const interest of analysis.interests) {
       if (interest) store.addInterest(interest);
     }
   }
 
-  if (analysis.personality_note) {
+  if (analysis.personality_note && !nsfwActive) {
     store.addPersonalityNote(analysis.personality_note);
   }
 
@@ -291,15 +317,15 @@ async function llmAnalysis(
     store.recordMood(analysis.emotional_undertone);
   }
 
-  if (analysis.conversation_summary) {
+  if (analysis.conversation_summary && !nsfwActive) {
     store.setConversationSummary(analysis.conversation_summary);
   }
 
-  if (analysis.proactive_topics?.length) {
+  if (analysis.proactive_topics?.length && !nsfwActive) {
     store.setProactiveTopics(analysis.proactive_topics);
   }
 
-  if (analysis.relationship_signal) {
+  if (analysis.relationship_signal && !nsfwActive) {
     const delta =
       analysis.relationship_signal === "warming"
         ? 0.05

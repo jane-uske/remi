@@ -4,7 +4,7 @@ import { isDbReady } from "../../infra/app_state";
 import { createLogger } from "../../infra/logger";
 import { removeLatencyTracer } from "../../infra/latency_tracer";
 import { endSession } from "../../storage/repositories/session_repository";
-import { clearNsfw } from "../../brains/nsfw_mode";
+import { clearNsfw, unbindNsfwNotifier } from "../../brains/nsfw_mode";
 
 const logger = createLogger("session");
 
@@ -21,6 +21,7 @@ export function cleanupSessionResources(input: {
   resetStt: () => void;
   clearSpeechBuffer: () => void;
   resetPreRoll: () => void;
+  saveRelationshipState?: () => Promise<void>;
 }): void {
   try {
     input.setDuplexActive(false);
@@ -51,6 +52,17 @@ export function cleanupSessionResources(input: {
     input.resetPreRoll();
     input.clearDevRuntimeOverrides();
     clearNsfw(input.connId);
+    unbindNsfwNotifier(input.connId);
+
+    // 断连时保存关系状态（fire-and-forget，不阻塞清理）
+    if (input.saveRelationshipState) {
+      void input.saveRelationshipState().catch((error) => {
+        logger.warn("[Cleanup] Relationship state save failed", {
+          error,
+          connId: input.connId,
+        });
+      });
+    }
 
     if (isDbReady() && input.sessionId) {
       void endSession(input.sessionId).catch((error) => {
