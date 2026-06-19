@@ -5,6 +5,8 @@ import { dateRecapCapability } from "../capabilities/date_recap_capability";
 import { familyMemoryDraftsCapability } from "../capabilities/family_memory_drafts_capability";
 import { familyMemoryCaptureCapability } from "../capabilities/family_memory_capture_capability";
 import { familyMemoryCapability } from "../capabilities/family_memory_capability";
+import { imageGenerationCapability } from "../capabilities/image_generation/image_generation_capability";
+import { modeControlCapability } from "../capabilities/mode_control/mode_control_capability";
 import { timeCapability } from "./time_capability";
 
 const logger = createLogger("direct_capabilities");
@@ -41,6 +43,10 @@ const REGISTERED_DIRECT_CAPABILITIES: readonly DirectCapability[] = [
   familyMemoryDraftsCapability,
   familyMemoryCaptureCapability,
   familyMemoryCapability,
+  // Mode control must run before image generation so "开启成人模式" is caught
+  // as a command and never leaks to the drawing/LLM paths.
+  modeControlCapability,
+  imageGenerationCapability,
 ];
 
 export async function tryHandleDirectCapabilities(

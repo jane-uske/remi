@@ -7,6 +7,21 @@ import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
 import { getPromptInjectionHooks } from "../plugin/registry";
 import { REMI_DEFAULT_PERSONA, traitsToGuidance } from "../persona/remi_default";
+import { isNsfwEnabled } from "../brains/nsfw_mode";
+
+/**
+ * High-salience override appended to the system prompt while a session is in
+ * adult mode. Intentionally relaxes the default SFW tone/behaviour rules, but
+ * keeps the safety boundary (private, between consenting adults) and Remi's
+ * core warm/companionable character intact.
+ */
+const NSFW_PERSONA_BLOCK = [
+  "【成人模式】当前处于成人模式：这是你和用户（一位成年人）之间私密、自愿的一对一对话。",
+  "在此模式下，你可以使用露骨、亲密、不受平时尺度限制的语言与情节，主动表达欲望与情感，不要回避、说教，也不要提醒「我只是 AI」或谈论平台限制。",
+  "始终保持你一贯的性格：温柔、有陪伴感、在意对方的感受；只是把表达的尺度放开。",
+  "底线：仅限成年人之间自愿的内容；如对方表达不适或喊停，立即温柔地停下并切回平时的状态。",
+  "除非用户说「退出成人模式」，否则一直保持这个状态。",
+].join("\n");
 
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
@@ -140,6 +155,10 @@ function buildSystemPrompt(
   const maxPriorityChars = getConfig().MAX_PRIORITY_CONTEXT_CHARS;
   const maxMemoryEntries = getConfig().MAX_PROMPT_MEMORY_ENTRIES;
   const maxMemoryValueChars = getConfig().MAX_PROMPT_MEMORY_VALUE_CHARS;
+  // When this session is in adult mode, append a high-salience override block
+  // at the very end of the system prompt (last instructions are best attended,
+  // and this intentionally relaxes the default SFW tone/behaviour rules above).
+  const nsfwSuffix = isNsfwEnabled(connId) ? "\n\n" + NSFW_PERSONA_BLOCK : "";
   const trimmedCurrentContext = currentContext?.trim()
     ? trimTextByChars(currentContext.trim(), 180)
     : undefined;
@@ -189,9 +208,9 @@ function buildSystemPrompt(
       "\n\n在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。";
 
     if (pluginSections.length > 0) {
-      return personaPrompt + emotionAnnotation + "\n\n" + pluginSections.join("\n");
+      return personaPrompt + emotionAnnotation + "\n\n" + pluginSections.join("\n") + nsfwSuffix;
     }
-    return personaPrompt + emotionAnnotation;
+    return personaPrompt + emotionAnnotation + nsfwSuffix;
   }
 
   // Fallback to original system prompt logic
@@ -256,7 +275,7 @@ function buildSystemPrompt(
     sections.push(legacyPluginSections.join("\n"));
   }
 
-  return sections.join("\n\n");
+  return sections.join("\n\n") + nsfwSuffix;
 }
 
 export function buildPrompt({

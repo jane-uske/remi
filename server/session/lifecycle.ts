@@ -4,6 +4,7 @@ import { isDbReady } from "../../infra/app_state";
 import { createLogger } from "../../infra/logger";
 import { removeLatencyTracer } from "../../infra/latency_tracer";
 import { endSession } from "../../storage/repositories/session_repository";
+import { clearNsfw } from "../../brains/nsfw_mode";
 
 const logger = createLogger("session");
 
@@ -49,6 +50,7 @@ export function cleanupSessionResources(input: {
     input.clearSpeechBuffer();
     input.resetPreRoll();
     input.clearDevRuntimeOverrides();
+    clearNsfw(input.connId);
 
     if (isDbReady() && input.sessionId) {
       void endSession(input.sessionId).catch((error) => {

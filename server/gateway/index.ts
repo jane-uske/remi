@@ -21,6 +21,7 @@ import { createWsRateLimiter, createRateLimiter } from "../../infra/rate_limiter
 import type { ServerMessage } from "./types";
 import { handleExtApi } from "./rest_api";
 import { handleDesktopExchangeToken } from "./desktop_auth";
+import { handleSettingsApi, handleServiceHealth } from "./settings_api";
 
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
@@ -78,6 +79,40 @@ function requestPathname(req: IncomingMessage): string {
 function getAccessPassword(): string | null {
   const raw = getConfig().REMI_ACCESS_PASSWORD?.trim();
   return raw ? raw : null;
+}
+
+// ── ComfyUI image proxy ──────────────────────────────────────────────
+
+/**
+ * Proxy GET /api/comfyui/view?filename=…&subfolder=…&type=… to the local
+ * ComfyUI `/view` endpoint.  This lets the frontend `<img>` render generated
+ * images without hitting CORS (ComfyUI runs on a different port).
+ */
+async function handleComfyuiProxy(
+  req: IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const comfyBase = getConfig().COMFYUI_BASE_URL.replace(/\/+$/, "");
+  const qs = parseRequestUrl(req).search ?? "";
+  const targetUrl = `${comfyBase}/view${qs}`;
+  try {
+    const upstream = await fetch(targetUrl);
+    if (!upstream.ok) {
+      res.statusCode = upstream.status;
+      res.end();
+      return;
+    }
+    const ct = upstream.headers.get("content-type") ?? "image/png";
+    res.writeHead(200, {
+      "Content-Type": ct,
+      "Cache-Control": "public, max-age=86400, immutable",
+    });
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.end(buf);
+  } catch {
+    res.statusCode = 502;
+    res.end("ComfyUI unreachable");
+  }
 }
 
 function hasSharedPasswordGate(): boolean {
@@ -491,6 +526,24 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       // gateway-level HTTP auth check above).
       if (pathname === "/api/desktop/exchange-token") {
         await handleDesktopExchangeToken(req, res);
+        return;
+      }
+
+      // ComfyUI image proxy — forward /api/comfyui/view?… to the local ComfyUI
+      // server so the frontend can display generated images without CORS issues.
+      if (pathname === "/api/comfyui/view") {
+        await handleComfyuiProxy(req, res);
+        return;
+      }
+
+      // In-app settings page: read/write the runtime config overlay (ComfyUI /
+      // MLX TTS / adult-mode switch) and probe local service health.
+      if (pathname === "/api/settings") {
+        await handleSettingsApi(req, res);
+        return;
+      }
+      if (pathname === "/api/health/services") {
+        await handleServiceHealth(req, res);
         return;
       }
 

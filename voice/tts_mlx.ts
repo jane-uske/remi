@@ -16,11 +16,12 @@ export function isMlxConfigured(): boolean {
 }
 
 function buildRequestBody(text: string, emotion?: Emotion, stream = false): Record<string, unknown> {
+  const envInstruct = getConfig().REMI_TTS_MLX_INSTRUCT?.trim();
   return {
     model: getConfig().REMI_TTS_MLX_MODEL,
     input: text,
     voice: getConfig().REMI_TTS_MLX_SPEAKER,
-    instruct: getMlxInstruct(emotion ?? "neutral", text),
+    instruct: envInstruct || getMlxInstruct(emotion ?? "neutral", text),
     language: getConfig().REMI_TTS_MLX_LANGUAGE,
     response_format: "wav",
     stream,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import type { MessageRole } from "@/types/chat";
 
 export type MessageBubbleProps = {
@@ -38,6 +39,108 @@ const speakerTone: Record<MessageRole, string> = {
   sys: "text-[var(--remi-dim)]",
 };
 
+/**
+ * Markdown image pattern: `![alt](url)`
+ * Only renders images from our own ComfyUI proxy — LLM-hallucinated image
+ * markdown with arbitrary URLs is stripped back to plain text.
+ */
+const IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+const TRUSTED_IMG_PREFIX = "/api/comfyui/view";
+
+/* ── Lightbox overlay for full-screen image preview ─────────────────── */
+
+function ImageLightbox({
+  src,
+  alt,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-label={alt || "图片预览"}
+    >
+      {/* Close button */}
+      <button
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+        onClick={onClose}
+        aria-label="关闭"
+      >
+        ✕
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
+/* ── Inline image with click-to-expand ──────────────────────────────── */
+
+function InlineImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const open = useCallback(() => setExpanded(true), []);
+  const close = useCallback(() => setExpanded(false), []);
+
+  if (failed) return null;
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        className="mt-1.5 cursor-pointer rounded-lg transition-opacity hover:opacity-85"
+        style={{ maxWidth: "100%", height: "auto" }}
+        loading="lazy"
+        onClick={open}
+        onError={() => setFailed(true)}
+      />
+      {expanded && <ImageLightbox src={src} alt={alt} onClose={close} />}
+    </>
+  );
+}
+
+function renderContent(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  IMG_RE.lastIndex = 0;
+  while ((match = IMG_RE.exec(text)) !== null) {
+    const alt = match[1];
+    const src = match[2];
+
+    // Only render images from our trusted proxy; strip LLM-hallucinated ones.
+    if (!src.startsWith(TRUSTED_IMG_PREFIX)) {
+      continue;
+    }
+
+    // Text before the image
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<InlineImage key={key++} src={src} alt={alt} />);
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Trailing text (or the entire string if no images)
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : parts;
+}
+
 export function MessageBubble({ role, children }: MessageBubbleProps) {
   return (
     <div className={`${base} ${styles[role]}`} role="article">
@@ -49,7 +152,7 @@ export function MessageBubble({ role, children }: MessageBubbleProps) {
         </div>
       ) : null}
       <span className="sr-only">{speakerLine[role]}: </span>
-      <div>{children}</div>
+      <div>{renderContent(children)}</div>
     </div>
   );
 }

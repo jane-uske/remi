@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RemiIdentityAvatar } from "@/components/RemiIdentityAvatar";
+import { RemiSettingsPanel } from "@/components/RemiSettingsPanel";
 import {
   applyThemePreferenceToDocument,
   normalizeThemePreference,
@@ -99,6 +100,7 @@ export function RemiAccountMenu({
   triggerMode = "compact",
 }: RemiAccountMenuProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>("system");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -157,6 +159,7 @@ export function RemiAccountMenu({
   const menuAnchorClass = triggerMode === "avatar-only" ? "left-0" : "right-0";
 
   return (
+    <>
     <div ref={rootRef} className="relative flex max-w-full">
       {triggerMode === "avatar-only" ? (
         <button
@@ -226,7 +229,19 @@ export function RemiAccountMenu({
             onUpdateThemePreference={handleThemePreferenceChange}
           />
 
-          <div className="px-3 py-3">
+          <div className="space-y-2 px-3 py-3">
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm text-[var(--foreground)] transition hover:border-white/20 hover:bg-white/[0.08]"
+              onClick={() => {
+                setOpen(false);
+                setSettingsOpen(true);
+              }}
+            >
+              <span>服务设置</span>
+              <span className="text-xs text-[var(--remi-dim)]">生图 · 语音 · 成人模式</span>
+            </button>
             {canSignOut ? (
               <button
                 type="button"
@@ -257,6 +272,8 @@ export function RemiAccountMenu({
         </div>
       ) : null}
     </div>
+    <RemiSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
   );
 }
 

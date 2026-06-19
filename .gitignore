@@ -37,6 +37,10 @@ whisper-server-*.wav_temp.wav
 
 /models
 /artifacts/cold_layer/
+/artifacts/comfyui/
+
+# Runtime settings overlay written by the in-app settings page
+/data/remi-settings.json
 
 # IDE / agent config
 .claude/
