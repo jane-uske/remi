@@ -147,6 +147,7 @@
 - ✅ iOS 正式登录第一版已接上：`ios/RemiChatLite` 现已接 Clerk iOS SDK / `AuthView` 登录 gate
 - ✅ iOS v0（文本）内测基线已建立：WS 文本流式、自动重连、Clerk session token 优先鉴权、legacy JWT / dev-key 兜底，以及按 Clerk/JWT user-id 本地缓存隔离
 - ⏳ iOS 语音链路仍未验收通过；现阶段不要把 iOS 端语音输入误判为稳定可用能力
+- ✅ watchOS Blob 主屏 MVP（2026-06-20）：`RemiBlobScreen` 为默认入口，聊天历史降为 sheet；真机听写走 WatchKit dictation，Simulator 降级 `TextFieldLink`
 - ✅ `stt_final` 已补一层轻量热词级局部同音纠偏
 - ⏳ turn-taking 已接入第一版实验性 prosody 旁路，但仍缺长时间真实 noisy 样本
 - ✅ 4.19 新增 `tts_lip_sync` 传输、Edge metadata 解析、Web lip timeline 与 `MicTxGate`
@@ -170,8 +171,9 @@
    - 避免环境缺失时人格连续性静默掉级
 5. **浏览器 duplex 实采 / runtime spot-check**
    - 当前仍缺更多真实浏览器 duplex/noisy 样本
-6. **iOS 仅保底**
+6. **iOS / watchOS 仅保底**
    - 继续保持文本/鉴权/缓存链路可验收
+   - 6.20：`ios/RemiWatch` Blob 在场感主屏已落地（渐变 blob + 波形 + 系统听写 + 聊天气泡 sheet + 表盘 complication）；模拟器 build 通过，真机待 WatchConnectivity token 同步与 LAN WS 配置
    - 不让新功能抢走 Web 主线资源
 7. **记忆架构只做收边界，不做继续堆规则**
    - 热层：继续收成“当前主线 + 当前约束 + 不要踩的点”

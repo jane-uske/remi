@@ -16,6 +16,15 @@ final class WatchVoicePlayer: NSObject {
         didSet { if !enabled { stopAll() } }
     }
 
+    private(set) var isPlaying = false {
+        didSet {
+            guard oldValue != isPlaying else { return }
+            onPlayingChanged?(isPlaying)
+        }
+    }
+
+    var onPlayingChanged: ((Bool) -> Void)?
+
     private var queue: [Data] = []
     private var player: AVAudioPlayer?
     private var sessionActivated = false
@@ -31,6 +40,7 @@ final class WatchVoicePlayer: NSObject {
         player?.stop()
         player = nil
         queue.removeAll()
+        isPlaying = false
     }
 
     private func activateSessionIfNeeded() {
@@ -42,7 +52,11 @@ final class WatchVoicePlayer: NSObject {
     }
 
     private func playNext() {
-        guard enabled, !queue.isEmpty else { player = nil; return }
+        guard enabled, !queue.isEmpty else {
+            player = nil
+            isPlaying = false
+            return
+        }
         let data = queue.removeFirst()
         activateSessionIfNeeded()
         do {
@@ -51,6 +65,7 @@ final class WatchVoicePlayer: NSObject {
             player = next
             next.prepareToPlay()
             next.play()
+            isPlaying = true
             Self.log.notice("tts play segment (\(data.count, privacy: .public) bytes), remaining=\(self.queue.count, privacy: .public)")
         } catch {
             Self.log.error("tts decode failed, skipping segment: \(error.localizedDescription, privacy: .public)")

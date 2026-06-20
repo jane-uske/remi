@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "5B84E3557939A660F7219C4A"
+               BlueprintIdentifier = "93BCB7B7D570E2EEADA4FAC6"
                BuildableName = "RemiWatch.app"
                BlueprintName = "RemiWatch"
                ReferencedContainer = "container:RemiWatch.xcodeproj">
@@ -30,7 +30,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "5B84E3557939A660F7219C4A"
+            BlueprintIdentifier = "93BCB7B7D570E2EEADA4FAC6"
             BuildableName = "RemiWatch.app"
             BlueprintName = "RemiWatch"
             ReferencedContainer = "container:RemiWatch.xcodeproj">
@@ -53,7 +53,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "5B84E3557939A660F7219C4A"
+            BlueprintIdentifier = "93BCB7B7D570E2EEADA4FAC6"
             BuildableName = "RemiWatch.app"
             BlueprintName = "RemiWatch"
             ReferencedContainer = "container:RemiWatch.xcodeproj">
@@ -70,7 +70,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "5B84E3557939A660F7219C4A"
+            BlueprintIdentifier = "93BCB7B7D570E2EEADA4FAC6"
             BuildableName = "RemiWatch.app"
             BlueprintName = "RemiWatch"
             ReferencedContainer = "container:RemiWatch.xcodeproj">

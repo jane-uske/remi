@@ -2,6 +2,31 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: WatchChatStore
+    @State private var showChat = false
+
+    var body: some View {
+        RemiBlobScreen(showChat: $showChat)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showChat = true
+                    } label: {
+                        Image(systemName: "ellipsis.bubble")
+                    }
+                    .accessibilityLabel("Open chat history")
+                }
+            }
+            .sheet(isPresented: $showChat) {
+                WatchChatSheet()
+            }
+    }
+}
+
+/// Compact chat history sheet — secondary to the blob presence screen.
+struct WatchChatSheet: View {
+    @EnvironmentObject private var store: WatchChatStore
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var speech = WatchSpeechInput()
     @State private var draft = ""
 
     private let quickReplies = ["Hi Remi", "How are you?", "今天怎么样"]
@@ -15,7 +40,11 @@ struct ContentView: View {
                             loadEarlierRow
                         }
                         if store.messages.isEmpty {
-                            emptyState
+                            Text("No messages yet")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
                         }
                         ForEach(store.messages) { message in
                             MessageRow(message: message)
@@ -26,48 +55,26 @@ struct ContentView: View {
                         }
                     }
                     .padding(.horizontal, 2)
-                    .padding(.bottom, 4)
                 }
                 .onChange(of: store.messages) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: store.awaitingReply) { _, _ in scrollToBottom(proxy) }
             }
             .safeAreaInset(edge: .bottom) { inputBar }
-            .navigationTitle("Remi")
+            .navigationTitle("Chat")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { muteButton }
-                ToolbarItem(placement: .topBarTrailing) { statusDot }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }
-
-    // MARK: - Pieces
 
     private var muteButton: some View {
         Button {
             store.ttsEnabled.toggle()
         } label: {
             Image(systemName: store.ttsEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .foregroundStyle(store.ttsEnabled ? .primary : .secondary)
-        }
-        .accessibilityLabel(store.ttsEnabled ? "Mute Remi's voice" : "Unmute Remi's voice")
-    }
-
-    private var statusDot: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            Text(store.emotion)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var statusColor: Color {
-        switch store.phase {
-        case .open: return .green
-        case .connecting: return .yellow
-        case .closed: return .red
         }
     }
 
@@ -79,31 +86,8 @@ struct ContentView: View {
             } else {
                 Button("Load earlier") { store.loadMoreHistory() }
                     .font(.caption2)
-                    .buttonStyle(.bordered)
             }
             Spacer()
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 6) {
-            Text("Talk to Remi")
-                .font(.headline)
-            Text(statusCaption)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-    }
-
-    private var statusCaption: String {
-        switch store.phase {
-        case .open: return store.authMode.isSignedIn ? "Connected · signed in" : "Connected · local"
-        case .connecting: return "Connecting…"
-        case .closed: return "Offline — retrying"
         }
     }
 
@@ -114,7 +98,6 @@ struct ContentView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var inputBar: some View {
@@ -124,18 +107,21 @@ struct ContentView: View {
                     ForEach(quickReplies, id: \.self) { reply in
                         Button(reply) { store.send(reply) }
                             .font(.caption2)
-                            .buttonStyle(.bordered)
                     }
                 }
-                .padding(.horizontal, 2)
             }
             HStack(spacing: 6) {
-                TextFieldLink(prompt: Text("Speak to Remi")) {
-                    Image(systemName: "mic.fill")
-                } onSubmit: { text in
-                    store.send(text)
+                if speech.useTextFieldLinkFallback {
+                    TextFieldLink(prompt: Text("说话")) {
+                        Image(systemName: "mic.fill")
+                    } onSubmit: { store.send($0) }
+                } else {
+                    Button {
+                        speech.startDictation { store.send($0) }
+                    } label: {
+                        Image(systemName: "mic.fill")
+                    }
                 }
-                .buttonStyle(.bordered)
                 TextField("Message", text: $draft)
                     .submitLabel(.send)
                     .onSubmit(sendDraft)
@@ -143,11 +129,9 @@ struct ContentView: View {
                     Image(systemName: "arrow.up.circle.fill")
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 4)
-        .padding(.bottom, 2)
     }
 
     private func sendDraft() {

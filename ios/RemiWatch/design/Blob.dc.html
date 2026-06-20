@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+@keyframes remiBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes remiGlow{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes remiBlob{0%,100%{border-radius:42% 58% 56% 44%/52% 44% 56% 48%}33%{border-radius:62% 38% 44% 56%/44% 60% 40% 56%}66%{border-radius:46% 54% 62% 38%/58% 48% 52% 42%}}
+@keyframes remiWave{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+@keyframes remiRing{0%{transform:scale(.55);opacity:.65}100%{transform:scale(1.65);opacity:0}}
+@keyframes remiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+*{box-sizing:border-box}
+</style>
+</helmet>
+<div style="min-width:100%;width:max-content;min-height:100vh;box-sizing:border-box;padding:52px 60px 72px;background:var(--c-canvas,#e7e5df);font-family:Quicksand,'PingFang SC',sans-serif;--c-warm:{{cWarm}};--c-mid:{{cMid}};--c-cool:{{cCool}};--c-canvas:{{cBg}};--glow-op:{{glowOp}};--c-ink:{{cInk}};--c-sub:{{cSub}}">
+
+  <header style="max-width:1000px">
+    <div style="display:flex;align-items:center;gap:11px">
+      <div style="width:30px;height:30px;background:linear-gradient(145deg,#FFE3C6,var(--c-warm,#FFB07E) 32%,var(--c-mid,#E07AC8) 64%,var(--c-cool,#5B78E2));border-radius:42% 58% 56% 44%/52% 44% 56% 48%;animation:remiBlob 7s ease-in-out infinite;box-shadow:0 4px 12px rgba(91,120,226,.3)"></div>
+      <div style="font:600 12px Quicksand;letter-spacing:3px;color:var(--c-cool,#5B78E2)">REMI · APPLE WATCH · 流体 BLOB</div>
+    </div>
+    <h1 style="margin:14px 0 0;font:600 34px/1.12 Quicksand;color:var(--c-ink,#2a2723)">有机形态 · 语音陪伴旅程</h1>
+    <p style="margin:13px 0 0;max-width:660px;font:400 14.5px/1.62 Quicksand;color:var(--c-sub,#6b6660)">柔软缓慢变形的渐变水滴,呼吸般起伏、随语气律动——在深色 OLED 表盘上像一个「小生命」始终陪在身边。下面是同一段陪伴的四个时刻。</p>
+  </header>
+
+  <div style="display:flex;gap:30px;align-items:flex-start;margin-top:48px">
+
+    <!-- 待机 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;flex:none;width:248px">
+      <div style="position:relative;width:248px;height:300px;border-radius:60px;padding:13px;background:linear-gradient(155deg,#4a4a4c,#222 55%,#000);box-shadow:0 22px 48px rgba(0,0,0,.42),inset 0 1px 1px rgba(255,255,255,.16)">
+        <div style="position:absolute;right:-4px;top:104px;width:6px;height:32px;border-radius:4px;background:linear-gradient(#5a5a5c,#2c2c2e)"></div>
+        <div style="position:absolute;right:-3px;top:150px;width:5px;height:44px;border-radius:3px;background:linear-gradient(#4a4a4c,#242426)"></div>
+        <div style="position:relative;width:222px;height:274px;border-radius:48px;background:#000;overflow:hidden">
+          <div style="position:absolute;inset:0;background:radial-gradient(150px 160px at 50% 36%,rgba(255,160,120,.15),transparent 72%)"></div>
+          <div style="position:absolute;top:13px;right:20px;font:600 13px Quicksand;color:#FFB892;letter-spacing:.5px">10:09</div>
+          <div style="position:absolute;left:50%;top:104px;transform:translate(-50%,-50%);width:140px;height:140px">
+            <div style="position:absolute;inset:0;animation:remiFloat 6.5s ease-in-out infinite">
+              <div style="position:absolute;inset:-16px;border-radius:50%;background:radial-gradient(circle,var(--c-mid,#E07AC8),transparent 66%);filter:blur(15px);opacity:var(--glow-op,.8)"></div>
+              <div style="position:absolute;inset:4px;background:linear-gradient(145deg,#FFE3C6,var(--c-warm,#FFB07E) 30%,var(--c-mid,#E07AC8) 62%,var(--c-cool,#5B78E2));box-shadow:inset -8px -8px 22px rgba(50,30,90,.45),inset 8px 8px 20px rgba(255,235,210,.5);animation:remiBlob 8s ease-in-out infinite,remiBreathe 5s ease-in-out infinite;border-radius:42% 58% 56% 44%/52% 44% 56% 48%"></div>
+              <div style="position:absolute;left:30%;top:24%;width:26px;height:18px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.75),transparent 70%);filter:blur(2px)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:64px;text-align:center">
+            <div style="font:500 21px/1 'PingFang SC',Quicksand;color:#F4F1EE">晚上好</div>
+            <div style="margin-top:6px;font:400 11.5px Quicksand;color:rgba(244,241,238,.5)">我在这儿,和我说说话吧</div>
+          </div>
+          <div style="position:absolute;left:50%;bottom:15px;transform:translateX(-50%);width:48px;height:48px;border-radius:50%;background:linear-gradient(160deg,rgba(255,176,126,.3),rgba(91,120,226,.3));border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(91,120,226,.25)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFE4D2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="rgba(255,228,210,.22)"></rect><path d="M5.5 11a6.5 6.5 0 0 0 13 0"></path><line x1="12" y1="17.5" x2="12" y2="21.5"></line></svg>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <div style="font:600 13px Quicksand;color:var(--c-ink,#2a2723)">待机 · Idle</div>
+        <div style="margin-top:3px;font:400 11px Quicksand;color:var(--c-sub,#6b6660)">抬腕唤醒 · 轻点说话</div>
+      </div>
+    </div>
+
+    <!-- 聆听 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;flex:none;width:248px">
+      <div style="position:relative;width:248px;height:300px;border-radius:60px;padding:13px;background:linear-gradient(155deg,#4a4a4c,#222 55%,#000);box-shadow:0 22px 48px rgba(0,0,0,.42),inset 0 1px 1px rgba(255,255,255,.16)">
+        <div style="position:absolute;right:-4px;top:104px;width:6px;height:32px;border-radius:4px;background:linear-gradient(#5a5a5c,#2c2c2e)"></div>
+        <div style="position:absolute;right:-3px;top:150px;width:5px;height:44px;border-radius:3px;background:linear-gradient(#4a4a4c,#242426)"></div>
+        <div style="position:relative;width:222px;height:274px;border-radius:48px;background:#000;overflow:hidden">
+          <div style="position:absolute;inset:0;background:radial-gradient(170px 180px at 50% 38%,rgba(255,160,120,.2),transparent 70%)"></div>
+          <div style="position:absolute;top:13px;right:20px;font:600 13px Quicksand;color:#FFB892;letter-spacing:.5px">10:09</div>
+          <div style="position:absolute;left:50%;top:108px;transform:translate(-50%,-50%);width:152px;height:152px">
+            <div style="position:absolute;inset:-6px;border-radius:50%;border:1.5px solid var(--c-warm,#FFB07E);animation:remiRing 2.4s ease-out infinite"></div>
+            <div style="position:absolute;inset:-6px;border-radius:50%;border:1.5px solid var(--c-mid,#E07AC8);animation:remiRing 2.4s ease-out infinite;animation-delay:1.2s"></div>
+            <div style="position:absolute;inset:0;animation:remiFloat 5s ease-in-out infinite">
+              <div style="position:absolute;inset:-18px;border-radius:50%;background:radial-gradient(circle,var(--c-mid,#E07AC8),transparent 66%);filter:blur(16px);opacity:var(--glow-op,.8)"></div>
+              <div style="position:absolute;inset:6px;background:linear-gradient(145deg,#FFE3C6,var(--c-warm,#FFB07E) 30%,var(--c-mid,#E07AC8) 62%,var(--c-cool,#5B78E2));box-shadow:inset -8px -8px 22px rgba(50,30,90,.45),inset 8px 8px 20px rgba(255,235,210,.5);animation:remiBlob 4.5s ease-in-out infinite,remiBreathe 2.6s ease-in-out infinite;border-radius:42% 58% 56% 44%/52% 44% 56% 48%"></div>
+              <div style="position:absolute;left:30%;top:24%;width:28px;height:19px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.78),transparent 70%);filter:blur(2px)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:70px;display:flex;justify-content:center"><div style="display:flex;align-items:flex-end;gap:3px;height:34px"><span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.9s"></span><span style="width:3px;height:19px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.5s"></span><span style="width:3px;height:28px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.2s"></span><span style="width:3px;height:16px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.7s"></span><span style="width:3px;height:32px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite"></span><span style="width:3px;height:16px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.6s"></span><span style="width:3px;height:28px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.3s"></span><span style="width:3px;height:19px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.45s"></span><span style="width:3px;height:11px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave 1.1s ease-in-out infinite;animation-delay:-.85s"></span></div></div>
+          <div style="position:absolute;left:0;right:0;bottom:50px;text-align:center;font:500 11.5px Quicksand;color:rgba(244,241,238,.62)">聆听中…</div>
+          <div style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:3px;background:var(--c-warm,#FFB07E)"></div></div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <div style="font:600 13px Quicksand;color:var(--c-ink,#2a2723)">聆听 · Listening</div>
+        <div style="margin-top:3px;font:400 11px Quicksand;color:var(--c-sub,#6b6660)">实时声纹 · 抬腕即说</div>
+      </div>
+    </div>
+
+    <!-- 回应 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;flex:none;width:248px">
+      <div style="position:relative;width:248px;height:300px;border-radius:60px;padding:13px;background:linear-gradient(155deg,#4a4a4c,#222 55%,#000);box-shadow:0 22px 48px rgba(0,0,0,.42),inset 0 1px 1px rgba(255,255,255,.16)">
+        <div style="position:absolute;right:-4px;top:104px;width:6px;height:32px;border-radius:4px;background:linear-gradient(#5a5a5c,#2c2c2e)"></div>
+        <div style="position:absolute;right:-3px;top:150px;width:5px;height:44px;border-radius:3px;background:linear-gradient(#4a4a4c,#242426)"></div>
+        <div style="position:relative;width:222px;height:274px;border-radius:48px;background:#000;overflow:hidden">
+          <div style="position:absolute;inset:0;background:radial-gradient(150px 130px at 50% 22%,rgba(255,160,120,.15),transparent 70%)"></div>
+          <div style="position:absolute;top:13px;right:20px;font:600 13px Quicksand;color:#FFB892;letter-spacing:.5px">10:09</div>
+          <div style="position:absolute;top:13px;left:16px;display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:20px;background:rgba(255,176,126,.14);border:1px solid rgba(255,176,126,.28)"><span style="width:6px;height:6px;border-radius:50%;background:var(--c-warm,#FFB07E);box-shadow:0 0 6px var(--c-warm,#FFB07E)"></span><span style="font:600 10px Quicksand;color:#FFCBA8;letter-spacing:.3px">happy</span></div>
+          <div style="position:absolute;left:50%;top:72px;transform:translate(-50%,-50%);width:88px;height:88px">
+            <div style="position:absolute;inset:0;animation:remiFloat 5s ease-in-out infinite">
+              <div style="position:absolute;inset:-12px;border-radius:50%;background:radial-gradient(circle,var(--c-mid,#E07AC8),transparent 66%);filter:blur(11px);opacity:var(--glow-op,.8)"></div>
+              <div style="position:absolute;inset:2px;background:linear-gradient(145deg,#FFE3C6,var(--c-warm,#FFB07E) 30%,var(--c-mid,#E07AC8) 62%,var(--c-cool,#5B78E2));box-shadow:inset -5px -5px 14px rgba(50,30,90,.45),inset 5px 5px 12px rgba(255,235,210,.5);animation:remiBlob 4s ease-in-out infinite,remiBreathe 1.8s ease-in-out infinite;border-radius:42% 58% 56% 44%/52% 44% 56% 48%"></div>
+              <div style="position:absolute;left:30%;top:24%;width:18px;height:12px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.78),transparent 70%);filter:blur(1.5px)"></div>
+            </div>
+          </div>
+          <div style="position:absolute;left:14px;right:14px;top:128px;text-align:center;font:400 13.5px/1.5 'PingFang SC',Quicksand;color:#F0ECE6">今天也辛苦啦。先靠在椅背上,深呼吸三次,我陪你一起。</div>
+          <div style="position:absolute;left:0;right:0;bottom:38px;display:flex;justify-content:center"><div style="display:flex;align-items:flex-end;gap:3px;height:24px"><span style="width:3px;height:8px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.7s"></span><span style="width:3px;height:16px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.4s"></span><span style="width:3px;height:22px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.1s"></span><span style="width:3px;height:14px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.55s"></span><span style="width:3px;height:20px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.25s"></span><span style="width:3px;height:12px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.65s"></span><span style="width:3px;height:9px;border-radius:2px;background:linear-gradient(var(--c-warm,#FFB07E),var(--c-cool,#5B78E2));animation:remiWave .9s ease-in-out infinite;animation-delay:-.8s"></span></div></div>
+          <div style="position:absolute;left:0;right:0;bottom:17px;text-align:center;font:500 10.5px Quicksand;color:rgba(244,241,238,.5)">Remi 正在说话 · 轻点静音</div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <div style="font:600 13px Quicksand;color:var(--c-ink,#2a2723)">回应 · Speaking</div>
+        <div style="margin-top:3px;font:400 11px Quicksand;color:var(--c-sub,#6b6660)">随语气律动 · TTS 朗读</div>
+      </div>
+    </div>
+
+    <!-- 表盘 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;flex:none;width:248px">
+      <div style="position:relative;width:248px;height:300px;border-radius:60px;padding:13px;background:linear-gradient(155deg,#4a4a4c,#222 55%,#000);box-shadow:0 22px 48px rgba(0,0,0,.42),inset 0 1px 1px rgba(255,255,255,.16)">
+        <div style="position:absolute;right:-4px;top:104px;width:6px;height:32px;border-radius:4px;background:linear-gradient(#5a5a5c,#2c2c2e)"></div>
+        <div style="position:absolute;right:-3px;top:150px;width:5px;height:44px;border-radius:3px;background:linear-gradient(#4a4a4c,#242426)"></div>
+        <div style="position:relative;width:222px;height:274px;border-radius:48px;background:#000;overflow:hidden">
+          <div style="position:absolute;inset:0;background:radial-gradient(180px 200px at 50% 88%,rgba(255,150,110,.13),transparent 72%)"></div>
+          <div style="position:absolute;top:16px;left:20px;font:500 11px Quicksand;color:rgba(244,241,238,.55)">周五 20 JUN</div>
+          <div style="position:absolute;top:16px;right:20px;font:500 11px Quicksand;color:rgba(123,224,200,.75)">100%</div>
+          <div style="position:absolute;left:50%;top:96px;transform:translate(-50%,-50%);text-align:center">
+            <div style="font:600 62px/1 Quicksand;color:#F4F1EE;letter-spacing:-2px">10:09</div>
+            <div style="margin-top:4px;font:500 12px Quicksand;color:rgba(244,241,238,.5)">六月 · 晴 18°</div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:30px;display:flex;align-items:flex-end;justify-content:center;gap:24px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+              <div style="position:relative;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center">
+                <div style="position:absolute;inset:0;border-radius:50%;border:3px solid rgba(255,176,126,.18)"></div>
+                <div style="position:absolute;inset:0;border-radius:50%;border:3px solid var(--c-warm,#FFB07E);border-right-color:transparent;border-bottom-color:transparent;transform:rotate(45deg)"></div>
+                <span style="font:600 11px Quicksand;color:#F4F1EE">7.2k</span>
+              </div>
+              <span style="font:500 9px Quicksand;color:rgba(244,241,238,.4)">步</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+              <div style="position:relative;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 50%,rgba(0,0,0,.6),#000);box-shadow:0 0 0 2px rgba(255,176,126,.32),0 0 18px rgba(224,122,200,.38)">
+                <div style="width:42px;height:42px;background:linear-gradient(145deg,#FFE3C6,var(--c-warm,#FFB07E) 32%,var(--c-mid,#E07AC8) 64%,var(--c-cool,#5B78E2));box-shadow:inset -4px -4px 10px rgba(50,30,90,.45);animation:remiBlob 6s ease-in-out infinite,remiBreathe 3.4s ease-in-out infinite;border-radius:42% 58% 56% 44%/52% 44% 56% 48%"></div>
+              </div>
+              <span style="font:600 9.5px Quicksand;color:#FFCBA8;letter-spacing:.3px">REMI</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+              <div style="width:38px;height:38px;border-radius:50%;border:1px solid rgba(244,241,238,.16);display:flex;align-items:center;justify-content:center;font:600 12px Quicksand;color:#F4F1EE">72</div>
+              <span style="font:500 9px Quicksand;color:rgba(244,241,238,.4)">心率</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <div style="font:600 13px Quicksand;color:var(--c-ink,#2a2723)">表盘 · Complication</div>
+        <div style="margin-top:3px;font:400 11px Quicksand;color:var(--c-sub,#6b6660)">一键直达 Remi</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:480},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;暖陽&quot;,&quot;玫瑰&quot;,&quot;星河&quot;],&quot;default&quot;:&quot;暖陽&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;bgTone&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;暖灰&quot;,&quot;冷灰&quot;,&quot;曜黑&quot;],&quot;default&quot;:&quot;暖灰&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;glow&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;柔和&quot;,&quot;适中&quot;,&quot;强烈&quot;],&quot;default&quot;:&quot;适中&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const pal = {
+      '暖陽': ['#FFB07E', '#E07AC8', '#5B78E2'],
+      '玫瑰': ['#FF9EB0', '#E07AC8', '#8B6FE8'],
+      '星河': ['#7BE0C8', '#6E86F0', '#5B78E2'],
+    }[this.props.palette] ?? ['#FFB07E', '#E07AC8', '#5B78E2'];
+    const tone = {
+      '暖灰': ['#e7e5df', '#2a2723', '#6b6660'],
+      '冷灰': ['#e6e8ec', '#23262b', '#646973'],
+      '曜黑': ['#161514', '#f0ece6', 'rgba(240,236,230,.55)'],
+    }[this.props.bgTone] ?? ['#e7e5df', '#2a2723', '#6b6660'];
+    const glow = { '柔和': '.45', '适中': '.8', '强烈': '1' }[this.props.glow] ?? '.8';
+    return {
+      cWarm: pal[0], cMid: pal[1], cCool: pal[2],
+      cBg: tone[0], cInk: tone[1], cSub: tone[2],
+      glowOp: glow,
+    };
+  }
+}
+</script>
+</body>
+</html>

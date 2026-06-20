@@ -2,6 +2,15 @@ import Foundation
 import Combine
 import os
 
+/// UI phase derived from connection, turn-taking, and TTS playback.
+enum RemiPresencePhase: Equatable {
+    case connecting
+    case idle
+    case listening
+    case thinking
+    case speaking
+}
+
 /// WebSocket chat client for the Remi watch MVP.
 ///
 /// Connection lifecycle mirrors the iOS `RemiChatStore` transport at a much
@@ -20,6 +29,15 @@ final class WatchChatStore: ObservableObject {
         didSet { voicePlayer.enabled = ttsEnabled }
     }
     @Published private(set) var authMode: WatchAuthMode = .none
+    @Published private(set) var isSpeaking = false
+    @Published var isListening = false {
+        didSet { refreshPresencePhase() }
+    }
+    @Published private(set) var presencePhase: RemiPresencePhase = .connecting
+
+    var latestRemiReply: String? {
+        messages.last(where: { $0.role == .remi })?.text
+    }
 
     enum WatchAuthMode: String {
         case bearer   // Clerk session token (or legacy JWT)
@@ -31,6 +49,15 @@ final class WatchChatStore: ObservableObject {
 
     private var historyCursor: WatchHistoryCursor?
     private let voicePlayer = WatchVoicePlayer()
+
+    init() {
+        voicePlayer.onPlayingChanged = { [weak self] playing in
+            Task { @MainActor in
+                self?.isSpeaking = playing
+                self?.refreshPresencePhase()
+            }
+        }
+    }
 
     private var socket: URLSessionWebSocketTask?
     private var shouldReconnect = false
@@ -84,6 +111,7 @@ final class WatchChatStore: ObservableObject {
         didSendClientContext = false
         voicePlayer.stopAll()
         phase = .closed
+        refreshPresencePhase()
     }
 
     func send(_ rawText: String) {
@@ -92,6 +120,7 @@ final class WatchChatStore: ObservableObject {
         voicePlayer.stopAll()  // barge-in: cut any TTS still playing from the last turn
         appendMessage(WatchChatMessage(role: .user, text: content))
         awaitingReply = true
+        refreshPresencePhase()
         sendPayload(["type": "chat", "content": content])
     }
 
@@ -154,6 +183,7 @@ final class WatchChatStore: ObservableObject {
 
         if phase != .open {
             phase = .open
+            refreshPresencePhase()
             sendClientContextIfNeeded()
             flushPending()
         }
@@ -165,6 +195,7 @@ final class WatchChatStore: ObservableObject {
         case .chatEnd(let content, let generationId, let emo):
             finalizeStream(content: content, generationId: generationId, declaredEmotion: emo)
             awaitingReply = false
+            refreshPresencePhase()
         case .emotion(let emo):
             emotion = emo
         case .voice(let audioBase64, _):
@@ -176,6 +207,7 @@ final class WatchChatStore: ObservableObject {
         case .error(let text):
             appendMessage(WatchChatMessage(role: .system, text: text))
             awaitingReply = false
+            refreshPresencePhase()
         }
     }
 
@@ -226,6 +258,7 @@ final class WatchChatStore: ObservableObject {
         didSendClientContext = false
         awaitingReply = false
         historyLoadingMore = false
+        refreshPresencePhase()
         keepAliveTask?.cancel(); keepAliveTask = nil
         socket = nil
         streamingMessageByGeneration.removeAll()
@@ -323,6 +356,7 @@ final class WatchChatStore: ObservableObject {
             trim()
         }
         awaitingReply = false
+        refreshPresencePhase()
     }
 
     private func finalizeStream(content: String?, generationId: Int?, declaredEmotion: String?) {
@@ -358,6 +392,23 @@ final class WatchChatStore: ObservableObject {
         let newId = UUID().uuidString
         fallbackStreamingMessageId = newId
         return newId
+    }
+
+    private func refreshPresencePhase() {
+        switch phase {
+        case .connecting, .closed:
+            presencePhase = .connecting
+        case .open:
+            if isSpeaking {
+                presencePhase = .speaking
+            } else if isListening {
+                presencePhase = .listening
+            } else if awaitingReply {
+                presencePhase = .thinking
+            } else {
+                presencePhase = .idle
+            }
+        }
     }
 
     private func trim() {

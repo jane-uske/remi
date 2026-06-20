@@ -155,6 +155,17 @@
   - 边界：不计入本轮主线 done 判定
   - 验收标准：真机按住说话能稳定出现 transcript 或最终用户气泡，并触发 assistant 回复
 
+- [x] **I-WATCH-01** watchOS Blob 在场感主屏 — `done`（2026-06-20）
+  - 设计来源：`ios/RemiWatch/design/Blob.dc.html`（Claude Design 稿落地）
+  - 已落地：暖阳渐变 blob 动画（`RemiBlobView` / `RemiBlobShape`）、波形条（`RemiWaveformView`）、OLED 黑底主屏（`RemiBlobScreen`）、`RemiPresencePhase` 说话/倾听态、`WatchChatSheet` 聊天气泡历史
+  - 语音输入：真机走 WatchKit `presentTextInputController` 系统听写；Simulator 无 `WKInterfaceController` 时降级 `TextFieldLink`
+  - 表盘：`RemiComplication` 改为迷你渐变 blob（替换 SF Symbol）
+  - 模拟器已 build + install 验收（Apple Watch Series 11 46mm）
+  - 下一步（不抢 Web 主线）：
+    - `I-WATCH-02` WatchConnectivity：iPhone `RemiChatLite` Clerk token → `WatchAuth.store(token:)`
+    - 真机 LAN WS URL（`REMI_WATCH_WS_URL=ws://<Mac-IP>:3001/ws`，勿用 `127.0.0.1`）
+    - Complication 接 App Group 实时情绪数据
+
 - [ ] **T-042** Prompt / latency budget 收口
   - 当前判断：这仍重要，但不能继续稀释”像她”的主线
   - 当前边界：只做对 Web 默认体验直接有帮助的压缩和稳定性修复

@@ -1,30 +1,38 @@
 # RemiWatch (watchOS MVP)
 
-A minimal **standalone** watchOS SwiftUI chat client for the Remi backend — the
-watch counterpart to `ios/RemiChatLite`. First-version MVP: connect, send a
-message, stream Remi's reply.
+A minimal **standalone** watchOS SwiftUI client for the Remi backend — the
+watch counterpart to `ios/RemiChatLite`. The default experience is a **Blob
+presence screen** (organic gradient companion + waveform); chat history is a
+secondary sheet.
 
 ## Scope
 
 - Standalone watch app (`WKWatchOnly`) — no iPhone companion required
+- **Blob presence UI** (`RemiBlobScreen`): breathe/float/glow blob, gradient
+  waveform, OLED black background; driven by `RemiPresencePhase` (idle /
+  listening / speaking)
 - WebSocket streaming chat (`chat_chunk` / `chat_end`), auto-reconnect + keep-alive
 - Inline `<emotion>…</emotion>` markup stripped from bubbles (reuses
   `RemiEmotionTag` from the iOS client verbatim)
 - **History restore**: `history_page` (replace/prepend) hydrated on connect, with
-  a "Load earlier" affordance backed by `history_more` pagination
+  a "Load earlier" affordance backed by `history_more` pagination — opened via
+  toolbar bubble icon as `WatchChatSheet`
 - **TTS playback**: Remi's `voice` MP3 segments queued + played sequentially via
   `AVAudioPlayer`, with a mute toggle and barge-in (new send cuts current speech)
-- **Voice input**: dictation via `TextFieldLink` (the watch speech/scribble input)
+- **Voice input**: WatchKit system dictation (`presentTextInputController`) on
+  device; Simulator falls back to `TextFieldLink` when no `WKInterfaceController`
+  is available (`WatchSpeechInput`)
 - **Auth**: `Authorization: Bearer <clerk-session-token>` when a token is present
   (Keychain / env / Info.plist), `X-Remi-Mobile-Key` dev-key fallback, else
   unauthenticated for the gateway loopback bypass
-- **Watch-face complication**: a WidgetKit extension (`accessoryCircular`,
-  `accessoryInline`, `accessoryRectangular`, `accessoryCorner`) that puts Remi one
-  tap from the face
+- **Watch-face complication**: WidgetKit extension with animated mini gradient
+  blob (`accessoryCircular`, `accessoryInline`, `accessoryRectangular`,
+  `accessoryCorner`) — one tap from the face
 - Connection + emotion + sign-in status
 
-**Not yet** (future): interactive Clerk sign-in UI on-watch (see Auth below),
-full-duplex streaming voice input, live data in the complication.
+**Not yet** (future): WatchConnectivity token hand-off from iPhone,
+interactive Clerk sign-in UI on-watch, full-duplex streaming voice input,
+live emotion data in the complication (App Group).
 
 ## Layout
 
@@ -32,10 +40,18 @@ full-duplex streaming voice input, live data in the complication.
 ios/RemiWatch/
 ├── gen_project.rb              # regenerates RemiWatch.xcodeproj (app + complication targets)
 ├── RemiWatch.xcodeproj         # generated (do not hand-edit; re-run gen_project.rb)
+├── design/
+│   └── Blob.dc.html            # Claude Design reference (Remi Watch · Blob)
 ├── RemiWatch/                  # the watch app target
 │   ├── RemiWatchApp.swift      # @main App
-│   ├── ContentView.swift       # SwiftUI chat UI (mute, mic, load-earlier, status)
-│   ├── WatchChatStore.swift    # WS transport + protocol + streaming + history + auth
+│   ├── ContentView.swift       # Blob main screen + chat history sheet
+│   ├── RemiBlobScreen.swift    # primary presence UI (blob + waveform + mic)
+│   ├── RemiBlobView.swift      # animated gradient blob + rings
+│   ├── RemiBlobShape.swift     # organic blob morph shape
+│   ├── RemiBlobPalette.swift   # warm gradient palette (#FFB07E / #E07AC8 / #5B78E2)
+│   ├── RemiWaveformView.swift  # gradient audio bars
+│   ├── WatchSpeechInput.swift  # WatchKit dictation + Simulator TextFieldLink fallback
+│   ├── WatchChatStore.swift    # WS transport + protocol + streaming + history + presence
 │   ├── WatchVoicePlayer.swift  # sequential MP3 TTS playback (AVAudioPlayer)
 │   ├── WatchAuth.swift         # Keychain-backed bearer-token store
 │   ├── WatchConfig.swift       # WS URL + dev-key + env/plist resolution
@@ -44,7 +60,7 @@ ios/RemiWatch/
 │   ├── Info.plist              # WKWatchOnly + mic usage + dev ATS exception
 │   └── Assets.xcassets         # AppIcon placeholder + AccentColor
 └── RemiComplication/           # the WidgetKit complication extension target
-    ├── RemiComplication.swift  # WidgetBundle + accessory-family views
+    ├── RemiComplication.swift  # mini animated gradient blob widget
     └── Info.plist              # NSExtension widgetkit-extension
 ```
 
@@ -69,6 +85,13 @@ The watch **simulator** shares the Mac's network, so the default
 `ws://127.0.0.1:3000/ws` reaches a local gateway (`npm run dev` or the
 local-prod Docker stack). The connection uses the gateway's loopback auth bypass
 (`REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1`), so no token is needed for local dev.
+
+On a **physical watch**, use your Mac's LAN IP — `127.0.0.1` points at the watch
+itself, not your dev machine:
+
+```bash
+REMI_WATCH_WS_URL=ws://192.168.x.x:3001/ws
+```
 
 ## Config overrides
 
@@ -100,7 +123,7 @@ this to a companion target) or Clerk's watchOS SDK once adopted — either calls
 The `RemiComplication` WidgetKit extension is embedded in the app's `PlugIns`.
 After installing, add it on the watch: long-press the face → **Edit** → a
 complication slot → pick **Remi**. Tapping it launches the app. It's static in
-the MVP (no live data).
+the MVP (animated blob, no live emotion feed yet).
 
 For the simulator, inject env via `SIMCTL_CHILD_<KEY>`, e.g.
 `SIMCTL_CHILD_REMI_WATCH_WS_URL=wss://app-rem.remi.run/ws xcrun simctl launch …`.
@@ -134,3 +157,6 @@ xcrun simctl spawn "$DEVICE" log show --last 30s \
 - `RemiEmotionTag.swift` is duplicated from `RemiChatLite` rather than shared, to
   keep this a self-contained standalone project with no cross-target coupling. If
   the iOS copy changes, re-copy it here.
+- `Speech` framework is **not** available on watchOS; voice input uses WatchKit
+  dictation on device. The Simulator has no `WKInterfaceController`, so mic taps
+  there open `TextFieldLink` instead.
