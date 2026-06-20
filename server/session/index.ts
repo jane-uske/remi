@@ -157,7 +157,12 @@ import {
   type SessionTtsTransport,
 } from "./tts_transport";
 import { applyPcm16Gain, normalizeDuplexPcm16Mono } from "./audio_resample";
-import { clearSessionTtsRuntimeOverride } from "../../voice/tts_runtime_overrides";
+import {
+  clearSessionTtsRuntimeOverride,
+  setSessionMlxVoiceStyle,
+  setSessionMlxSpeedModifier,
+  setSessionMlxPitchModifier,
+} from "../../voice/tts_runtime_overrides";
 import { notifySessionStart, notifySessionEnd } from "../../plugin/registry";
 
 const logger = createLogger("session");
@@ -2866,6 +2871,7 @@ export class ConnectionSession {
       handleClientContext: (data) => this.handleClientContext(data),
       handleChat: (data) => this.handleChat(data),
       handleWorldEvent: (data) => this.handleWorldEvent(data),
+      handleSetVoiceStyle: (data) => this.handleSetVoiceStyle(data),
     });
   }
 
@@ -2875,6 +2881,24 @@ export class ConnectionSession {
       { connId: this.connId, userId: this.storageUserId },
       data,
     );
+  }
+
+  /**
+   * WS message `set_voice_style` — UI-driven voice style / speed / pitch control.
+   * Payload: { voiceStyleId?: string | null, speedModifier?: string | null, pitchModifier?: string | null }
+   */
+  private handleSetVoiceStyle(data: any): void {
+    const connId = this.connId;
+    if (data.voiceStyleId !== undefined) {
+      setSessionMlxVoiceStyle(connId, data.voiceStyleId ?? null);
+    }
+    if (data.speedModifier !== undefined) {
+      setSessionMlxSpeedModifier(connId, data.speedModifier ?? null);
+    }
+    if (data.pitchModifier !== undefined) {
+      setSessionMlxPitchModifier(connId, data.pitchModifier ?? null);
+    }
+    send(this.ws, { type: "voice_style_ack", ...data });
   }
 
   private runDevCommand(task: Promise<void>): void {

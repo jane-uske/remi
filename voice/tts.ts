@@ -172,6 +172,7 @@ export function normalizeTtsText(raw: string): string {
     maxChars: getConfig().tts_max_chars,
     stripParenthetical: getConfig().tts_strip_parenthetical,
     stripEmoji: getConfig().tts_strip_emoji,
+    speakablePunct: getConfig().REMI_TTS_SPEAKABLE_PUNCT,
   });
 }
 
@@ -971,7 +972,7 @@ async function speakWithProvider(
   if (provider === "edge") return speakWithEdge(text, signal, emotion);
   if (provider === "piper") return speakWithPiper(text, signal, emotion);
   if (provider === "volc") return speakWithVolc(text, signal, emotion, context);
-  if (provider === "mlx") return speakWithMlx(text, signal, emotion);
+  if (provider === "mlx") return speakWithMlx(text, signal, emotion, context?.connId);
   return speakWithOpenAI(text, signal, emotion);
 }
 
@@ -1255,6 +1256,7 @@ export async function streamTextToSpeech(
   signal?: AbortSignal,
   emotion?: Emotion,
   onLipSyncChunk?: (chunk: TtsLipSyncChunk) => void,
+  context?: TtsRequestContext,
 ): Promise<void> {
   throwIfAborted(signal);
   const ttsText = normalizeTtsText(text);
@@ -1273,7 +1275,7 @@ export async function streamTextToSpeech(
 
   try {
     if (provider === "mlx") {
-      await streamMlxPcm(ttsText, signal, emotion, onChunk);
+      await streamMlxPcm(ttsText, signal, emotion, onChunk, context?.connId);
     } else {
       await withRetry(
         () => streamEdgePcm(ttsText, signal, emotion, onChunk, onLipSyncChunk),
