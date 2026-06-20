@@ -1,15 +1,17 @@
 import {
-  completeWithOptions,
+  collectStreamTokens,
   hasLlmConfig,
   localLlmEnabled,
-  streamTokens,
+  recoverVisibleReply,
 } from "../llm/qwen_client";
 import { buildPrompt, type PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { Memory } from "../memory/memory_store";
 import { createLogger } from "../infra/logger";
+import { getConfig } from "../server/config";
 import { estimateTextTokens } from "./history_budget";
 import type { PersonaState } from "../persona";
+import { getFastBrainModel } from "./fast_brain_model";
 
 const logger = createLogger("reply_stream");
 
@@ -40,15 +42,6 @@ function getFastBrainReasoningEffort(): string | undefined {
   }
   logger.warn("忽略未知 fast-brain reasoning effort 配置", { value: raw });
   return undefined;
-}
-
-function getFastBrainModel(): string | undefined {
-  const model = (
-    process.env.REMI_FAST_BRAIN_MODEL ??
-    process.env.REM_FAST_BRAIN_MODEL ??
-    process.env.model
-  )?.trim();
-  return model || undefined;
 }
 
 function isAbortLikeError(err: unknown): boolean {
@@ -178,23 +171,26 @@ export async function* fastBrainStream(
 
   let hasContent = false;
   try {
-    for await (const token of streamTokens(
-      messages,
-      input.signal,
+    const streamCallbacks =
       input.onFirstLlmChunk ||
-        input.onFirstLlmReasoningChunk ||
-        input.onFirstLlmVisibleContent
+      input.onFirstLlmReasoningChunk ||
+      input.onFirstLlmVisibleContent
         ? {
             onFirstChunk: input.onFirstLlmChunk,
             onFirstReasoningChunk: input.onFirstLlmReasoningChunk,
             onFirstVisibleContent: input.onFirstLlmVisibleContent,
           }
-        : undefined,
+        : undefined;
+    const streamResult = await collectStreamTokens(
+      messages,
+      input.signal,
+      streamCallbacks,
       {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(model ? { model } : {}),
       },
-    )) {
+    );
+    for (const token of streamResult.tokens) {
       hasContent = true;
       yield token;
     }
@@ -203,19 +199,22 @@ export async function* fastBrainStream(
         logger.debug("LLM 空流结束（已中断）");
         return;
       }
-      logger.warn("LLM 返回内容为空（thinking 已过滤）");
-      const fallback = await completeWithOptions(messages, {
-        maxTokens: 256,
-        signal: input.signal,
-        ...(model ? { model } : {}),
-      }).catch((err) => {
-        logger.warn("LLM 空流 fallback 失败", { error: (err as Error).message });
-        return "";
+      logger.warn("LLM 返回内容为空（thinking 已过滤）", {
+        contentChars: streamResult.contentChars,
+        reasoningChars: streamResult.reasoningChars,
+        reasoningEffort: reasoningEffort ?? "provider_default",
+        model: model ?? "unconfigured",
       });
-      if (fallback.trim()) {
-        yield fallback.trim();
+      const recovered = await recoverVisibleReply(messages, {
+        maxTokens: 512,
+        signal: input.signal,
+        reasoningEffort: reasoningEffort ?? "none",
+        ...(model ? { model } : {}),
+      });
+      if (recovered) {
+        yield recovered;
       } else {
-        yield "嗯…让我想想…";
+        yield "啊…刚刚脑子卡了一下，你再说一次好不好？";
       }
     }
   } catch (err) {
@@ -301,7 +300,7 @@ export async function fastBrainPredictOnly(
 
   let fullReply = "";
   try {
-    for await (const token of streamTokens(
+    const streamResult = await collectStreamTokens(
       messages,
       input.signal,
       input.onFirstLlmChunk ||
@@ -317,12 +316,21 @@ export async function fastBrainPredictOnly(
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(model ? { model } : {}),
       },
-    )) {
-      fullReply += token;
-    }
+    );
+    fullReply = streamResult.tokens.join("");
     if (!fullReply.trim()) {
-      logger.warn("[预判] LLM 返回内容为空");
-      return "";
+      logger.warn("[预判] LLM 返回内容为空", {
+        contentChars: streamResult.contentChars,
+        reasoningChars: streamResult.reasoningChars,
+      });
+      return (
+        (await recoverVisibleReply(messages, {
+          maxTokens: 512,
+          signal: input.signal,
+          reasoningEffort: reasoningEffort ?? "none",
+          ...(model ? { model } : {}),
+        })) || ""
+      );
     }
     logger.debug("[预判] 生成完成", { textLength: fullReply.length, preview: fullReply.slice(0, 30) });
     return fullReply.trim();

@@ -87,15 +87,12 @@ describe("fast_brain abort handling", () => {
   it("does not emit error fallback text when streaming is aborted", async () => {
     await withMockedQwenClient(
       {
-        async *streamTokens() {
+        async collectStreamTokens() {
           const err = new Error("Request was aborted.");
           err.name = "AbortError";
           throw err;
         },
-        async complete() {
-          return "ignored";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "ignored";
         },
       },
@@ -117,13 +114,10 @@ describe("fast_brain abort handling", () => {
   it("still emits fallback text for real LLM failures", async () => {
     await withMockedQwenClient(
       {
-        async *streamTokens() {
+        async collectStreamTokens() {
           throw new Error("provider down");
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
@@ -145,16 +139,13 @@ describe("fast_brain abort handling", () => {
   it("surfaces a config-specific message for authentication failures", async () => {
     await withMockedQwenClient(
       {
-        async *streamTokens() {
+        async collectStreamTokens() {
           const err = new Error("401 The API key format is incorrect.");
           err.code = "AuthenticationError";
           err.status = 401;
           throw err;
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
@@ -181,17 +172,18 @@ describe("fast_brain abort handling", () => {
     let firstVisibleCalls = 0;
     await withMockedQwenClient(
       {
-        async *streamTokens(_, __, callbacks) {
+        async collectStreamTokens(_, __, callbacks) {
           callbacks?.onFirstChunk?.();
           callbacks?.onFirstReasoningChunk?.();
           callbacks?.onFirstVisibleContent?.();
-          yield "<think>思考过程";
-          yield "</think>真实回答";
+          return {
+            tokens: ["真实回答"],
+            contentChars: 12,
+            reasoningChars: 4,
+            visibleChars: 4,
+          };
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
@@ -217,24 +209,26 @@ describe("fast_brain abort handling", () => {
         assert.equal(firstChunkCalls, 1);
         assert.equal(firstReasoningCalls, 1);
         assert.equal(firstVisibleCalls, 1);
-        assert.equal(chunks.join(""), "<think>思考过程</think>真实回答");
+        assert.equal(chunks.join(""), "真实回答");
       },
     );
   });
 
-  it("passes configured fast-brain reasoning effort to streamTokens", async () => {
+  it("passes configured fast-brain reasoning effort to collectStreamTokens", async () => {
     process.env.REMI_FAST_BRAIN_REASONING_EFFORT = "minimal";
     let seenOptions = null;
     await withMockedQwenClient(
       {
-        async *streamTokens(_, __, ___, options) {
+        async collectStreamTokens(_, __, ___, options) {
           seenOptions = options;
-          yield "ok";
+          return {
+            tokens: ["ok"],
+            contentChars: 2,
+            reasoningChars: 0,
+            visibleChars: 2,
+          };
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
@@ -254,19 +248,21 @@ describe("fast_brain abort handling", () => {
     assert.deepEqual(seenOptions, { reasoningEffort: "minimal", model: "test-model" });
   });
 
-  it("prefers REMI_FAST_BRAIN_MODEL over the shared model", async () => {
+  it("ignores REMI_FAST_BRAIN_MODEL and uses REMI_LLM_MODEL for fast-brain stream", async () => {
     process.env.REMI_FAST_BRAIN_MODEL = "fast-model";
     let seenOptions = null;
     await withMockedQwenClient(
       {
-        async *streamTokens(_, __, ___, options) {
+        async collectStreamTokens(_, __, ___, options) {
           seenOptions = options;
-          yield "ok";
+          return {
+            tokens: ["ok"],
+            contentChars: 2,
+            reasoningChars: 0,
+            visibleChars: 2,
+          };
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
@@ -283,7 +279,40 @@ describe("fast_brain abort handling", () => {
         assert.deepEqual(chunks, ["ok"]);
       },
     );
-    assert.deepEqual(seenOptions, { model: "fast-model" });
+    assert.deepEqual(seenOptions, { model: "test-model" });
+  });
+
+  it("recovers via non-stream when visible stream tokens are empty", async () => {
+    let recoverCalls = 0;
+    await withMockedQwenClient(
+      {
+        async collectStreamTokens() {
+          return {
+            tokens: [],
+            contentChars: 0,
+            reasoningChars: 1200,
+            visibleChars: 0,
+          };
+        },
+        async recoverVisibleReply() {
+          recoverCalls += 1;
+          return "白色蕾丝边。";
+        },
+      },
+      async ({ fastBrainStream }) => {
+        const chunks = [];
+        for await (const token of fastBrainStream({
+          userMessage: "你穿的什么颜色内裤",
+          emotion: "neutral",
+          memory: [],
+          history: [],
+        })) {
+          chunks.push(token);
+        }
+        assert.equal(recoverCalls, 1);
+        assert.deepEqual(chunks, ["白色蕾丝边。"]);
+      },
+    );
   });
 
   it("falls back immediately when local llm is disabled", async () => {
@@ -292,13 +321,10 @@ describe("fast_brain abort handling", () => {
       {
         hasLlmConfig: () => false,
         localLlmEnabled: () => false,
-        async *streamTokens() {
+        async collectStreamTokens() {
           throw new Error("should not be called");
         },
-        async complete() {
-          return "";
-        },
-        async completeWithOptions() {
+        async recoverVisibleReply() {
           return "";
         },
       },
