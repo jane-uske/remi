@@ -33,7 +33,7 @@ try {
       "║    REMI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1        ║\n" +
       "║    REMI_EMBEDDING_MODEL=nomic-embed-text                    ║\n" +
       "║                                                              ║\n" +
-      "║  详见: docs/LOCAL_LLM_SETUP.md                              ║\n" +
+      "║  详见: docs/guides/LOCAL_LLM.md                             ║\n" +
       "╚══════════════════════════════════════════════════════════════╝\n",
     );
   }

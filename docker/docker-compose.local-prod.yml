@@ -2,7 +2,8 @@ services:
   app:
     image: remi-ai-app
     build:
-      context: .
+      context: ..
+      dockerfile: docker/Dockerfile
       args:
         NEXT_PUBLIC_REMI_AUTH_MODE: ${NEXT_PUBLIC_REMI_AUTH_MODE:-}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
@@ -12,7 +13,7 @@ services:
         NEXT_PUBLIC_VRM_FRAMING: ${NEXT_PUBLIC_VRM_FRAMING:-}
         NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT: ${NEXT_PUBLIC_VRM_DISABLE_NODE_CONSTRAINT:-}
         NEXT_PUBLIC_REM_DEVTOOLS: ${NEXT_PUBLIC_REM_DEVTOOLS:-}
-    env_file: ${REMI_ENV_FILE:-.env.local-prod}
+    env_file: ${REMI_ENV_FILE:-../.env.local-prod}
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -44,7 +45,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - rem_local_prod_pgdata:/var/lib/postgresql/data
-      - ./storage/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../storage/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rem} -d ${POSTGRES_DB:-rem_ai}"]
       interval: 5s

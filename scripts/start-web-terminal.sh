@@ -4,10 +4,11 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
-if [ -f .env ]; then
+ENV_FILE=$(node ./scripts/env_files.cjs dev)
+if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1091
-  . ./.env
+  . "$ENV_FILE"
   set +a
 fi
 

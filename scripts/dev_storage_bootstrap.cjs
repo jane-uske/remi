@@ -60,7 +60,7 @@ function ensureDevStorage(options = {}) {
   const env = loadBootstrapEnv(options.env || process.env, envFile);
   const cwd = options.cwd || process.cwd();
   const stdio = options.stdio || "inherit";
-  const composeFile = options.composeFile || "docker-compose.dev.yml";
+  const composeFile = options.composeFile || "docker/docker-compose.dev.yml";
   const plan = planDevStorageBootstrap(env);
 
   if (!plan.enabled) return plan;

@@ -14,7 +14,7 @@
 ## 2. Prerequisites
 
 - Docker + Docker Compose 可用
-- 已创建 `.env`
+- 已创建 `.env.local-prod`（`cp .env.local-prod.example .env.local-prod`）
 - 已填关键变量（至少）：
   - `key`
   - `base_url`
@@ -52,7 +52,9 @@ npm run prod:local:rebuild
 npm run prod:local:stop
 ```
 
-服务编排文件：`docker-compose.local-prod.yml`
+服务编排文件：`docker/docker-compose.local-prod.yml`（说明见 [docker/README.md](../../docker/README.md)）
+
+新设备完整环境搭建见 [guides/NEW_DEVICE_SETUP.md](../guides/NEW_DEVICE_SETUP.md)。
 
 Compose 隔离：
 - local-prod 脚本固定使用 compose project：`remi-ai-local-prod`

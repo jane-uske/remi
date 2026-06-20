@@ -568,7 +568,7 @@ export function validateEnv(): RemiEnv {
     const issues = result.error.issues.map(
       (issue) => `  ${issue.path.join(".")}: ${issue.message}`,
     );
-    const msg = `[remi:config] Environment validation failed:\n${issues.join("\n")}\n\nSee .env.minimal for minimum required config.`;
+    const msg = `[remi:config] Environment validation failed:\n${issues.join("\n")}\n\nSee .env.localhost.example (dev) or .env.local-prod.example (prod).`;
     throw new Error(msg);
   }
 

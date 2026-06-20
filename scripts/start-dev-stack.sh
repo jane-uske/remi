@@ -44,7 +44,7 @@ for volume in $(node -e "require('dotenv').config({ path: process.argv[1], quiet
   fi
 done
 
-REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.dev.yml $PROFILE_ARGS up -d $SERVICES
+REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker/docker-compose.dev.yml $PROFILE_ARGS up -d $SERVICES
 
 echo "Remote dev services started."
 echo "Storage:     postgres=127.0.0.1:5432 redis=127.0.0.1:6379"

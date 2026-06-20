@@ -6,7 +6,7 @@
 
 ## 推荐架构
 
-- 家里电脑作为唯一开发主机，保存仓库、`.env`、Postgres、Redis。
+- 家里电脑作为唯一开发主机，保存仓库、`.env.localhost`、Postgres、Redis。
 - `remi` 主程序默认原生运行在家里电脑上，不放进 Docker。
 - Docker 默认只跑 `postgres` 和 `redis`。
 - 轻量远程开发优先使用 `ttyd + tmux` 浏览器终端，而不是常驻 `code-server`。
@@ -27,7 +27,7 @@
 ./scripts/bootstrap-home-dev.sh
 ```
 
-4. 编辑 `.env`，至少补齐：
+4. 编辑 `.env.localhost`，至少补齐：
 
 ```env
 key=...

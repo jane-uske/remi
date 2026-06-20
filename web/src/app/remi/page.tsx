@@ -165,7 +165,7 @@ export default function RemiPortalPage() {
           >
             <code>{`git clone https://github.com/jane-uske/remi.git && cd remi
 npm install && npm install --prefix web
-cp .env.minimal .env   # add your LLM API key + base URL
+cp .env.localhost.example .env.localhost   # add your LLM API key + base URL
 npm run dev             # open http://localhost:3001`}</code>
           </pre>
           <p

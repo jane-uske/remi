@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import dotenv from "dotenv";
@@ -13,13 +12,10 @@ function resolveEnvFile(): string {
       : path.resolve(process.cwd(), configured);
   }
 
-  const devDefault = path.resolve(process.cwd(), ".env.localhost");
-  if (fs.existsSync(devDefault)) return devDefault;
-
-  return path.resolve(process.cwd(), ".env");
+  return path.resolve(process.cwd(), ".env.localhost");
 }
 
-/** Load env before schema validation. Dev defaults to `.env.localhost`. */
+/** Load env before schema validation. Dev uses `.env.localhost` only. */
 export function loadEnvFile(): string {
   const file = resolveEnvFile();
   // Env file wins over stale shell exports (e.g. legacy `model=qwen/qwen3.6-35b-a3b`).

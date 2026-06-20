@@ -1,9 +1,11 @@
 services:
   app:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     ports:
       - "3000:3000"
-    env_file: .env
+    env_file: ${REMI_ENV_FILE:-../.env.local-prod}
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://rem:rem_password@postgres:5432/rem_ai
@@ -22,7 +24,7 @@ services:
       POSTGRES_PASSWORD: rem_password
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./storage/schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../storage/schema.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:

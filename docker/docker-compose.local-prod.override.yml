@@ -1,0 +1,12 @@
+services:
+  app:
+    volumes:
+      - ../node_modules:/app/node_modules:ro
+      - ../web/node_modules:/app/web/node_modules:ro
+      - ../dist:/app/dist:ro
+      - ../web/.next:/app/web/.next:ro
+      - ../web/package.json:/app/web/package.json:ro
+      - ../web/next.config.mjs:/app/web/next.config.mjs:ro
+      - ../web/public:/app/web/public:ro
+      - ../storage/schema.sql:/app/storage/schema.sql:ro
+      - ../avatar/assets:/app/avatar/assets:ro

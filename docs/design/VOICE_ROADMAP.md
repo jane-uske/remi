@@ -47,7 +47,7 @@
 - 将读路径从 V1 relationship episodes 迁到 V2 episode store
 - 让主动策略逐步依赖 unresolved episode，而不是旧的 V1 结构
 
-执行层面的短说明见 [CURRENT_FOCUS.md](CURRENT_FOCUS.md)。
+执行层面的短说明见 [CURRENT_FOCUS.md](../ops/CURRENT_FOCUS.md)。
 
 ---
 

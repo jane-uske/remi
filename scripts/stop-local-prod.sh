@@ -7,6 +7,6 @@ cd "$ROOT_DIR"
 ENV_FILE=$(node ./scripts/env_files.cjs prod)
 COMPOSE_PROJECT=$(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveComposeProjectName } = require('./scripts/env_files.cjs'); process.stdout.write(resolveComposeProjectName('prod'));" "$ENV_FILE")
 
-REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.local-prod.yml down
+REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker/docker-compose.local-prod.yml down
 
 echo "Local production stack stopped."

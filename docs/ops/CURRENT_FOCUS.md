@@ -17,7 +17,7 @@
 原主线 (W-PRES-01~04)，辅以坏样本评测环（scripts/live_chat_probe.mjs 为种子）
 ```
 
-历史修复步骤与验收标准见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)（已全部执行完毕，仅作参考）。
+历史修复步骤与验收标准见 [STRUCTURAL_DEBT.md](../archive/STRUCTURAL_DEBT.md)（已全部执行完毕，仅作参考）。
 
 ---
 

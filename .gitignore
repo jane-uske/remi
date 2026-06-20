@@ -3,9 +3,7 @@
 .cloudflared
 .cursor/
 .DS_Store
-.env
 .env.local-prod
-.env.local-prod.bak-lmstudio
 .env.localhost
 .playwright-cli/
 *.7z

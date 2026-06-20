@@ -70,11 +70,12 @@ Remi 更接近“一个有实时交互感、人格连续性、跨终端存在感
 ```bash
 git clone https://github.com/jane-uske/remi.git && cd remi
 npm install && npm install --prefix web
-cp .env.minimal .env   # fill in your LLM API key + base URL
+cp .env.localhost.example .env.localhost
+# edit REMI_LLM_API_KEY + REMI_LLM_BASE_URL in .env.localhost
 npm run dev             # open http://localhost:3001
 ```
 
-Only 2 environment variables are required: `REMI_LLM_API_KEY` and `REMI_LLM_BASE_URL`.
+Only 2 environment variables are required: `REMI_LLM_API_KEY` and `REMI_LLM_BASE_URL` (in `.env.localhost`).
 No database, no Redis, no TTS key needed. Text chat works out of the box.
 The model name auto-detects from your base URL (OpenAI → `gpt-4o-mini`, DashScope → `qwen-plus`).
 
@@ -84,8 +85,8 @@ The model name auto-detects from your base URL (OpenAI → `gpt-4o-mini`, DashSc
 # Optional: local database + Redis for persistent memory
 npm run dev:infra
 
-# Optional: full .env with all tuning knobs
-cp .env.example .env
+# Optional: copy more tuning knobs from the full reference
+# see .env.example (variable dictionary, not loaded directly)
 
 # Standalone frontend dev (port 3001, backend on 3000)
 npm run dev:web:standalone
@@ -94,8 +95,11 @@ npm run dev:web:standalone
 npm run typecheck
 ```
 
+文档索引见 **[docs/README.md](docs/README.md)**（Agent 按需阅读表）。
+
 浏览器远程开发与办公网实时预览见 **`docs/ops/REMOTE_DEV.md`**。
 本机常驻小规模生产化部署（2-3 用户试用）见 **`docs/ops/LOCAL_PROD_DEPLOY.md`**。
+新设备从零复现完整本地栈见 **`docs/guides/NEW_DEVICE_SETUP.md`**。
 如果 Next 开发态缓存异常，可先执行 **`npm run dev:web:clean`** 再重启服务。
 
 ### 本地验证
@@ -125,7 +129,7 @@ npm run test --prefix web
 - 但如果主域名已经切成 Clerk 正式入口，不建议再叠 `REMI_ACCESS_PASSWORD`；共享密码门禁只适合单独的开发/预发入口。
 - Web 在 `NEXT_PUBLIC_REMI_AUTH_MODE=clerk` 且配置 `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` 时，正式域名会先走 Clerk 登录，再把 session token 透传给 WebSocket。
 - `localhost` / `127.0.0.1` 若注入的是 Clerk `pk_live_...` production key，前端会自动退回本地开发口径，不再在 loopback 下强行启用 Clerk。也就是说：本地调开发功能，正式域名调真实登录。
-- 启动脚本现已支持环境拆分：开发默认优先读 `.env.localhost`，并默认监听 `3001`；local-prod 默认优先读 `.env.local-prod`，并继续监听 `3000`。找不到时才回退 `.env`。可参考 [.env.localhost.example](/Users/rare/Desktop/remi-ai/.env.localhost.example) 和 [.env.local-prod.example](/Users/rare/Desktop/remi-ai/.env.local-prod.example)。
+- 环境文件拆分：开发只读 `.env.localhost`（端口 `3001`）；local-prod 只读 `.env.local-prod`（端口 `3000`）。模板见 `.env.localhost.example`、`.env.local-prod.example`；全量变量字典见 `.env.example`。
 - WebSocket 会自动复用页面 URL 中的 `token` 参数，降低“页面可开但 WS 401 断连”风险。
 - 前端聊天本地缓存按用户隔离：无 token 走默认缓存；带 token 时按 token 的 `id` 分桶，避免 `user_001` / `user_002` 共享同一份本地聊天历史。
 - 3D 模型静态资源路径 `/vrm/*` 已加入鉴权放行，避免 VRM 请求被 `401` 拦截。
@@ -294,16 +298,14 @@ remi/
 │       ├── RemiChatLite/      # SwiftUI 界面 + WebSocket 传输 + 语音双工 + Live2D 骨架
 │       ├── RemiWatch/         # watchOS 应用（情绪表情脸 + PTT 语音 + HealthKit）
 │       └── RemiWatchWidget/   # watchOS 表盘 Complication（WidgetKit）
-├── Dockerfile                 # 多阶段构建
-├── docker-compose.yml         # App + PostgreSQL + Redis
+├── docker/                    # Dockerfile + compose 文件（见 docker/README.md）
 ├── package.json
 ├── tsconfig.json
-└── docs/
-    ├── design/    # ARCHITECTURE, PIPELINE, MEMORY_V2_DESIGN...
-    ├── guides/    # PLUGIN_GUIDE, AGENTS, TEST_MAP
-    ├── ops/       # TASKS, CURRENT_FOCUS, PROJECT_CONTEXT
+└── docs/                      # 索引见 docs/README.md
+    ├── ops/       # TASKS, CURRENT_FOCUS, LOCAL_PROD_DEPLOY
+    ├── guides/    # NEW_DEVICE_SETUP, LOCAL_LLM, PLUGIN, TEST_MAP
+    ├── design/    # ARCHITECTURE, PIPELINE, MEMORY_V2_DESIGN
     ├── evals/     # 手工测试与对话样例
-    ├── reference/ # 参考设计文档
     └── archive/   # 历史记录
 ```
 

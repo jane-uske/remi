@@ -29,13 +29,7 @@ ollama list
 
 ## 配置
 
-复制预设即可：
-
-```bash
-cp .env.local-ollama .env
-```
-
-或手动配置 `.env`：
+将下列变量写入 `.env.localhost`（开发）或 `.env.local-prod`（Docker 生产化）：
 
 ```env
 REMI_LLM_API_KEY=ollama
@@ -48,7 +42,13 @@ REMI_FAST_BRAIN_REASONING_EFFORT=minimal
 REMI_EMBEDDING_API_KEY=ollama
 REMI_EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1
 REMI_EMBEDDING_MODEL=nomic-embed-text
+
+DATABASE_URL=postgresql://rem:rem_password@127.0.0.1:5432/rem_ai
+REDIS_URL=redis://127.0.0.1:6379
+REMI_SLOW_BRAIN_ENABLED=1
 ```
+
+尚无 `.env.localhost` 时：`cp .env.localhost.example .env.localhost`
 
 ## 替代模型选项
 

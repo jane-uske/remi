@@ -47,7 +47,7 @@ elif curl -sf http://127.0.0.1:11434/v1/models >/dev/null 2>&1; then
 else
   echo "[WARN] Ollama not found. Local LLM requires Ollama (or compatible API)."
   echo "       Install: curl -fsSL https://ollama.com/install.sh | sh"
-  echo "       Docs:    docs/LOCAL_LLM_SETUP.md"
+  echo "       Docs:    docs/guides/LOCAL_LLM.md"
 fi
 
 # ── Model Check ────────────────────────────────────────────────────────────
@@ -79,16 +79,16 @@ fi
 
 echo
 
-if [ ! -f .env ]; then
+if [ ! -f .env.localhost ]; then
+  cp .env.localhost.example .env.localhost
+  echo "[CREATED] .env.localhost from .env.localhost.example"
   if [ "$OLLAMA_OK" = "1" ]; then
-    cp .env.local-ollama .env
-    echo "[CREATED] .env from .env.local-ollama (local Ollama preset)"
+    echo "[HINT] Ollama preset vars — see docs/guides/LOCAL_LLM.md"
   else
-    cp .env.example .env
-    echo "[CREATED] .env from .env.example — edit LLM settings before running"
+    echo "[EDIT]  Fill REMI_LLM_API_KEY and REMI_LLM_BASE_URL in .env.localhost"
   fi
 else
-  echo "[OK] .env already exists"
+  echo "[OK] .env.localhost already exists"
 fi
 
 mkdir -p .cloudflared
@@ -117,5 +117,5 @@ echo "  3. Run migrations:  npm run migrate:up"
 echo "  4. Start dev:       npm run dev"
 echo
 if [ "$OLLAMA_OK" = "0" ]; then
-  echo "  [!] Install Ollama first — see docs/LOCAL_LLM_SETUP.md"
+  echo "  [!] Install Ollama first — see docs/guides/LOCAL_LLM.md"
 fi

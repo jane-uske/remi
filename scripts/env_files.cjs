@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
 const path = require("path");
 
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -9,29 +8,14 @@ function resolveCandidate(file) {
   return path.resolve(ROOT_DIR, file);
 }
 
-function firstExisting(paths) {
-  for (const candidate of paths) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return paths[0];
-}
-
 function resolveDevEnvFile() {
   const preferred = process.env.REMI_DEV_ENV_FILE?.trim() || ".env.localhost";
-  return firstExisting([
-    resolveCandidate(preferred),
-    resolveCandidate(".env"),
-  ]);
+  return resolveCandidate(preferred);
 }
 
 function resolveProdEnvFile() {
   const preferred = process.env.REMI_PROD_ENV_FILE?.trim() || ".env.local-prod";
-  return firstExisting([
-    resolveCandidate(preferred),
-    resolveCandidate(".env"),
-  ]);
+  return resolveCandidate(preferred);
 }
 
 function resolveEnvFile(mode) {

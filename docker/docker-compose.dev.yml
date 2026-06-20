@@ -5,14 +5,14 @@ services:
     working_dir: /workspace/remi-ai
     command: sh -lc "npm run dev"
     env_file:
-      - ${REMI_ENV_FILE:-.env}
+      - ${REMI_ENV_FILE:-../.env.localhost}
     environment:
       NODE_ENV: development
       PORT: ${PORT:-3001}
       DATABASE_URL: ${DATABASE_URL:-postgresql://rem:rem_password@postgres:5432/rem_ai}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
-      - .:/workspace/remi-ai
+      - ..:/workspace/remi-ai
       - rem_root_node_modules:/workspace/remi-ai/node_modules
       - rem_web_node_modules:/workspace/remi-ai/web/node_modules
     ports:
@@ -32,7 +32,7 @@ services:
       POSTGRES_PASSWORD: rem_password
     volumes:
       - rem_pgdata:/var/lib/postgresql/data
-      - ./storage/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../storage/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -67,7 +67,7 @@ services:
       SUDO_PASSWORD: ${CODE_SERVER_SUDO_PASSWORD:-changeme}
       DEFAULT_WORKSPACE: /workspace/remi-ai
     volumes:
-      - .:/workspace/remi-ai
+      - ..:/workspace/remi-ai
       - rem_code_server_config:/config
     ports:
       - "127.0.0.1:${CODE_SERVER_PORT:-8443}:8443"

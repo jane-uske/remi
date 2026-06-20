@@ -33,6 +33,6 @@ else
   echo "[prod:build] WARN adult plugin not found at $PLUGIN_HOST_PATH — skip plugin build"
 fi
 
-REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.local-prod.yml build app
+REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker/docker-compose.local-prod.yml build app
 
 echo "Local production app image built."

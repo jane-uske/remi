@@ -8,17 +8,17 @@
 - 哪些事情还没做，且现在不该和主线程混在一起
 
 当前主线程与交付边界，始终以 [CURRENT_FOCUS.md](./CURRENT_FOCUS.md) 为准。
-如果 `TASKS.md` 和其他文档冲突，以 `CURRENT_FOCUS.md`、`AGENTS.md`、实际代码状态为准。
+如果 `TASKS.md` 和其他文档冲突，以 `CURRENT_FOCUS.md`、`CLAUDE.md`、实际代码状态为准。
 
 ---
 
 ## ✅ 结构性止血（Phase 0 + Phase 1）— 已完成（2026-06-11 按实际代码核对）
 
-**七项结构性技术债已全部落地，本节仅作记录。详见 [STRUCTURAL_DEBT.md](../design/STRUCTURAL_DEBT.md)。**
+**七项结构性技术债已全部落地，本节仅作记录。详见 [STRUCTURAL_DEBT.md](../archive/STRUCTURAL_DEBT.md)。**
 
 | ID | Task | Status | 代码证据 |
 |---|---|---|---|
-| `SD-01` | 环境变量治理（zod schema + 统一命名 + .env.minimal） | `done` | `server/config/schema.ts`、`.env.minimal` |
+| `SD-01` | 环境变量治理（zod schema + 统一命名 + env 模板拆分） | `done` | `server/config/schema.ts`、`.env.localhost.example` |
 | `SD-02` | 数据库迁移系统（node-pg-migrate） | `done` | `migrations/`、`npm run migrate:up` |
 | `SD-03` | "双脑"命名重构 → context_orchestrator/reply_stream/background_analysis | `done` | `brains/` 下旧文件名已不存在 |
 | `SD-04` | 记忆系统收敛（6层→2层） | `done` | `memory/memory_agent.ts`（episode store 主路径 + vector supplement 两层，291 行） |
@@ -56,7 +56,7 @@
   - 当前重点：收口口气、亲近方式、边界感、追问方式、安慰方式
   - 4.29 修正：收紧记忆 callback 触发边界，避免普通新话题里反复用“对了 / 你之前 / 上次你说”式开场硬拉旧记忆；仍保留睡眠/压力等真实相关未完线的自然承接
   - 4.30 修正：记忆召回改为先过表达门控；低信号确认句不再触发 episode recall，prompt-facing episode/shared moment 文案去除“上次你提到”式话术，`当前状态/当前诉求/当前行为` 等 volatile 记忆只在直接相关或显式 recall 时进入 prompt
-  - 修复后手测清单：见 [docs/MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md](docs/MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md)，重点验收记忆显性化、话题边界、过期 current state、严肃场景不被轻松 callback 打断
+  - 修复后手测清单：见 [MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md](../archive/MEMORY_RECALL_EXPRESSION_MANUAL_TESTS_2026-04-29.md)，重点验收记忆显性化、话题边界、过期 current state、严肃场景不被轻松 callback 打断
   - 当前不做：大而全 persona presets 扩展、free-form persona authoring、额外风格玩法
   - 验收标准：轻松闲聊 / 睡前陪聊 / 普通碎聊时，不再频繁出现“像客服 / 像老师 / 像另一个系统”的漂移
 

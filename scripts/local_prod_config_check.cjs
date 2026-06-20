@@ -158,7 +158,7 @@ function evaluateLocalProdConfig(env) {
 }
 
 function main() {
-  const envPath = process.argv[2] || path.join(process.cwd(), ".env");
+  const envPath = process.argv[2] || path.join(process.cwd(), ".env.local-prod");
   const env = readEnvFile(envPath);
   const result = evaluateLocalProdConfig(env);
   for (const message of result.messages) {

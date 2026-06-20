@@ -5,8 +5,12 @@ import process from "node:process";
 import path from "node:path";
 
 import dotenv from "dotenv";
+import { createRequire } from "node:module";
 
-dotenv.config({ path: path.join(process.cwd(), ".env") });
+const require = createRequire(import.meta.url);
+const { resolveDevEnvFile } = require("./env_files.cjs");
+
+dotenv.config({ path: resolveDevEnvFile() });
 
 function print(section, lines) {
   console.log(`\n[doctor] ${section}`);

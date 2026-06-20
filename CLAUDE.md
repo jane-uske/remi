@@ -64,13 +64,15 @@ Remi 不是通用 AI 助手。她是一个以**活人感、人格连续性、存
 |------|--------|
 | `docs/ops/TASKS.md` | 要知道当前该做什么 |
 | `docs/ops/CURRENT_FOCUS.md` | 要理解优先级判断的上下文 |
+| `docs/guides/NEW_DEVICE_SETUP.md` | 新设备复现完整本地栈 |
+| `docs/README.md` | 文档总索引（Agent 友好） |
 | `docs/design/ARCHITECTURE.md` | 要改模块边界或理解分层 |
 | `docs/design/PIPELINE.md` | 要改实时链路或调试延迟 |
 | `docs/design/MEMORY_V2_DESIGN.md` | 要改记忆系统 |
 | `docs/design/VOICE_ROADMAP.md` | 要改语音链路 |
 | `docs/guides/PLUGIN_GUIDE.md` | 要写插件 |
 | `docs/guides/TEST_MAP.md` | 改目录后先跑什么测试 |
-| `docs/LOCAL_LLM_SETUP.md` | 本地 Ollama 部署 |
+| `docs/guides/LOCAL_LLM.md` | 本地 Ollama / LM Studio 部署 |
 
 ---
 
@@ -238,18 +240,17 @@ remi/
 │   └── RemiWatch/          # 独立 watchOS 应用
 │
 ├── scripts/                # 开发/运维脚本（30+）
-├── docs/                   # 架构文档、运维任务、设计文档
-│   ├── design/             # ARCHITECTURE.md, PIPELINE.md, MEMORY_V2_DESIGN.md
-│   └── ops/                # TASKS.md, CURRENT_FOCUS.md, PROJECT_CONTEXT.md
+├── docs/                   # 文档（索引见 docs/README.md）
+│   ├── ops/                # TASKS.md, CURRENT_FOCUS.md, 部署
+│   ├── guides/             # NEW_DEVICE_SETUP, LOCAL_LLM, PLUGIN, TEST_MAP
+│   ├── design/             # ARCHITECTURE, PIPELINE, MEMORY_V2_DESIGN
+│   └── archive/            # 历史记录
+├── docker/                 # Dockerfile + 全部 compose 文件
 ├── test/                   # Mocha 测试（镜像源码结构）
 │
-├── docker-compose.yml      # 生产 compose（app + postgres + redis）
-├── docker-compose.dev.yml  # 开发 compose（postgres + redis + 可选 app/ide/tunnel）
-├── docker-compose.local-prod.yml  # 本地生产 compose
-├── Dockerfile              # 三阶段构建（backend-build → frontend-build → runtime）
-├── .env.example            # 完整环境变量模板（270 行注释）
-├── .env.minimal            # 最小配置（仅 2 个变量）
-└── .env.local-ollama       # 本地 Ollama 全栈配置
+├── .env.example            # 全量变量字典（不直接加载）
+├── .env.localhost.example  # 开发模板 → 复制为 .env.localhost
+└── .env.local-prod.example # local-prod 模板 → 复制为 .env.local-prod
 ```
 
 ### 入口文件
@@ -273,15 +274,15 @@ remi/
 
 | 文件 | 服务 | 端口 | 作用 |
 |------|------|------|------|
-| `docker-compose.dev.yml` | `postgres` | 127.0.0.1:5432 | PostgreSQL 16 + pgvector，dev 数据库 |
+| `docker/docker-compose.dev.yml` | `postgres` | 127.0.0.1:5432 | PostgreSQL 16 + pgvector，dev 数据库 |
 | | `redis` | 127.0.0.1:6379 | Redis 7 缓存，appendonly 持久化 |
 | | `app-dev` (profile `app`) | 127.0.0.1:3001 | Node 20 容器跑 `npm run dev` |
 | | `code-server` (profile `ide`) | 127.0.0.1:8443 | 浏览器版 VS Code |
 | | `cloudflared` (profile `tunnel`) | — | Cloudflare Tunnel 远程访问 |
-| `docker-compose.yml` | `app` | 3000 | 生产构建镜像 |
+| `docker/docker-compose.yml` | `app` | 3000 | 生产构建镜像 |
 | | `postgres` | 5432 | 生产数据库 |
 | | `redis` | 6379 | 生产缓存 |
-| `docker-compose.local-prod.yml` | 同上 | 127.0.0.1:3000 | 本地生产化测试，用外部 volume |
+| `docker/docker-compose.local-prod.yml` | 同上 | 127.0.0.1:3000 | 本地生产化测试，用外部 volume |
 
 ### 数据库
 
@@ -350,8 +351,8 @@ npm run prod:local:check    # 健康检查
 ### 速查：从零到能跑
 
 ```bash
-cp .env.minimal .env
-# 编辑 .env，填入 REMI_LLM_API_KEY 和 REMI_LLM_BASE_URL
+cp .env.localhost.example .env.localhost
+# 编辑 .env.localhost，填入 REMI_LLM_API_KEY 和 REMI_LLM_BASE_URL
 npm run dev
 ```
 
@@ -442,9 +443,9 @@ npm run dev
 
 | 场景 | 加载顺序 |
 |------|---------|
-| `npm run dev` | `.env.localhost` → `.env` |
-| `npm run prod:local:start` | `.env.local-prod` → `.env` |
-| Docker compose dev | `${REMI_ENV_FILE:-.env}` |
+| `npm run dev` | `.env.localhost` |
+| `npm run prod:local:start` | `.env.local-prod` |
+| Docker compose dev | `${REMI_ENV_FILE:-.env.localhost}` |
 
 ---
 
@@ -457,8 +458,8 @@ npm run dev
 npm install
 
 # 2. 创建最小配置
-cp .env.minimal .env
-# 编辑 .env，填入你的 LLM API key 和 base URL
+cp .env.localhost.example .env.localhost
+# 编辑 .env.localhost，填入你的 LLM API key 和 base URL
 
 # 3. 启动（前后端一体，无需 Docker）
 npm run dev
@@ -473,7 +474,7 @@ npm run dev
 ### 完整开发环境（含数据库）
 
 ```bash
-# 1. 一键初始化（检测环境、创建 .env、创建 Docker volumes）
+# 1. 一键初始化（检测环境、创建 .env.localhost、创建 Docker volumes）
 npm run dev:bootstrap
 
 # 2. 启动基础设施（PostgreSQL + Redis）
@@ -496,7 +497,7 @@ ollama pull qwen3:4b           # 快脑用
 ollama pull nomic-embed-text   # 语义召回用
 
 # 使用 Ollama 预设
-cp .env.local-ollama .env
+# Ollama 变量写入 .env.localhost，见 docs/guides/LOCAL_LLM.md
 npm run dev:infra   # 启动 postgres + redis
 npm run migrate:up
 npm run dev
@@ -526,7 +527,7 @@ node scripts/smoke.mjs     # 冒烟测试：健康检查 + WebSocket 聊天
 
 | 症状 | 原因 | 解法 |
 |------|------|------|
-| `LLM API key is required` | `.env` 缺少 `REMI_LLM_API_KEY` | 填入 API key |
+| `LLM API key is required` | `.env.localhost` 缺少 `REMI_LLM_API_KEY` | 填入 API key |
 | `EADDRINUSE 3001` | 端口被占 | 上次进程没关干净，`npm run dev` 默认会自动 kill 旧实例；也可手动 `lsof -i :3001` |
 | `Cannot find module 'xxx'` | 依赖没装全 | `npm install`（根目录一次即可） |
 | Next.js HMR 断连 | `.next-dev` 缓存损坏 | `npm run dev:web:clean` |
@@ -603,7 +604,7 @@ node scripts/smoke.mjs     # 冒烟测试：健康检查 + WebSocket 聊天
 
 6. **浅克隆 + git merge**: 代理镜像克隆可能导致 commit hash 不同（内容一致），`git merge origin/main` 会报 `refusing to merge unrelated histories`。解法: `git fetch origin && git reset --hard origin/main`。
 
-7. **local-prod 需预创建外部 volume**: `docker-compose.local-prod.yml` 使用 `external: true` 卷，必须先运行 `npm run dev:bootstrap` 或手动 `docker volume create`。
+7. **local-prod 需预创建外部 volume**: `docker/docker-compose.local-prod.yml` 使用 `external: true` 卷，必须先运行 `npm run dev:bootstrap` 或手动 `docker volume create`。
 
 8. **Docker 内访问宿主机 Whisper**: 需设 `extra_hosts: host.docker.internal:host-gateway`（local-prod compose 已内置）。
 
@@ -680,9 +681,9 @@ npm run prod:local:reset-demo-users
 npm run dev
 
 # 查看 Docker compose 日志
-docker compose -f docker-compose.dev.yml logs -f postgres
-docker compose -f docker-compose.dev.yml logs -f redis
-docker compose -f docker-compose.local-prod.yml logs -f app
+docker compose -f docker/docker-compose.dev.yml logs -f postgres
+docker compose -f docker/docker-compose.dev.yml logs -f redis
+docker compose -f docker/docker-compose.local-prod.yml logs -f app
 
 # 调整日志级别
 REMI_LOG_LEVEL=debug npm run dev

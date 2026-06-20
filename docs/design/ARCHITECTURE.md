@@ -761,12 +761,12 @@ LLM tokens → SentenceChunker（按 。！？.!? 断句）→ 逐句 TTS → ba
 | `logger.ts` | pino 结构化日志；开发模式默认同时 pretty-print 到终端并自动落盘到 `artifacts/live/dev_server_*.log`，便于任何 agent/线程直接复盘 live service log |
 | `emotion_logger.ts` | 情绪日志环形缓冲区（1000 条），log / getHistory / getStats |
 
-### 18. 部署 — `Dockerfile` + `docker-compose.yml`
+### 18. 部署 — `docker/Dockerfile` + `docker/docker-compose.yml`
 
 | 组件 | 说明 |
 |------|------|
-| Dockerfile | 多阶段构建：backend-build → frontend-build → production |
-| docker-compose.yml | App + pgvector/pgvector:pg16 + Redis 7 |
+| docker/Dockerfile | 多阶段构建：backend-build → frontend-build → production |
+| docker/docker-compose.yml | App + pgvector/pgvector:pg16 + Redis 7 |
 | schema.sql | 数据库自动初始化 |
 
 ## 模块集成状态

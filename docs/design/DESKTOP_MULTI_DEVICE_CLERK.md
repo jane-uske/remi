@@ -23,7 +23,7 @@
 Postgres(pgvector) + Redis              ← 永远只绑 127.0.0.1，不出机器
 ```
 
-理由：慢脑 / 记忆提取 / embedding 检索全在 app 服务里（`server/`），数据库只是其后端。把 5432 裸暴露到公网 = 整个家庭记忆库门户大开。`docker-compose.local-prod.yml` 现状已经是对的写法（app 绑 `127.0.0.1:3000`，pg/redis 不映射端口），保持不变。
+理由：慢脑 / 记忆提取 / embedding 检索全在 app 服务里（`server/`），数据库只是其后端。把 5432 裸暴露到公网 = 整个家庭记忆库门户大开。`docker/docker-compose.local-prod.yml` 现状已经是对的写法（app 绑 `127.0.0.1:3000`，pg/redis 不映射端口），保持不变。
 
 ## 2. 现状摸底（代码已铺好的轨道）
 
@@ -150,4 +150,4 @@ VITE_WS_URL=ws://home-server.tailnet:3000/ws   # 公网则 wss://
 - web 鉴权：`web/src/components/RemiAuthProvider.tsx`、`web/src/app/sign-in/[[...sign-in]]/page.tsx`
 - WS URL 拼装：`web/src/lib/wsUrl.ts`、连接：`web/src/hooks/useRemiConnection.ts`
 - 桌面 stub：`desktop/src/shared/DesktopAuthProvider.tsx`、`desktop/vite.config.ts`、`desktop/src-tauri/{tauri.conf.json,src/lib.rs}`
-- 部署：`docker-compose.local-prod.yml`
+- 部署：`docker/docker-compose.local-prod.yml`

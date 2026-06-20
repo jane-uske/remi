@@ -26,7 +26,7 @@ for volume in $(node -e "require('dotenv').config({ path: process.argv[1], quiet
   fi
 done
 
-if ! REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.local-prod.yml up -d --no-build; then
+if ! REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker/docker-compose.local-prod.yml up -d --no-build; then
   echo "Local production app image is missing or stale."
   echo "Run: npm run prod:local:build"
   echo "After code changes, use: npm run prod:local:rebuild"

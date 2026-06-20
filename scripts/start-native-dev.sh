@@ -20,7 +20,7 @@ fi
 PORT_TO_USE=$(node -e "require('dotenv').config({ path: process.argv[1], quiet: true }); const { resolveDevPort } = require('./scripts/env_files.cjs'); process.stdout.write(String(resolveDevPort(process.env)));" "$ENV_FILE")
 
 if lsof -nP -iTCP:"$PORT_TO_USE" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port $PORT_TO_USE is already in use. Stop the existing process or change PORT in .env."
+  echo "Port $PORT_TO_USE is already in use. Stop the existing process or change PORT in .env.localhost."
   exit 1
 fi
 
