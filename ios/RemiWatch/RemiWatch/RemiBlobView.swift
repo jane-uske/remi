@@ -37,7 +37,7 @@ struct RemiBlobView: View {
             ZStack {
                 if showRings {
                     ringLayer(phase: t, delay: 0)
-                    ringLayer(phase: t, delay: 1.2)
+                    ringLayer(phase: t, delay: 1.0)
                 }
 
                 ZStack {
@@ -84,12 +84,18 @@ struct RemiBlobView: View {
     }
 
     private func ringLayer(phase: TimeInterval, delay: Double) -> some View {
-        let local = (phase - delay).truncatingRemainder(dividingBy: 2.4)
-        let progress = max(0, min(1, local / 2.4))
-        let scale = 0.55 + progress * 1.1
-        let opacity = 0.65 * (1 - progress)
+        // Ripple period 2.0s, two rings staggered by half a period (delay 0 / 1.0)
+        // so one is always emanating. Start at the blob edge (≈0.92) and expand
+        // outward to 1.5 — the whole animation reads as a ring leaving the blob,
+        // instead of half of it being hidden behind the blob.
+        let period = 2.0
+        let local = ((phase - delay).truncatingRemainder(dividingBy: period) + period)
+            .truncatingRemainder(dividingBy: period)
+        let progress = local / period
+        let scale = 0.92 + progress * 0.58
+        let opacity = 0.6 * pow(1 - progress, 1.2)
         return Circle()
-            .stroke(ringColor(delay: delay), lineWidth: 1.5)
+            .stroke(ringColor(delay: delay), lineWidth: 2)
             .scaleEffect(scale)
             .opacity(opacity)
             .frame(width: size.diameter, height: size.diameter)
