@@ -10,6 +10,16 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
+
+/**
+ * Strip `![alt](url)` image markdown from a reply before storing it in
+ * conversation history.  This prevents the LLM from seeing (and imitating)
+ * the image format in subsequent turns — only the DirectCapability layer
+ * should produce image tags.
+ */
+function stripImageMarkdownForHistory(text: string): string {
+  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
+}
 import { getConfig } from "../server/config";
 import { getLatencyTracer } from "../infra/latency_tracer";
 import {
@@ -18,6 +28,12 @@ import {
 } from "../memory/relationship_state";
 import { reviewReplyTone } from "../brain/tone_policy";
 import { tryHandleDirectCapabilities } from "../brain/direct_capabilities";
+import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
+import {
+  getSessionLastImage,
+  sessionHasImage,
+} from "../capabilities/image_generation/image_generation_capability";
+import { containsImageMarkdown } from "../voice/tts_helpers";
 import {
   analyzeTurn,
   shouldAnalyzeTurn,
@@ -353,7 +369,7 @@ function finalizeDirectReply(input: {
     ? "［你主动开口陪对方聊天］"
     : userMessage;
   ctx.history.push({ role: "user", content: historyUserContent });
-  ctx.history.push({ role: "assistant", content: reply });
+  ctx.history.push({ role: "assistant", content: stripImageMarkdownForHistory(reply) });
   while (ctx.history.length > MAX_HISTORY) {
     ctx.history.shift();
   }
@@ -414,6 +430,7 @@ export async function* routeMessage(
   ctx.lastResponsePolicy = null;
   ctx.analysisSource = null;
   ctx.analysisLatencyMs = null;
+  ctx.skipTtsThisTurn = false;
 
   // 处理「刚才说到哪了」查询
   const interruptedQueryRegex = /^(刚才|刚刚|刚刚|刚才)(说到哪|说什么|在说啥|讲到哪)/i;
@@ -424,6 +441,20 @@ export async function* routeMessage(
 
   const inputSource = opts?.inputSource ?? "text";
   const archiveTurnId = buildArchiveTurnId(ctx.connId, opts?.traceId);
+
+  const imageIntent = await resolveImageIntent({
+    userMessage,
+    recentHistory: ctx.history.slice(-4),
+    hasPreviousImage: sessionHasImage(ctx.connId),
+    lastImage: getSessionLastImage(ctx.connId),
+    signal,
+  });
+  const config = getConfig();
+  if (imageIntent.kind !== "none" && config.COMFYUI_ENABLED) {
+    ctx.skipTtsThisTurn = true;
+    yield "让我画一下，ComfyUI 正在生成中～ 🎨";
+  }
+
   const directCapabilityResult = await tryHandleDirectCapabilities({
     userMessage,
     emotion,
@@ -431,12 +462,16 @@ export async function* routeMessage(
     signal,
     systemTriggered: Boolean(opts?.systemTriggered),
     inputSource,
+    imageIntent,
   });
   if (directCapabilityResult.handled) {
     const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
       userMessage,
       directCapabilityId: directCapabilityResult.capabilityId,
     });
+    if (containsImageMarkdown(directCapabilityResult.reply)) {
+      ctx.skipTtsThisTurn = true;
+    }
     yield directCapabilityResult.reply;
     const result = finalizeDirectReply({
       ctx,
@@ -739,7 +774,7 @@ export async function* routeMessage(
   // Update history
   ctx.history.push({ role: "user", content: historyUserContent });
   if (shouldPersistAssistantReply) {
-    ctx.history.push({ role: "assistant", content: fullReply });
+    ctx.history.push({ role: "assistant", content: stripImageMarkdownForHistory(fullReply) });
   }
   while (ctx.history.length > MAX_HISTORY) {
     ctx.history.shift();

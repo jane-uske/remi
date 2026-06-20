@@ -154,18 +154,30 @@
   - 当前判断：这仍重要，但不能继续稀释”像她”的主线
   - 当前边界：只做对 Web 默认体验直接有帮助的压缩和稳定性修复
 
-- [ ] **T-043** TTS 长对话中间跳过句子
-  - 现象：长回复（尤其 NSFW 模式 200+ 字）偶发跳过中间某段语音，播放从第 N 段直接跳到第 N+2 段
-  - 已排除的原因：
-    - ~~第一人称台词被 NSFW 过滤器误删~~ → 已修（`isNsfwDescriptiveNarrationClause` 长度猜测规则已移除）
-    - ~~段落换行被 `.trim()` 吞掉~~ → 已修（`normalizeSpeakablePunctForChunking` 保留 `\n`）
-    - ~~括号舞台说明被朗读~~ → 已修（NSFW 路径先跑 `stripParentheticalStageDirections`）
-  - 仍可能的原因：
-    - 客户端 `useAudioBase64Queue` 在快速连续 `voice_pcm_chunk` 时丢帧或 AudioContext 调度竞态
-    - MLX TTS 对某些段返回极短/静音 buffer（`< 0.1s`），客户端 playback lifecycle 误判为”已播完”提前触发 `playback_end`
-    - 顺序 TTS 合成的 inter-segment gap 过大（1.5-3.8s），客户端在 gap 期间判定播放结束
-  - 当前边界：不阻塞主线，待收集更多复现样本后定位
-  - 已有保护措施：`PLAYBACK_END_DEBOUNCE_MS=360ms`、`serverTtsStreaming` 标记在音频到达时立即设置
+- [x] **T-043** TTS 长对话中间跳过句子 — `done`（2026-06-20）
+  - 已修复根因 1-5：见 `remi-nsfw-tts-skipping-fixes.md`
+  - 已修复根因 6（MLX TTS 短文本循环）：`voice/tts_mlx.ts` 新增音频时长上限截断（`MAX_AUDIO_SEC_PER_CHAR=1.5`，最低 2 秒），buffered + streaming 两条路径都做
+  - 客户端 `useAudioBase64Queue` 增加 `hasPendingPlaybackWork` 统一判定 + `serverTtsStreaming` 双保险，不再在 TTS gap 期间误判播放结束
+
+- [x] **T-044** 音色风格切换 — `done`（2026-06-20）
+  - 聊天命令：`用御姐音` / `换成萝莉音` / `恢复原来的声音` 等 regex 匹配 → DirectCapability 拦截 → 设 per-session instruct override
+  - UI 面板：🎵 按钮 → VoiceStylePicker（7 预设 + 语速/音调调节）→ WS `set_voice_style` 消息
+  - 6 预设：默认 / 御姐 / 萝莉 / 温柔 / 元气 / 冷酷 / 妩媚；每种带情绪修饰后缀
+  - MLX TTS only；instruct 优先级：用户风格 > NSFW > env 覆盖 > 情绪默认
+
+- [x] **T-045** 生图 3 步管线重构 — `done`（2026-06-20）
+  - Step 1: hybrid intent（regex 预过滤 + fast-brain 确认，fallback regex-only）
+  - Step 1.5: Qwen scene-prompt writer（LLM 生成 ComfyUI 正面提示词）
+  - Step 2: assembleImagePrompt（角色风格锁定 + 续图/重画/换风格拼接）
+  - Step 3: invokeComfyUI（提交 + 渲染 + 返回 markdown 图片）
+  - 新增 bundled workflow（z_image_turbo + pony_v6_xl），Docker 镜像内置
+  - 新增 `refine` intent（更骚点 / 脱掉 → 增量编辑上一张图）
+
+- [x] **T-046** Qwen3 reasoning 兼容层 — `done`（2026-06-20）
+  - `llm/qwen_client.ts`: `resolveReasoningRequest` 统一 reasoning_effort → API 参数 + `<think>` 过滤
+  - `collectStreamTokens` 替代 `streamTokens`：返回 content/reasoning 统计，支持空流诊断
+  - `recoverVisibleReply`: 空流回退→重试（加 DIRECT_ANSWER_DIRECTIVE）→ 从 reasoning 中 salvage 中文正文
+  - fast brain 不再单独配模型（`REMI_FAST_BRAIN_MODEL` 已废弃）
 
 ### 当前禁止并行修改的热点文件
 

@@ -189,6 +189,8 @@ export class RemiSessionContext {
   lastInterruptedReply: string | null = null;
   /** 当前正在生成中的 AI 回复草稿，用于打断瞬间承接上下文。 */
   currentAssistantDraft: string | null = null;
+  /** 本轮回复含图片或走生图流程时，pipeline 跳过 TTS。 */
+  skipTtsThisTurn = false;
   lastInterpretation: TurnInterpretation | null = null;
   lastResponsePolicy: ResponsePolicy | null = null;
   analysisSource: StructuredAnalysisSource | null = null;

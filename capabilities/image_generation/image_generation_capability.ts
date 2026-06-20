@@ -2,7 +2,9 @@ import type { DirectCapability } from "../../brain/direct_capabilities";
 import { getConfig } from "../../server/config";
 import { createLogger } from "../../infra/logger";
 import { isNsfwEnabled } from "../../brains/nsfw_mode";
-import { classifyImageIntent } from "./image_intent";
+import { assembleImagePrompt, type AssembledImagePrompt } from "./assemble_image_prompt";
+import { enrichImageIntentWithScenePrompt } from "./enrich_image_intent";
+import { classifyImageIntentRegex, type ImageIntent } from "./image_intent";
 import {
   ComfyUIError,
   generateImage,
@@ -15,13 +17,22 @@ const CAPABILITY_ID = "image_generation";
 
 /** Per-session memory of the last thing we drew, for 重画 / 换风格. */
 interface SessionImageState {
-  /** Base subject (without style), reused when restyling. */
   subject: string;
-  /** Full positive prompt last submitted. */
   prompt: string;
+  characterStyle?: string;
 }
 
 const lastBySession = new Map<string, SessionImageState>();
+
+export function sessionHasImage(connId: string): boolean {
+  return lastBySession.has(connId);
+}
+
+export function getSessionLastImage(
+  connId: string,
+): SessionImageState | undefined {
+  return lastBySession.get(connId);
+}
 
 function describeError(err: ComfyUIError, baseUrl: string): string {
   switch (err.kind) {
@@ -43,8 +54,6 @@ function buildReply(result: GenerateImageResult, label: string): string {
   const first = result.images[0];
   const extra =
     result.images.length > 1 ? `（一共 ${result.images.length} 张）` : "";
-  // Build a proxied URL so the frontend can render it without CORS issues.
-  // The server's /api/comfyui/view route proxies to the local ComfyUI /view.
   const proxyParams = new URLSearchParams({
     filename: first.filename,
     subfolder: first.subfolder ?? "",
@@ -57,31 +66,43 @@ function buildReply(result: GenerateImageResult, label: string): string {
   ].join("\n");
 }
 
-async function draw(
+/** Step 3: submit assembled prompt to ComfyUI. */
+async function invokeComfyUI(
   connId: string,
-  subject: string,
-  prompt: string,
-  label: string,
+  assembled: AssembledImagePrompt,
   signal: AbortSignal | undefined,
 ): Promise<string> {
   const config = getConfig();
   const baseUrl = config.COMFYUI_BASE_URL;
-  // In adult mode, swap to the NSFW checkpoint / relaxed negatives if configured.
   const nsfw = isNsfwEnabled(connId);
   try {
+    logger.info("image generation invoke", {
+      connId,
+      label: assembled.label,
+      comfyPrompt: assembled.comfyPrompt.slice(0, 200),
+    });
     const result = await generateImage({
-      prompt,
+      prompt: assembled.comfyPrompt,
       signal,
-      ...(nsfw && config.COMFYUI_NSFW_CHECKPOINT
-        ? { checkpoint: config.COMFYUI_NSFW_CHECKPOINT }
+      // z_image_turbo uses UNETLoader — only override when explicitly configured.
+      ...(nsfw && config.COMFYUI_NSFW_CHECKPOINT?.trim()
+        ? { checkpoint: config.COMFYUI_NSFW_CHECKPOINT.trim() }
         : {}),
       ...(nsfw && config.COMFYUI_NSFW_NEGATIVE
         ? { negativePrompt: config.COMFYUI_NSFW_NEGATIVE }
         : {}),
     });
-    lastBySession.set(connId, { subject, prompt });
-    logger.info("image generated", { connId, promptId: result.promptId, label });
-    return buildReply(result, label);
+    lastBySession.set(connId, {
+      subject: assembled.subject,
+      prompt: assembled.comfyPrompt,
+      characterStyle: assembled.characterStyle,
+    });
+    logger.info("image generated", {
+      connId,
+      promptId: result.promptId,
+      label: assembled.label,
+    });
+    return buildReply(result, assembled.label);
   } catch (err) {
     if (err instanceof ComfyUIError) {
       logger.warn("comfyui generation failed", { connId, kind: err.kind, error: err.message });
@@ -103,7 +124,8 @@ export const imageGenerationCapability: DirectCapability = {
       return { handled: false };
     }
 
-    const intent = classifyImageIntent(request.userMessage);
+    const intent: ImageIntent =
+      request.imageIntent ?? classifyImageIntentRegex(request.userMessage);
     if (intent.kind === "none") {
       return { handled: false };
     }
@@ -111,70 +133,33 @@ export const imageGenerationCapability: DirectCapability = {
     const connId = request.ctx.connId;
     const last = lastBySession.get(connId);
 
-    // Past this point the message is clearly an image command — always handle it
-    // so it never leaks to the main LLM (which can't draw).
-
-    if (intent.kind === "generate") {
-      if (!intent.prompt) {
-        return {
-          handled: true,
-          capabilityId: CAPABILITY_ID,
-          reply: "你想让我画点什么呀？比如「画一只戴帽子的橘猫」～",
-        };
-      }
-      const reply = await draw(
-        connId,
-        intent.prompt,
-        intent.prompt,
-        intent.prompt,
-        request.signal,
-      );
-      return { handled: true, capabilityId: CAPABILITY_ID, reply };
-    }
-
-    if (intent.kind === "redraw") {
-      if (!last) {
-        return {
-          handled: true,
-          capabilityId: CAPABILITY_ID,
-          reply: "我还没画过图呢，先告诉我想画什么吧～比如「画一片星空」。",
-        };
-      }
-      // Fresh seed (generateImage randomizes when seed is omitted).
-      const reply = await draw(
-        connId,
-        last.subject,
-        last.prompt,
-        last.subject,
-        request.signal,
-      );
-      return { handled: true, capabilityId: CAPABILITY_ID, reply };
-    }
-
-    // intent.kind === "restyle"
-    const subject = intent.subject || last?.subject;
-    if (!subject) {
-      return {
-        handled: true,
-        capabilityId: CAPABILITY_ID,
-        reply: "想画成什么风格呀？先告诉我画什么，比如「画一只猫」，再说「换成水彩风格」就好啦～",
-      };
-    }
-    if (!intent.style) {
-      return {
-        handled: true,
-        capabilityId: CAPABILITY_ID,
-        reply: "想换成什么风格呢？比如水彩、油画、赛博朋克、吉卜力～",
-      };
-    }
-    const styledPrompt = `${subject}, ${intent.style}风格`;
-    const reply = await draw(
+    // Step 1.5: Qwen writes scene prompt (intent step only classifies).
+    const enrichedIntent = await enrichImageIntentWithScenePrompt({
+      intent,
+      userMessage: request.userMessage,
+      recentHistory: request.ctx.history.slice(-6),
+      lastImage: last,
       connId,
-      subject,
-      styledPrompt,
-      `${subject}·${intent.style}风格`,
-      request.signal,
-    );
+      signal: request.signal,
+    });
+
+    // Step 2: assemble ComfyUI prompt from resolved intent + locked style.
+    const planned = assembleImagePrompt({
+      intent: enrichedIntent,
+      userMessage: request.userMessage,
+      lastImage: last,
+      characterStyle: last?.characterStyle ?? null,
+    });
+    if (!planned.ok) {
+      return {
+        handled: true,
+        capabilityId: CAPABILITY_ID,
+        reply: planned.clarify,
+      };
+    }
+
+    // Step 3: invoke ComfyUI.
+    const reply = await invokeComfyUI(connId, planned.assembled, request.signal);
     return { handled: true, capabilityId: CAPABILITY_ID, reply };
   },
 };

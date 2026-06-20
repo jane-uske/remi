@@ -215,11 +215,26 @@ export function loadWorkflow(workflowPath?: string): ComfyWorkflow {
     }
   }
 
-  // 2. Auto-discover
+  // 2. Auto-discover (host ComfyUI install — works for native dev, not Docker)
   const discovered = discoverWorkflow();
   if (discovered) return deepClone(discovered);
 
-  // 3. Hardcoded fallback
+  // 3. Repo-bundled workflows (Docker + portable setups) — z_image_turbo first (dev default)
+  for (const name of ["image_z_image_turbo.json", "image_pony_v6_xl.json"]) {
+    const bundled = path.join(__dirname, "workflows", name);
+    try {
+      const raw = fs.readFileSync(bundled, "utf8");
+      const parsed = JSON.parse(raw) as ComfyWorkflow;
+      if (isApiFormatWorkflow(parsed) && hasKSampler(parsed)) {
+        logger.info("using bundled ComfyUI workflow", { path: bundled });
+        return deepClone(parsed);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // 4. Hardcoded SD1.5 fallback (legacy; needs v1-5 checkpoint on disk)
   return deepClone(DEFAULT_COMFYUI_WORKFLOW);
 }
 

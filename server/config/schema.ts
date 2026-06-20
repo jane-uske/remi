@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { applyOverlayToEnv } from "./overlay";
+import { warnLlmModelChoice } from "./llm_model_guard";
 
 const boolLiterals = z.union([
   z.literal("0"),
@@ -34,6 +35,7 @@ export const envSchema = z.object({
   REMI_LLM_PROXY_URL: z.string().optional(),
   REMI_FAST_BRAIN_MODEL: z.string().optional(),
   REMI_FAST_BRAIN_REASONING_EFFORT: z.string().optional(),
+  REMI_FAST_BRAIN_MAX_TOKENS: z.coerce.number().int().min(256).max(8192).default(2048),
 
   // ── TTS ──────────────────────────────────────────────────────────────────
   REMI_TTS_PROVIDER: z
@@ -54,6 +56,9 @@ export const envSchema = z.object({
   // Optional override for the instruct field sent to Qwen3-TTS.
   // When set, this replaces the per-emotion instruct from tts_emotion.ts.
   REMI_TTS_MLX_INSTRUCT: z.string().optional(),
+  REMI_TTS_MLX_NSFW_INSTRUCT: z.string().optional(),
+  // Sampling temperature for Qwen3-TTS (lower = more consistent voice across segments).
+  REMI_TTS_MLX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.35),
   tts_key: z.string().optional(),
   tts_base_url: z.string().optional(),
   tts_model: z.string().default("tts-1"),
@@ -63,6 +68,8 @@ export const envSchema = z.object({
   tts_max_chars: z.coerce.number().int().positive().default(120),
   tts_strip_parenthetical: booleanString("1"),
   tts_strip_emoji: booleanString("1"),
+  // Ellipsis/tildes → speakable punctuation before TTS (word-safe; helps MLX moaning text).
+  REMI_TTS_SPEAKABLE_PUNCT: booleanString("0"),
   tts_cache_max_chars: z.coerce.number().int().nonnegative().default(24),
   tts_cache_max_entries: z.coerce.number().int().positive().default(80),
   tts_fallback_provider: z.string().optional(),
@@ -152,7 +159,7 @@ export const envSchema = z.object({
 
   // ── Features ─────────────────────────────────────────────────────────────
   REMI_SLOW_BRAIN_ENABLED: booleanString("1"),
-  REMI_SLOW_BRAIN_REASONING_EFFORT: z.string().default("none"),
+  REMI_SLOW_BRAIN_REASONING_EFFORT: z.string().default("low"),
   REMI_LOCAL_LLM_ENABLED: booleanString("1"),
   REMI_PERSISTENT_MEMORY_OVERLAY_ENABLED: booleanString("1"),
   REMI_AVATAR_INTENT_ENABLED: booleanString("1"),
@@ -184,6 +191,20 @@ export const envSchema = z.object({
     .default("text, watermark, lowres, bad anatomy, worst quality, low quality"),
   COMFYUI_DEFAULT_WIDTH: z.coerce.number().int().positive().default(512),
   COMFYUI_DEFAULT_HEIGHT: z.coerce.number().int().positive().default(512),
+  // Hybrid image-intent gate: regex prefilter → fast-brain confirm (fallback: regex).
+  REMI_IMAGE_INTENT_LLM_ENABLED: booleanString("1"),
+  REMI_IMAGE_INTENT_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  // Step 1.5: dedicated Qwen scene-prompt writer (separate from intent classify).
+  REMI_IMAGE_PROMPT_LLM_ENABLED: booleanString("1"),
+  REMI_IMAGE_PROMPT_TIMEOUT_MS: z.coerce.number().int().positive().default(18000),
+  REMI_IMAGE_PROMPT_MAX_TOKENS: z.coerce.number().int().positive().default(1024),
+  REMI_IMAGE_PROMPT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.55),
+  // Locked ComfyUI style tags for Remi/character images unless user restyles or 扮演换风.
+  REMI_IMAGE_CHARACTER_STYLE: z
+    .string()
+    .default(
+      "photorealistic, cinematic lighting, 8k raw photo, detailed skin texture",
+    ),
 
   // ── Adult / NSFW mode (off by default; toggled per-session via chat) ───────
   // Master switch — when off, the "开启成人模式" chat command is a no-op.
@@ -249,7 +270,7 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(2200),
-  REMI_TEXT_DELIBERATE_REASONING_EFFORT: z.string().default("medium"),
+  REMI_TEXT_DELIBERATE_REASONING_EFFORT: z.string().default("low"),
   REMI_FAST_PATH_PROMPT_MEMORY_ENTRIES: z.coerce
     .number()
     .int()
@@ -551,5 +572,7 @@ export function validateEnv(): RemiEnv {
     throw new Error(msg);
   }
 
-  return inferModelFromBaseUrl(result.data);
+  const config = inferModelFromBaseUrl(result.data);
+  warnLlmModelChoice(config.REMI_LLM_MODEL, config.REMI_FAST_BRAIN_MODEL);
+  return config;
 }
