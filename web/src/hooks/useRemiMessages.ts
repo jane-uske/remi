@@ -5,6 +5,7 @@ import type { ChatMessage } from "@/types/chat";
 import {
   loadPersistedMessages,
   MESSAGE_STORAGE_MAX,
+  mergeChatMessageLists,
   resolveLegacyMessageStorageKey,
   uid,
 } from "@/hooks/useRemiChatHelpers";
@@ -70,7 +71,10 @@ export function useRemiMessages(messageStorageKey: string): UseRemiMessagesRetur
   const appendLiveMessage = useCallback(
     (message: ChatMessage) => {
       markHistoryMutation("append");
-      setLiveMessages((current) => [...current, message]);
+      setLiveMessages((current) => {
+        if (current.some((entry) => entry.id === message.id)) return current;
+        return [...current, message];
+      });
     },
     [markHistoryMutation],
   );
@@ -144,9 +148,9 @@ export function useRemiMessages(messageStorageKey: string): UseRemiMessagesRetur
       historySourceRef.current === "fallback"
         ? persistedMessagesRef.current
         : historyMessages.filter((m) => m.role === "user" || m.role === "rem");
-    const persist = [...baseHistory, ...visibleLive]
-      .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
-      .slice(-MESSAGE_STORAGE_MAX);
+    const persist = mergeChatMessageLists(baseHistory, visibleLive).slice(
+      -MESSAGE_STORAGE_MAX,
+    );
     persistedMessagesRef.current = persist;
     try {
       localStorage.setItem(messageStorageKey, JSON.stringify(persist));

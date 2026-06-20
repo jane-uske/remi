@@ -13,8 +13,6 @@ import {
 } from "@/lib/rem3d/devtoolsStore";
 import { shouldFinalizeDeferredChatEnd } from "@/hooks/useRemiChatTurnState";
 
-const CHAT_END_PLAYBACK_GRACE_MS = 220;
-
 export type UseRemiTurnEngineReturn = {
   turnState: RemiTurnState;
   sttPredictionPreview: string | null;
@@ -37,6 +35,7 @@ export type UseRemiTurnEngineReturn = {
   pendingChatEndRef: React.MutableRefObject<{
     generationId: number | null;
     awaitingPlaybackDrain: boolean;
+    awaitingTtsEnd: boolean;
   } | null>;
   pendingChatEndTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
   setSttPredictionPreview: React.Dispatch<React.SetStateAction<string | null>>;
@@ -95,6 +94,7 @@ export function useRemiTurnEngine(voiceActive: boolean): UseRemiTurnEngineReturn
   const pendingChatEndRef = useRef<{
     generationId: number | null;
     awaitingPlaybackDrain: boolean;
+    awaitingTtsEnd: boolean;
   } | null>(null);
   const pendingChatEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -275,6 +275,7 @@ export function useRemiTurnEngine(voiceActive: boolean): UseRemiTurnEngineReturn
     if (
       !shouldFinalizeDeferredChatEnd({
         awaitingPlaybackDrain: pendingChatEndRef.current?.awaitingPlaybackDrain ?? false,
+        awaitingTtsEnd: pendingChatEndRef.current?.awaitingTtsEnd ?? false,
         voiceActive,
       })
     ) {

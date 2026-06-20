@@ -8,8 +8,9 @@ import { ChatWindow } from "@/components/ChatWindow";
 import { InputBar } from "@/components/InputBar";
 import { PresetControlPanel } from "@/components/PresetControlPanel";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
+import { VoiceStylePicker } from "@/components/VoiceStylePicker";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
-import { remiChatLayoutClasses } from "@/components/remiChatLayout";
+import { remiChatLayoutForNsfw } from "@/components/remiChatLayout";
 import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
 import { getEmotionLabel } from "@/lib/emotionLabels";
 import {
@@ -92,6 +93,7 @@ export function RemiChatApp() {
     runtimeState,
     avatarRenderModel,
     inputPlaceholder,
+    audioLocked,
     lipSignalRef,
     hasMic,
     isDefaultDevUser,
@@ -105,9 +107,13 @@ export function RemiChatApp() {
     devStatus,
     devCommandPending,
     toggleMic,
+    unlockAudio,
+    nsfwEnabled,
+    setVoiceStyle,
   } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
   const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const [showVoiceStylePicker, setShowVoiceStylePicker] = useState(false);
   const [presenceFixture, setPresenceFixture] = useState(
     createDefaultConversationPresenceFixture,
   );
@@ -146,6 +152,7 @@ export function RemiChatApp() {
     reconnectInSec,
   );
   const emotionLabel = getEmotionLabel(emotion);
+  const layout = remiChatLayoutForNsfw(nsfwEnabled);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -158,10 +165,13 @@ export function RemiChatApp() {
   }, []);
 
   return (
-    <div className={remiChatLayoutClasses.appShell}>
-      <header className={remiChatLayoutClasses.headerShell}>
+    <div
+      className={layout.appShell}
+      data-remi-nsfw={nsfwEnabled ? "1" : "0"}
+    >
+      <header className={layout.headerShell}>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 bg-[linear-gradient(180deg,rgba(33,160,191,0.16),rgba(33,160,191,0.08)_44%,transparent)] blur-2xl sm:h-24" />
-        <div className={remiChatLayoutClasses.headerInner}>
+        <div className={layout.headerInner}>
           <div className="flex min-w-0 items-center gap-3">
             <RemiAccountMenu
               triggerMode="avatar-only"
@@ -193,6 +203,11 @@ export function RemiChatApp() {
                   />
                   <span className="truncate">{connectionCompactLabel}</span>
                 </div>
+                {nsfwEnabled ? (
+                  <div className="inline-flex items-center rounded-full border border-rose-200/20 bg-rose-500/12 px-2.5 py-1 text-[10px] tracking-[0.12em] text-rose-100/90 shadow-lg shadow-black/5 backdrop-blur-md">
+                    成人模式
+                  </div>
+                ) : null}
               </div>
               <div
                 className="flex min-w-0 items-center gap-2 truncate text-[10px] uppercase tracking-[0.18em] text-[var(--remi-header-subtitle)] sm:text-[11px]"
@@ -235,37 +250,43 @@ export function RemiChatApp() {
         </div>
       </header>
 
-      <main className={remiChatLayoutClasses.mainShell}>
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(17,132,160,0.52),rgba(17,132,160,0.22)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
-        <div className="remi-stage-grid pointer-events-none absolute inset-0 opacity-30" />
+      <main className={layout.mainShell}>
+        {!nsfwEnabled ? (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(17,132,160,0.52),rgba(17,132,160,0.22)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
+            <div className="remi-stage-grid pointer-events-none absolute inset-0 opacity-30" />
+          </>
+        ) : null}
 
-        <section className={remiChatLayoutClasses.stageShell}>
-          <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(116,224,238,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
+        {!nsfwEnabled ? (
+          <section className={layout.stageShell}>
+            <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(116,224,238,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
 
-          <div className="absolute bottom-4 left-3 z-20 sm:bottom-5 sm:left-5">
-            <VoiceIndicator model={voiceIndicatorModel} />
-          </div>
+            <div className="absolute bottom-4 left-3 z-20 sm:bottom-5 sm:left-5">
+              <VoiceIndicator model={voiceIndicatorModel} />
+            </div>
 
-          <CharacterStage
-            emotion={emotion}
-            turnState={runtimeState.turn.serverState ?? "confirmed_end"}
-            avatarIntent={avatarIntent}
-            avatarFrame={avatarFrame}
-            voiceActive={runtimeState.assistant.playbackActive}
-            busy={runtimeState.phase === "thinking"}
-            userSpeaking={runtimeState.user.speaking}
-            recording={runtimeState.user.recording}
-            lipSignalRef={lipSignalRef}
-            runtimeState={runtimeState}
-            renderModel={avatarRenderModel}
-            performanceModel={performanceModel}
-            className="min-h-0 min-w-0 flex-1"
-          />
-        </section>
+            <CharacterStage
+              emotion={emotion}
+              turnState={runtimeState.turn.serverState ?? "confirmed_end"}
+              avatarIntent={avatarIntent}
+              avatarFrame={avatarFrame}
+              voiceActive={runtimeState.assistant.playbackActive}
+              busy={runtimeState.phase === "thinking"}
+              userSpeaking={runtimeState.user.speaking}
+              recording={runtimeState.user.recording}
+              lipSignalRef={lipSignalRef}
+              runtimeState={runtimeState}
+              renderModel={avatarRenderModel}
+              performanceModel={performanceModel}
+              className="min-h-0 min-w-0 flex-1"
+            />
+          </section>
+        ) : null}
 
-        <aside className={remiChatLayoutClasses.chatAside}>
-          <section className={remiChatLayoutClasses.chatCard}>
-            <div className={remiChatLayoutClasses.chatWindowFrame}>
+        <aside className={layout.chatAside}>
+          <section className={layout.chatCard}>
+            <div className={layout.chatWindowFrame}>
               <ChatWindow
                 messages={messages}
                 hasMoreHistory={historyHasMore}
@@ -277,19 +298,52 @@ export function RemiChatApp() {
                 streamingText={streamingText}
                 statusModel={chatWindowStatus}
                 performanceModel={performanceModel}
+                immersive={nsfwEnabled}
               />
             </div>
 
-            <div className={remiChatLayoutClasses.chatComposerFrame}>
-              <div className={remiChatLayoutClasses.chatComposerDock}>
-                <InputBar
-                  onSend={sendText}
-                  onMicToggle={toggleMic}
-                  disabled={inputDisabled}
-                  micDisabled={micDisabled}
-                  recording={runtimeState.user.recording}
-                  placeholder={inputPlaceholder}
-                />
+            <div className={layout.chatComposerFrame}>
+              {audioLocked ? (
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void unlockAudio()}
+                    className="pointer-events-auto rounded-full border border-cyan-200/25 bg-cyan-400/12 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-cyan-50 shadow-lg shadow-black/10 transition hover:bg-cyan-300/18"
+                  >
+                    启用声音
+                  </button>
+                </div>
+              ) : null}
+              <div className={layout.chatComposerDock}>
+                <div className="relative flex w-full items-end gap-1.5">
+                  <button
+                    type="button"
+                    title="音色风格"
+                    onClick={() => setShowVoiceStylePicker((v) => !v)}
+                    className={`mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm transition ${
+                      showVoiceStylePicker
+                        ? "bg-white/20 text-white"
+                        : "bg-transparent text-white/30 hover:bg-white/10 hover:text-white/50"
+                    }`}
+                  >
+                    🎵
+                  </button>
+                  <div className="relative min-w-0 flex-1">
+                    <VoiceStylePicker
+                      open={showVoiceStylePicker}
+                      onClose={() => setShowVoiceStylePicker(false)}
+                      setVoiceStyle={setVoiceStyle}
+                    />
+                    <InputBar
+                      onSend={sendText}
+                      onMicToggle={toggleMic}
+                      disabled={inputDisabled}
+                      micDisabled={micDisabled}
+                      recording={runtimeState.user.recording}
+                      placeholder={inputPlaceholder}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </section>

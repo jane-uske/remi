@@ -3,6 +3,7 @@ import type {} from "mocha";
 const assert = require("node:assert/strict");
 const {
   remiChatLayoutClasses,
+  remiChatLayoutForNsfw,
 } = require("../src/components/remiChatLayout");
 
 describe("remiChatLayoutClasses", () => {
@@ -71,5 +72,24 @@ describe("remiChatLayoutClasses", () => {
     assert.match(remiChatLayoutClasses.chatComposerFrame, /\bshrink-0\b/);
     assert.match(remiChatLayoutClasses.chatComposerFrame, /\bw-full\b/);
     assert.match(remiChatLayoutClasses.chatComposerFrame, /\bmd:max-w-none\b/);
+  });
+});
+
+describe("remiChatLayoutForNsfw", () => {
+  it("hides the stage and expands chat to full height in adult mode", () => {
+    const layout = remiChatLayoutForNsfw(true);
+
+    assert.match(layout.stageShell, /\bhidden\b/);
+    assert.match(layout.mainShell, /\bflex-col\b/);
+    assert.doesNotMatch(layout.chatAside, /\bbottom-0\b/);
+    assert.match(layout.chatAside, /\bflex-1\b/);
+    assert.match(layout.chatCard, /\bmax-h-none\b/);
+    assert.doesNotMatch(layout.chatCard, /md:max-h-\[56svh\]/);
+    assert.match(layout.chatWindowFrame, /max-w-\[min\(100%,42rem\)\]/);
+  });
+
+  it("returns the default layout when adult mode is off", () => {
+    const layout = remiChatLayoutForNsfw(false);
+    assert.equal(layout, remiChatLayoutClasses);
   });
 });

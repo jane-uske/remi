@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AvatarActionCommand,
   AvatarFrameState,
@@ -9,7 +9,11 @@ import type {
 } from "@/types/avatar";
 import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
-import { resolveMessageStorageKey, uid } from "./useRemiChatHelpers";
+import {
+  mergeChatMessageLists,
+  resolveMessageStorageKey,
+  uid,
+} from "./useRemiChatHelpers";
 import { stripEmotionTags } from "@/lib/chat/stripEmotionTags";
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
 import { useRemiConnection } from "./useRemiConnection";
@@ -47,6 +51,7 @@ export function useRemiChat() {
   const [typing, setTyping] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [personaPreset, setPersonaPreset] = useState<string | null>(null);
+  const [nsfwEnabled, setNsfwEnabled] = useState(false);
   const [devStatus, setDevStatus] = useState<DevStatus>({ tone: "idle", message: "" });
 
   const waitingRef = useRef(false);
@@ -80,11 +85,17 @@ export function useRemiChat() {
     ws.send(JSON.stringify(payload));
   }, []);
 
+  const serverTtsStreamingRef = useRef(false);
+  const markServerTtsStreaming = useCallback((streaming: boolean) => {
+    serverTtsStreamingRef.current = streaming;
+  }, []);
+
   const {
     enqueueBase64,
     enqueuePcmChunk,
     clearQueue,
     unlockPlayback,
+    audioLocked,
     voiceActive,
     lipEnvelopeRef,
     lipSignalRef,
@@ -92,7 +103,22 @@ export function useRemiChat() {
   } = useAudioBase64Queue({
     onPlaybackStart: handlePlaybackStart,
     onPlaybackEnd: handlePlaybackEnd,
+    getServerTtsStreaming: () => serverTtsStreamingRef.current,
   });
+
+  useEffect(() => {
+    const unlock = () => {
+      void unlockPlayback();
+    };
+    window.addEventListener("pointerdown", unlock, { capture: true });
+    window.addEventListener("keydown", unlock, { capture: true });
+    window.addEventListener("touchstart", unlock, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock, { capture: true });
+      window.removeEventListener("keydown", unlock, { capture: true });
+      window.removeEventListener("touchstart", unlock, { capture: true });
+    };
+  }, [unlockPlayback]);
 
   // Now voiceActive is known.
   /* ── Turn engine (receives real voiceActive for the drain effect) ── */
@@ -201,11 +227,13 @@ export function useRemiChat() {
     setTyping,
     setSttPartialText,
     setPersonaPreset,
+    setNsfwEnabled,
     pendingDevCommandRef: pendingDevCommandRef as React.MutableRefObject<{ kind: string; scope?: string } | null>,
     setDevStatus: setDevStatus as (v: { tone: string; message: string }) => void,
     describeResetScope,
     messageStorageKey,
     voiceActive,
+    markServerTtsStreaming,
     clearQueue,
     enqueueBase64,
     enqueuePcmChunk,
@@ -304,6 +332,7 @@ export function useRemiChat() {
       const ws = conn.wsRef.current;
       const trimmed = text.trim();
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return;
+      markServerTtsStreaming(false);
       clearQueue();
       turnEngine.clearPendingChatEnd();
       void unlockPlayback();
@@ -371,6 +400,20 @@ export function useRemiChat() {
       const ws = conn.wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: "world_event", event }));
+    },
+    [conn.wsRef],
+  );
+
+  /** Set voice style / speed / pitch via WS (UI-driven, per-session). */
+  const setVoiceStyle = useCallback(
+    (opts: {
+      voiceStyleId?: string | null;
+      speedModifier?: string | null;
+      pitchModifier?: string | null;
+    }) => {
+      const ws = conn.wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "set_voice_style", ...opts }));
     },
     [conn.wsRef],
   );
@@ -459,7 +502,7 @@ export function useRemiChat() {
     typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
   const combinedMessages = useMemo(
-    () => [...msgs.historyMessages, ...msgs.liveMessages],
+    () => mergeChatMessageLists(msgs.historyMessages, msgs.liveMessages),
     [msgs.historyMessages, msgs.liveMessages],
   );
 
@@ -490,9 +533,12 @@ export function useRemiChat() {
     avatarRenderModel: avatar.avatarRenderModel,
     avatarAction: avatar.avatarAction,
     inputPlaceholder: voice.inputPlaceholder,
+    audioLocked,
+    unlockAudio: unlockPlayback,
     recording: voice.recording,
     duplex: voice.duplex,
     personaPreset,
+    nsfwEnabled,
     userSpeaking: voice.userSpeaking,
     awaitingSpeechCommit: voice.awaitingSpeechCommit,
     listeningHint: avatar.listeningHint,
@@ -507,6 +553,7 @@ export function useRemiChat() {
     wsTargetLabel,
     sendText,
     sendWorldEvent,
+    setVoiceStyle,
     requestPersonaPreset,
     updatePersonaPreset,
     loadMoreHistory,

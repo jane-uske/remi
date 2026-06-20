@@ -6,11 +6,17 @@
  * 接缝就在 ScriptUi.openDialogue。
  */
 import { getMemoryCard } from "./memories";
+import {
+  buildOfflineReturnOpener,
+  worldTimeProfileAt,
+  type WorldTimeProfile,
+} from "./worldTime";
 
 const SAVE_KEY = "remiworld.v0_1.save";
 
 export interface WorldSave {
   firstVisitAt: number;
+  lastSeenAt: number;
   visits: number;
   introDone: boolean;
   flowerPlanted: boolean;
@@ -20,6 +26,7 @@ export interface WorldSave {
 export function loadSave(): WorldSave {
   const fresh: WorldSave = {
     firstVisitAt: Date.now(),
+    lastSeenAt: Date.now(),
     visits: 0,
     introDone: false,
     flowerPlanted: false,
@@ -45,8 +52,8 @@ export function persistSave(save: WorldSave): void {
 }
 
 /** 进入世界第几天（用于 HUD：Day 1 / Day 2…） */
-export function dayNumber(save: WorldSave): number {
-  return Math.floor((Date.now() - save.firstVisitAt) / 86_400_000) + 1;
+export function dayNumber(save: WorldSave, nowMs = Date.now()): number {
+  return Math.floor((nowMs - save.firstVisitAt) / 86_400_000) + 1;
 }
 
 /** 剧本对引擎的最小依赖面（避免直接 import 引擎造成环依赖） */
@@ -73,9 +80,9 @@ export interface ScriptUi {
 }
 
 const OBJECTIVES = {
-  intro: "☀ 与 Remi 度过这个傍晚 · 与 Remi 对话 (0/1)",
+  intro: (time: WorldTimeProfile) => `☀ 与 Remi 度过这个${time.label} · 与 Remi 对话 (0/1)`,
   flower: "✿ 去庭院的花圃，种下一朵花",
-  lantern: "🏮 天快黑了，点亮门前的灯笼",
+  lantern: "🏮 点亮门前的灯笼，给回家的路留一点光",
   explore: "❀ 自由探索：记忆墙、阳台、长椅、邮箱…",
 } as const;
 
@@ -87,11 +94,14 @@ const OBJECTIVES = {
 export function buildSituationalContext(args: {
   activity: string; // 来自 engine.getRemiActivity()，如"在长椅边发呆"
   save: WorldSave;
+  time?: WorldTimeProfile;
 }): string {
   const { activity, save } = args;
+  const time = args.time ?? worldTimeProfileAt(Date.now());
   const day = dayNumber(save);
   const lines = [
-    `你正和用户待在你自己的小世界里——一座黄昏的浮空小岛，有你的房间、阳台和庭院。现在是第 ${day} 天的傍晚。`,
+    `你正和用户待在你自己的小世界里——一座浮空小岛，有你的房间、阳台和庭院。现在是第 ${day} 天的${time.label}。`,
+    time.contextLine,
     `就在用户走过来和你说话之前，你${activity}。`,
     `用户此刻就站在你身边，面对面和你说话。`,
   ];
@@ -105,6 +115,9 @@ export function buildSituationalContext(args: {
 
 export class WorldScript {
   private save: WorldSave;
+  private time: WorldTimeProfile = worldTimeProfileAt(Date.now());
+  private lastAbsenceMs = 0;
+  private returnOpenerUsed = false;
 
   constructor(
     private stage: WorldStage,
@@ -117,17 +130,36 @@ export class WorldScript {
     return this.save;
   }
 
+  getTimeProfile(): WorldTimeProfile {
+    return this.time;
+  }
+
+  syncWorldTime(nowMs = Date.now()): WorldTimeProfile {
+    this.time = worldTimeProfileAt(nowMs);
+    this.stage.setDusk(this.time.lowLight);
+    return this.time;
+  }
+
+  notePresence(nowMs = Date.now()): void {
+    this.save.lastSeenAt = nowMs;
+    persistSave(this.save);
+  }
+
   /** 世界就绪：应用存档（隔天回来：灯还亮着、花还开着） */
-  onWorldReady(): void {
+  onWorldReady(nowMs = Date.now()): void {
+    const previousLastSeen = this.save.lastSeenAt;
+    const previousVisits = this.save.visits;
+    this.lastAbsenceMs = previousVisits > 0 ? Math.max(0, nowMs - previousLastSeen) : 0;
+    this.syncWorldTime(nowMs);
     this.save.visits += 1;
+    this.save.lastSeenAt = nowMs;
     persistSave(this.save);
     if (this.save.flowerPlanted) this.stage.plantFlowers(false);
     if (this.save.lanternLit) {
       this.stage.setLanternLit(true);
-      this.stage.setDusk(true);
     }
     // 隔天回来也是一段值得被记住的事（语义合并自带去重）
-    if (this.save.visits > 1) this.ui.recordWorldEvent("revisit");
+    if (previousVisits > 0) this.ui.recordWorldEvent("revisit");
     this.ui.setObjective(this.nextObjective());
   }
 
@@ -137,7 +169,7 @@ export class WorldScript {
   }
 
   private nextObjective(): string {
-    if (!this.save.introDone) return OBJECTIVES.intro;
+    if (!this.save.introDone) return OBJECTIVES.intro(this.time);
     if (!this.save.flowerPlanted) return OBJECTIVES.flower;
     if (!this.save.lanternLit) return OBJECTIVES.lantern;
     return OBJECTIVES.explore;
@@ -202,12 +234,12 @@ export class WorldScript {
           ? [
               "你来啦……！欢迎回到我们的小小世界。",
               "我把房间收拾好了——墙上那排相框，挂着我们的记忆。",
-              "能陪我一起度过这个傍晚吗？先去庭院走走吧，花圃还空着呢。",
+              `能陪我在这个${this.time.label}待一会儿吗？先去庭院走走吧，花圃还空着呢。`,
             ]
           : [
               "你来啦……！这里是我们的小小世界。",
               "我把房间收拾好了——墙上那排相框，挂着我们的记忆。",
-              "能陪我一起度过这个傍晚吗？先去庭院走走吧，花圃还空着呢。",
+              `能陪我在这个${this.time.label}待一会儿吗？先去庭院走走吧，花圃还空着呢。`,
             ];
       this.ui.openDialogue("Remi", lines, () => {
         this.save.introDone = true;
@@ -218,13 +250,30 @@ export class WorldScript {
     }
     // 开场白之后，"和 Remi 说话" = 真实 LLM 对话（RW-P1-3）。
     // 物件 flavor 仍走本地剧本；任务进度由 HUD 目标条提示，不再用脚本硬塞。
-    if (this.save.lanternLit && this.save.visits > 1) {
+    const returnOpener = this.consumeReturnOpener();
+    if (returnOpener) {
       // 故事板第 6 格"隔天回来"作为开场语境带进真实对话
       this.stage.remiHappy();
-      this.ui.openLiveChat("你回来啦！看——灯一直亮着，花也还开着。");
+      this.ui.openLiveChat(returnOpener);
       return;
     }
     this.ui.openLiveChat();
+  }
+
+  private consumeReturnOpener(): string | null {
+    if (this.returnOpenerUsed || this.save.visits <= 1) return null;
+    this.returnOpenerUsed = true;
+    return (
+      buildOfflineReturnOpener({
+        elapsedMs: this.lastAbsenceMs,
+        profile: this.time,
+        flowerPlanted: this.save.flowerPlanted,
+        lanternLit: this.save.lanternLit,
+      }) ??
+      (this.save.lanternLit
+        ? "你回来啦！看——灯一直亮着，花也还开着。"
+        : null)
+    );
   }
 
   private useFlowerbed(): void {

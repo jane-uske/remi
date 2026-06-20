@@ -7,7 +7,9 @@ export function shouldAwaitPlaybackDrain(args: {
 
 export function shouldFinalizeDeferredChatEnd(args: {
   awaitingPlaybackDrain: boolean;
+  awaitingTtsEnd?: boolean;
   voiceActive: boolean;
 }): boolean {
+  if (args.awaitingTtsEnd) return false;
   return args.awaitingPlaybackDrain && !args.voiceActive;
 }

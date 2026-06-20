@@ -17,6 +17,7 @@ export type ChatWindowProps = {
   streamingText: string;
   statusModel: ChatWindowStatusModel;
   performanceModel?: ConversationPerformanceModel | null;
+  immersive?: boolean;
 };
 
 export function ChatWindow({
@@ -30,6 +31,7 @@ export function ChatWindow({
   streamingText,
   statusModel,
   performanceModel = null,
+  immersive = false,
 }: ChatWindowProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const prevStreamingRef = useRef("");
@@ -256,7 +258,11 @@ export function ChatWindow({
         aria-busy={responseBusy}
         tabIndex={0}
         onScroll={handleScroll}
-        className="remi-chat-scroll-fade pointer-events-auto flex max-h-[min(34svh,19rem)] flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className={`remi-chat-scroll-fade pointer-events-auto flex flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${
+          immersive
+            ? "max-h-none min-h-0 flex-1"
+            : "max-h-[min(34svh,19rem)] min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none"
+        }`}
       >
         {loadingMoreHistory ? (
           <div className="flex justify-center px-1 pb-1">
@@ -297,19 +303,23 @@ export function ChatWindow({
           </div>
         ) : null}
         {messages.map((m) => (
-          <MessageBubble key={m.id} role={m.role}>
+          <MessageBubble key={m.id} role={m.role} wide={immersive}>
             {m.text}
           </MessageBubble>
         ))}
         {effectivePartialText ? (
-          <MessageBubble role="partial">{effectivePartialText}</MessageBubble>
+          <MessageBubble role="partial" wide={immersive}>
+            {effectivePartialText}
+          </MessageBubble>
         ) : null}
         {showPreparingBubble ? (
           <div
             data-chat-stream-phase="preparing"
             className="animate-pulse"
           >
-            <MessageBubble role="rem">…</MessageBubble>
+            <MessageBubble role="rem" wide={immersive}>
+              …
+            </MessageBubble>
           </div>
         ) : null}
         {visibleStreamingText ? (
@@ -318,12 +328,16 @@ export function ChatWindow({
             className="transition-transform duration-150"
             style={streamingBubbleStyle}
           >
-            <MessageBubble role="rem">{visibleStreamingText}</MessageBubble>
+            <MessageBubble role="rem" wide={immersive}>
+              {visibleStreamingText}
+            </MessageBubble>
           </div>
         ) : null}
         {!visibleStreamingText && showTailSettle ? (
           <div data-chat-stream-phase="settling" className="opacity-80">
-            <MessageBubble role="rem">…</MessageBubble>
+            <MessageBubble role="rem" wide={immersive}>
+              …
+            </MessageBubble>
           </div>
         ) : null}
       </div>

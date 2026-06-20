@@ -10,6 +10,7 @@ import {
   type WorldStage,
 } from "@/lib/world/script";
 import { MEMORY_WALL_CARDS } from "@/lib/world/memories";
+import { worldTimeProfileAt } from "@/lib/world/worldTime";
 
 interface Recorded {
   dialogues: Array<{ speaker: string; lines: string[] }>;
@@ -17,6 +18,7 @@ interface Recorded {
   toasts: string[];
   stageCalls: string[];
   liveChats: Array<string | null>;
+  worldEvents: string[];
 }
 
 function makeHarness(): { script: WorldScript; rec: Recorded } {
@@ -26,6 +28,7 @@ function makeHarness(): { script: WorldScript; rec: Recorded } {
     toasts: [],
     stageCalls: [],
     liveChats: [],
+    worldEvents: [],
   };
   const stage: WorldStage = {
     setLanternLit: (lit) => rec.stageCalls.push(`lantern:${lit}`),
@@ -40,6 +43,7 @@ function makeHarness(): { script: WorldScript; rec: Recorded } {
       onDone?.();
     },
     openLiveChat: (opener) => rec.liveChats.push(opener ?? null),
+    recordWorldEvent: (event) => rec.worldEvents.push(event),
     setObjective: (text) => rec.objectives.push(text),
     toast: (text) => rec.toasts.push(text),
   };
@@ -55,6 +59,13 @@ describe("RemiWorld v0.1 剧本状态机", () => {
     script.handleInteract("remi");
     assert.equal(script.getSave().introDone, true);
     assert.ok(rec.objectives.at(-1)!.includes("种下一朵花"));
+  });
+
+  it("开场目标跟随当前时间段，不固定成傍晚", () => {
+    const { script, rec } = makeHarness();
+    script.onWorldReady(new Date(2026, 5, 14, 23, 30).getTime());
+    assert.ok(rec.objectives.at(-1)!.includes("深夜"));
+    assert.ok(!rec.objectives.at(-1)!.includes("傍晚"));
   });
 
   it("开场白之后再和 Remi 说话 → 进入真实对话（openLiveChat），不再走脚本台词", () => {
@@ -88,6 +99,24 @@ describe("RemiWorld v0.1 剧本状态机", () => {
       "开场语境应是隔天回来的问候",
     );
     assert.ok(rec.stageCalls.includes("happy"));
+  });
+
+  it("离线几个小时后回来，把日常推演开场带进真实对话", () => {
+    const { script, rec } = makeHarness();
+    const now = new Date(2026, 5, 14, 23, 30).getTime();
+    const save = script.getSave();
+    save.introDone = true;
+    save.lanternLit = true;
+    save.flowerPlanted = true;
+    save.visits = 1; // onWorldReady 会 +1 → 2
+    save.lastSeenAt = now - 9 * 60 * 60_000;
+    script.onWorldReady(now);
+
+    script.handleInteract("remi");
+    assert.equal(rec.liveChats.length, 1);
+    assert.match(rec.liveChats[0] ?? "", /你不在/);
+    assert.match(rec.liveChats[0] ?? "", /深夜/);
+    assert.match(rec.liveChats[0] ?? "", /花|灯/);
   });
 
   it("种花触发开花、开心与目标推进；重复交互只有台词", () => {
@@ -144,10 +173,10 @@ describe("RemiWorld v0.1 剧本状态机", () => {
     save.introDone = true;
     save.flowerPlanted = true;
     save.lanternLit = true;
-    script.onWorldReady();
+    script.onWorldReady(new Date(2026, 5, 14, 13, 30).getTime());
     assert.ok(rec.stageCalls.includes("flowers:false"));
     assert.ok(rec.stageCalls.includes("lantern:true"));
-    assert.ok(rec.stageCalls.includes("dusk:true"));
+    assert.ok(rec.stageCalls.includes("dusk:false"));
     assert.ok(rec.objectives.at(-1)!.includes("自由探索"));
   });
 });
@@ -159,6 +188,18 @@ describe("RW-P1-4 世界情境注入（buildSituationalContext）", () => {
     assert.ok(ctx.includes("在长椅边发呆"), "应含当前活动");
     assert.ok(ctx.includes("身边"), "应说明用户在身边");
     assert.ok(/第 \d+ 天/.test(ctx), "应含天数");
+  });
+
+  it("按当前时间段写入世界情境，而不是固定傍晚", () => {
+    const save = { ...loadSave(), flowerPlanted: false, lanternLit: false };
+    const ctx = buildSituationalContext({
+      activity: "在电脑前听音乐",
+      save,
+      time: worldTimeProfileAt(new Date(2026, 5, 14, 23, 30).getTime()),
+    });
+    assert.ok(ctx.includes("深夜"), "应包含当前时间段");
+    assert.ok(ctx.includes("灯和屏幕光"), "应包含该时间段的场景事实");
+    assert.ok(!ctx.includes("傍晚"), "不应再固定写死傍晚");
   });
 
   it("花/灯状态按存档条件出现", () => {

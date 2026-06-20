@@ -6,10 +6,18 @@ import type { MessageRole } from "@/types/chat";
 export type MessageBubbleProps = {
   role: MessageRole;
   children: string;
+  wide?: boolean;
 };
 
 const base =
-  "remi-msg-bubble remi-msg-pop flex max-w-[min(86%,24rem)] flex-col whitespace-pre-wrap rounded-[1.15rem] px-3 py-2 text-[14px] leading-relaxed tracking-tight min-[480px]:max-w-[min(80%,25rem)] min-[480px]:px-3.5 md:max-w-[min(84%,21.5rem)] md:rounded-[1.35rem] md:px-3.5 md:py-2.5 md:text-[15px]";
+  "remi-msg-bubble remi-msg-pop flex flex-col whitespace-pre-wrap rounded-[1.15rem] px-3 py-2 text-[14px] leading-relaxed tracking-tight min-[480px]:px-3.5 md:rounded-[1.35rem] md:px-3.5 md:py-2.5 md:text-[15px]";
+
+const baseWidth = {
+  default:
+    "max-w-[min(86%,24rem)] min-[480px]:max-w-[min(80%,25rem)] md:max-w-[min(84%,21.5rem)]",
+  wide:
+    "max-w-[min(92%,36rem)] min-[480px]:max-w-[min(90%,38rem)] md:max-w-[min(88%,42rem)]",
+} as const;
 
 const styles: Record<MessageRole, string> = {
   rem:
@@ -141,9 +149,12 @@ function renderContent(text: string): React.ReactNode {
   return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : parts;
 }
 
-export function MessageBubble({ role, children }: MessageBubbleProps) {
+export function MessageBubble({ role, children, wide = false }: MessageBubbleProps) {
   return (
-    <div className={`${base} ${styles[role]}`} role="article">
+    <div
+      className={`${base} ${baseWidth[wide ? "wide" : "default"]} ${styles[role]}`}
+      role="article"
+    >
       {role !== "sys" && role !== "error" ? (
         <div
           className={`mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${speakerTone[role]}`}

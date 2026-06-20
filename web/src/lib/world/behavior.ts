@@ -11,6 +11,8 @@
  *         任意状态 + 对话打开 → talking，对话结束 → 回到之前的行为（打断恢复）
  */
 
+import { worldTimeProfileAt } from "./worldTime";
+
 export type BehaviorId = "reading" | "window" | "flowers" | "bench" | "music";
 
 export interface BehaviorSpot {
@@ -153,12 +155,13 @@ const SLOT_BASE_MS = 105_000;
 
 export function scheduledBehaviorAt(epochMs: number): BehaviorId {
   const slot = Math.floor(epochMs / SLOT_BASE_MS);
+  const pool = worldTimeProfileAt(epochMs).behaviorPool;
   // 避免连续两段相同：用 slot 序列去重
   const pick = (s: number) =>
-    BEHAVIOR_SPOTS[Math.floor(hash01(s) * BEHAVIOR_SPOTS.length)].id;
+    pool[Math.floor(hash01(s) * pool.length)];
   let id = pick(slot);
   if (id === pick(slot - 1)) {
-    id = BEHAVIOR_SPOTS[(BEHAVIOR_SPOTS.indexOf(BEHAVIOR_SPOTS.find((b) => b.id === id)!) + 1) % BEHAVIOR_SPOTS.length].id;
+    id = pool[(pool.indexOf(id) + 1) % pool.length];
   }
   return id;
 }

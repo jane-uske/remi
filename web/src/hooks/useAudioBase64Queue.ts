@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToObjectUrl } from "@/lib/audioBase64";
 import type { LipSignal, TtsLipSyncPatch } from "@/types/avatar";
 import {
+  hasPendingPlaybackWork as computePendingPlaybackWork,
+  PLAYBACK_END_DEBOUNCE_MS,
+} from "@/lib/audio/playbackLifecycle";
+import {
   applyTtsLipSyncPatch as mergeTtsLipSyncPatch,
   clearTtsLipSyncState,
   resolveActiveTtsLipViseme,
@@ -23,6 +27,8 @@ export interface AudioQueueOptions {
   onPlaybackStart?: (generationId: number | null) => void;
   /** Called when playback for the current server generation fully drains or is cleared. */
   onPlaybackEnd?: (generationId: number | null) => void;
+  /** True while the server may still stream TTS after `chat_end`. */
+  getServerTtsStreaming?: () => boolean;
 }
 
 const PCM_BATCH_TARGET_MS = 72;
@@ -33,6 +39,7 @@ function isBrokenAudioContextState(state: string): boolean {
 
 export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const [playing, setPlaying] = useState(false);
+  const [audioLocked, setAudioLocked] = useState(false);
   const decodeChainRef = useRef<Promise<void>>(Promise.resolve());
   const playingRef = useRef(false);
   const generationRef = useRef(0);
@@ -69,6 +76,8 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const lipPlaybackStartAtMsRef = useRef(0);
   const onPlaybackStartRef = useRef(options?.onPlaybackStart);
   const onPlaybackEndRef = useRef(options?.onPlaybackEnd);
+  const getServerTtsStreamingRef = useRef(options?.getServerTtsStreaming);
+  const lastEnqueueAtMsRef = useRef(0);
 
   useEffect(() => {
     onPlaybackStartRef.current = options?.onPlaybackStart;
@@ -77,6 +86,10 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   useEffect(() => {
     onPlaybackEndRef.current = options?.onPlaybackEnd;
   }, [options?.onPlaybackEnd]);
+
+  useEffect(() => {
+    getServerTtsStreamingRef.current = options?.getServerTtsStreaming;
+  }, [options?.getServerTtsStreaming]);
 
   const resetAudioGraph = useCallback(() => {
     const ctx = audioContextRef.current;
@@ -96,9 +109,34 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     }
   }, []);
 
-  const sync = useCallback(() => {
-    setPlaying(playingRef.current);
+  const hasPendingPlaybackWork = useCallback(() => {
+    const ctx = audioContextRef.current;
+    const scheduledAheadMs = ctx
+      ? Math.max(0, (nextStartTimeRef.current - ctx.currentTime) * 1000)
+      : 0;
+    return computePendingPlaybackWork({
+      playing: playingRef.current,
+      activeSources: activeSourcesRef.current.size,
+      pendingPcmSamples: pendingPcmSamplesRef.current,
+      hasFlushTimer: pcmFlushTimerRef.current != null,
+      scheduledAheadMs,
+      serverTtsStreaming: getServerTtsStreamingRef.current?.() === true,
+      msSinceLastEnqueue:
+        lastEnqueueAtMsRef.current > 0
+          ? Date.now() - lastEnqueueAtMsRef.current
+          : Number.POSITIVE_INFINITY,
+      debounceMs: PLAYBACK_END_DEBOUNCE_MS,
+    });
   }, []);
+
+  const sync = useCallback(() => {
+    setPlaying(hasPendingPlaybackWork());
+  }, [hasPendingPlaybackWork]);
+
+  const touchEnqueueActivity = useCallback(() => {
+    lastEnqueueAtMsRef.current = Date.now();
+    sync();
+  }, [sync]);
 
   const updateLipSignal = useCallback((patch: Partial<LipSignal>) => {
     Object.assign(lipSignalRef.current, patch);
@@ -221,11 +259,16 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         return null;
       }
     }
+    if (ctx.state !== "running") {
+      setAudioLocked(true);
+      return null;
+    }
     if (isBrokenAudioContextState(String(ctx.state))) {
       audioGraphRetryAfterRef.current = Date.now() + 1500;
       resetAudioGraph();
       return null;
     }
+    setAudioLocked(false);
 
     if (!analyserReadyRef.current) {
       const analyser = ctx.createAnalyser();
@@ -273,20 +316,23 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
-    const ctx = audioContextRef.current;
-    if (!ctx) return;
-    const remainMs = Math.max(20, (nextStartTimeRef.current - ctx.currentTime) * 1000 + 20);
-    idleTimerRef.current = setTimeout(() => {
-      if (activeSourcesRef.current.size > 0) return;
-      if (pendingPcmSamplesRef.current > 0 || pcmFlushTimerRef.current) return;
-      const now = audioContextRef.current?.currentTime ?? 0;
-      if (now + 0.01 < nextStartTimeRef.current) return;
+    const runCheck = () => {
+      if (hasPendingPlaybackWork()) {
+        idleTimerRef.current = setTimeout(runCheck, 120);
+        sync();
+        return;
+      }
       playingRef.current = false;
       notifyPlaybackEnd();
       stopEnvelopeLoop();
       sync();
-    }, remainMs);
-  }, [notifyPlaybackEnd, stopEnvelopeLoop, sync]);
+    };
+    const ctx = audioContextRef.current;
+    const remainMs = ctx
+      ? Math.max(40, (nextStartTimeRef.current - ctx.currentTime) * 1000 + 40)
+      : 40;
+    idleTimerRef.current = setTimeout(runCheck, remainMs);
+  }, [hasPendingPlaybackWork, notifyPlaybackEnd, stopEnvelopeLoop, sync]);
 
   const scheduleAudioBuffer = useCallback(
     async (
@@ -345,6 +391,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
 
   const enqueuePcmChunk = useCallback(
     (pcmBase64: string, sampleRate = 24000, serverGenerationId: number | null = null) => {
+      touchEnqueueActivity();
       const generationAtCall = generationRef.current;
       const floats = pcm16Base64ToFloat32(pcmBase64);
       if (!floats) return;
@@ -362,7 +409,25 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         clearPendingPcm();
         void (async () => {
           const ctx = await ensureAudioGraph();
-          if (!ctx || generationRef.current !== generationAtCall) return;
+          if (!ctx) {
+            if (generationRef.current !== generationAtCall) return;
+            pendingPcmChunksRef.current = [
+              ...chunks,
+              ...pendingPcmChunksRef.current,
+            ];
+            pendingPcmSamplesRef.current += totalSamples;
+            pendingPcmSampleRateRef.current = rate;
+            pendingPcmGenerationRef.current = generationAtCall;
+            pendingPcmServerGenerationRef.current = serverGeneration;
+            if (!pcmFlushTimerRef.current) {
+              pcmFlushTimerRef.current = setTimeout(() => {
+                pcmFlushTimerRef.current = null;
+                flushPending();
+              }, 160);
+            }
+            return;
+          }
+          if (generationRef.current !== generationAtCall) return;
           const buf = ctx.createBuffer(1, totalSamples, rate);
           const channel = buf.getChannelData(0);
           let offset = 0;
@@ -416,7 +481,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         }, Math.max(12, PCM_BATCH_TARGET_MS - bufferedMs));
       }
     },
-    [clearPendingPcm, ensureAudioGraph, queuedAheadMs, scheduleAudioBuffer],
+    [clearPendingPcm, ensureAudioGraph, queuedAheadMs, scheduleAudioBuffer, touchEnqueueActivity],
   );
 
   const decodeBase64ToAudioBuffer = useCallback(
@@ -549,6 +614,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
 
   const enqueueBase64 = useCallback(
     (base64: string, serverGenerationId: number | null = null) => {
+      touchEnqueueActivity();
       const generationAtCall = generationRef.current;
       decodeChainRef.current = decodeChainRef.current
         .catch(() => {})
@@ -564,12 +630,13 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
           }
         });
     },
-    [decodeBase64ToAudioBuffer, playBase64Fallback],
+    [decodeBase64ToAudioBuffer, playBase64Fallback, touchEnqueueActivity],
   );
 
   /** Stop current playback and discard all queued audio (used on interrupt). */
   const clearQueue = useCallback(() => {
     generationRef.current += 1;
+    lastEnqueueAtMsRef.current = 0;
     clearPendingPcm();
 
     if (idleTimerRef.current) {
@@ -642,6 +709,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     enqueuePcmChunk,
     clearQueue,
     unlockPlayback,
+    audioLocked,
     voiceActive: playing,
     lipEnvelopeRef,
     lipSignalRef,

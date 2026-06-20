@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemiWorldEngine, type FocusInfo } from "@/lib/world/engine";
 import { WorldScript, dayNumber, buildSituationalContext } from "@/lib/world/script";
+import type { WorldTimeProfile } from "@/lib/world/worldTime";
 import { useRemiChat } from "@/hooks/useRemiChat";
 
 interface DialogueState {
@@ -63,6 +64,7 @@ export default function RemiWorld() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [day, setDay] = useState(1);
   const [activity, setActivity] = useState("");
+  const [worldTime, setWorldTime] = useState<WorldTimeProfile | null>(null);
   // 实时对话面板（RW-P1-3）
   const [chatOpen, setChatOpen] = useState(false);
   const [chatOpener, setChatOpener] = useState<string | null>(null);
@@ -116,6 +118,17 @@ export default function RemiWorld() {
     scriptRef.current = script;
     script.onWorldReady();
     setDay(dayNumber(script.getSave()));
+    setWorldTime(script.getTimeProfile());
+
+    const syncWorldClock = () => {
+      const current = script.syncWorldTime();
+      script.notePresence();
+      setWorldTime(current);
+      setDay(dayNumber(script.getSave()));
+    };
+    const worldClockTimer = window.setInterval(syncWorldClock, 60_000);
+    const notePresence = () => script.notePresence();
+    window.addEventListener("beforeunload", notePresence);
 
     // 截图/调景模式：?debug=1 隐藏遮罩，?cam=x,y,z,yaw,pitch 直接摆相机
     const params = new URLSearchParams(window.location.search);
@@ -140,6 +153,9 @@ export default function RemiWorld() {
     }
 
     return () => {
+      window.clearInterval(worldClockTimer);
+      window.removeEventListener("beforeunload", notePresence);
+      script.notePresence();
       engine.dispose();
       engineRef.current = null;
       scriptRef.current = null;
@@ -240,6 +256,7 @@ export default function RemiWorld() {
         ? buildSituationalContext({
             activity: engine.getRemiActivity(),
             save: script.getSave(),
+            time: script.getTimeProfile(),
           })
         : undefined;
     chat.sendText(text, situational);
@@ -317,7 +334,7 @@ export default function RemiWorld() {
             color: "#ffe9d6",
           }}
         >
-          RemiWorld v0.1 · Day {day} · 黄昏
+          RemiWorld v0.1 · Day {day} · {worldTime?.label ?? "黄昏"}
           {activity && (
             <span style={{ opacity: 0.7 }}> · Remi {activity}</span>
           )}

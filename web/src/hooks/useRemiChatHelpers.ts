@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  dedupeChatMessagesById,
+  mergeChatMessageLists,
+} from "@/lib/chat/mergeChatMessages";
 import { getRemWsUrl } from "../lib/wsUrl";
 import type { ChatMessage } from "../types/chat";
 import {
@@ -11,6 +15,8 @@ import {
   resolveIsDefaultDevUser as resolveIsDefaultDevUserBase,
   resolveMessageStorageKey as resolveMessageStorageKeyBase,
 } from "../lib/browserIdentity";
+
+export { dedupeChatMessagesById, mergeChatMessageLists };
 
 function normalizeTranscriptForMerge(text: string): string {
   return text.replace(/\s+/g, "").replace(/[，。！？,.!?、；;:“”"'`~·\-]/g, "");
@@ -177,16 +183,16 @@ export function resolveLegacyMessageStorageKey(storageKey: string): string {
 
 function sanitizePersistedMessages(raw: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter(
+  return dedupeChatMessagesById(
+    raw.filter(
       (m): m is ChatMessage =>
         m != null &&
         typeof m === "object" &&
         typeof (m as ChatMessage).id === "string" &&
         typeof (m as ChatMessage).text === "string" &&
         typeof (m as ChatMessage).role === "string",
-    )
-    .slice(-MESSAGE_STORAGE_MAX);
+    ),
+  ).slice(-MESSAGE_STORAGE_MAX);
 }
 
 export function resolveMessageStorageKey(input?: {

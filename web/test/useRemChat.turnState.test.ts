@@ -27,14 +27,36 @@ describe("useRemiChat turn lifecycle helpers", () => {
     expect(
       shouldFinalizeDeferredChatEnd({
         awaitingPlaybackDrain: true,
+        awaitingTtsEnd: false,
         voiceActive: true,
       }),
     ).to.equal(false);
     expect(
       shouldFinalizeDeferredChatEnd({
         awaitingPlaybackDrain: true,
+        awaitingTtsEnd: false,
         voiceActive: false,
       }),
     ).to.equal(true);
+  });
+
+  it("does not finalize while the server may still stream TTS for the generation", () => {
+    expect(
+      shouldFinalizeDeferredChatEnd({
+        awaitingPlaybackDrain: true,
+        awaitingTtsEnd: true,
+        voiceActive: false,
+      }),
+    ).to.equal(false);
+  });
+
+  it("does not finalize during an inter-segment playback gap while audio is still active", () => {
+    expect(
+      shouldFinalizeDeferredChatEnd({
+        awaitingPlaybackDrain: true,
+        awaitingTtsEnd: false,
+        voiceActive: true,
+      }),
+    ).to.equal(false);
   });
 });
