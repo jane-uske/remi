@@ -10,7 +10,9 @@ struct RemiAvatarStageView: View {
     var body: some View {
         ZStack {
             auraBackground
+                .offset(y: -20)
             avatarCanvas
+                .offset(y: -28)
             companionOverlay
         }
     }
@@ -90,7 +92,7 @@ struct RemiAvatarStageView: View {
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(RemiDesignTokens.connectionColor(for: connectionPhase))
+                        .fill(avatarState.turnStateBadgeColor)
                         .frame(width: 6, height: 6)
                         .accessibilityHidden(true)
 
@@ -100,7 +102,11 @@ struct RemiAvatarStageView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(
+                    avatarState.turnStateBadgeColor.opacity(colorScheme == .dark ? 0.14 : 0.20),
+                    in: Capsule()
+                )
+                .animation(.easeInOut(duration: 0.4), value: avatarState.turnStateBadgeColor)
 
                 Text(avatarState.companionLine)
                     .font(.system(size: 13, weight: .medium, design: .rounded))

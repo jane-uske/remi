@@ -45,8 +45,8 @@ struct BubbleCard<Content: View>: View {
     private var fillOpacity: Double {
         switch role {
         case .user:  0.54
-        case .remi:  0.34
-        case .sys:   0.24
+        case .remi:  0.26
+        case .sys:   0.20
         case .error: 0.40
         }
     }
@@ -127,9 +127,9 @@ enum RemiChatBubbleStyle {
         case .user:
             return accent.opacity(colorScheme == .dark ? 0.26 : 0.34)
         case .remi:
-            return .white.opacity(colorScheme == .dark ? 0.12 : 0.28)
+            return .white.opacity(colorScheme == .dark ? 0.18 : 0.36)
         case .sys:
-            return .white.opacity(colorScheme == .dark ? 0.10 : 0.22)
+            return .white.opacity(colorScheme == .dark ? 0.14 : 0.28)
         case .error:
             return Color(red: 0.73, green: 0.17, blue: 0.20).opacity(colorScheme == .dark ? 0.24 : 0.18)
         }

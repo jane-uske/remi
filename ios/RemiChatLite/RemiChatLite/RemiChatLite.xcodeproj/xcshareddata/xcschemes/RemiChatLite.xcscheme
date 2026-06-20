@@ -57,6 +57,16 @@
             value = "ws://127.0.0.1:3000/ws"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "REMI_IOS_AUTH_MODE"
+            value = "clerk"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "REMI_IOS_CLERK_PUBLISHABLE_KEY"
+            value = "pk_live_Y2xlcmsucmVtaS5ydW4k"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

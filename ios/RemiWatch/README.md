@@ -123,9 +123,14 @@ xcrun simctl spawn "$DEVICE" log show --last 30s \
 
 ## Notes
 
-- Inner-test target, not production hardening. The `Info.plist` ATS exception
-  (`NSAllowsArbitraryLoads`) exists only so the MVP can hit a local `ws://`
-  gateway; tighten before any release.
+- Inner-test target, not production hardening. The `Info.plist` ATS exception is
+  scoped to loopback (`NSAllowsLocalNetworking` + `127.0.0.1`/`localhost` insecure
+  exceptions) so the MVP can hit a local `ws://` gateway while public hosts must
+  use `wss://`. No blanket `NSAllowsArbitraryLoads`.
+- The client connects with `tts_transport=buffered_voice` (see `WatchConfig`), so
+  the gateway sends base64 `voice` (MP3) frames `WatchVoicePlayer` can play instead
+  of `voice_pcm_chunk` streaming. The gateway also defaults `client=watch_lite` to
+  buffered voice (`server/session/tts_transport.ts`).
 - `RemiEmotionTag.swift` is duplicated from `RemiChatLite` rather than shared, to
   keep this a self-contained standalone project with no cross-target coupling. If
   the iOS copy changes, re-copy it here.

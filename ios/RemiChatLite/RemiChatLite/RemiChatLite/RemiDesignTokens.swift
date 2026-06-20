@@ -21,14 +21,14 @@ enum RemiDesignTokens {
 
     static func glassTint(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.05)
-            : Color.white.opacity(0.24)
+            ? Color.white.opacity(0.10)
+            : Color.white.opacity(0.32)
     }
 
     static func strongGlassTint(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.12)
-            : Color.white.opacity(0.34)
+            ? Color.white.opacity(0.18)
+            : Color.white.opacity(0.42)
     }
 
     static func connectionColor(for phase: ConnectionPhase) -> Color {
@@ -36,6 +36,22 @@ enum RemiDesignTokens {
         case .open:       .green
         case .connecting: .orange
         case .closed:     .gray
+        }
+    }
+
+    /// Phase-specific badge color matching the web's ConversationPerformanceModel.
+    static func turnStateColor(for turnState: RemiTurnState) -> Color {
+        switch turnState {
+        case .listeningActive, .listeningHold:
+            return Color(red: 0.33, green: 0.72, blue: 0.87)  // sky
+        case .likelyEnd, .confirmedEnd:
+            return Color(red: 0.85, green: 0.65, blue: 0.20)  // amber
+        case .assistantEntering:
+            return Color(red: 0.20, green: 0.78, blue: 0.78)  // cyan
+        case .assistantSpeaking:
+            return Color(red: 0.30, green: 0.75, blue: 0.48)  // emerald
+        case .interruptedByUser:
+            return Color(red: 0.85, green: 0.45, blue: 0.55)  // rose
         }
     }
 

@@ -33,6 +33,7 @@ final class RemiChatStore: ObservableObject {
     @Published var sttPredictionPreview: String = ""
     @Published var activeGenerationId: Int?
     @Published var draft: String = ""
+    @Published var nsfwEnabled: Bool = false
 
     var socket: URLSessionWebSocketTask?
     var shouldReconnect = false
@@ -307,6 +308,10 @@ final class RemiChatStore: ObservableObject {
 
         case .ttsLipSync(let generationId, _, let mode, let complete, let cues):
             lipSyncEngine.ingestCues(cues, generationId: generationId, mode: mode, complete: complete)
+
+        case .nsfwModeState(let enabled):
+            log("server nsfw_mode_state enabled=\(enabled)")
+            nsfwEnabled = enabled
         }
     }
 

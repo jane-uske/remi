@@ -123,14 +123,38 @@ struct RemiChatSheetView: View {
                 shadowColor: RemiChatBubbleStyle.shadowColor(for: message.role, colorScheme: colorScheme),
                 glassTint: RemiChatBubbleStyle.glassTint(for: message.role, colorScheme: colorScheme)
             ) {
-                Text(message.text)
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                    .foregroundStyle(RemiChatBubbleStyle.textColor(for: message.role, colorScheme: colorScheme))
-                    .textSelection(.enabled)
+                bubbleContent(for: message)
             }
             .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role != .user { Spacer(minLength: 28) }
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleContent(for message: ChatMessage) -> some View {
+        let segments = RemiChatImageParser.parse(message.text)
+        let hasImages = segments.contains { if case .image = $0 { return true } else { return false } }
+
+        if hasImages {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(segments) { segment in
+                    switch segment {
+                    case .text(let text):
+                        Text(text)
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(RemiChatBubbleStyle.textColor(for: message.role, colorScheme: colorScheme))
+                            .textSelection(.enabled)
+                    case .image(let alt, let url):
+                        RemiChatInlineImage(url: url, alt: alt)
+                    }
+                }
+            }
+        } else {
+            Text(message.text)
+                .font(.system(size: 16, weight: .regular, design: .rounded))
+                .foregroundStyle(RemiChatBubbleStyle.textColor(for: message.role, colorScheme: colorScheme))
+                .textSelection(.enabled)
         }
     }
 

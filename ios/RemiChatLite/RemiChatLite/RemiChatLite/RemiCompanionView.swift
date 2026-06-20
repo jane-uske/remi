@@ -11,10 +11,15 @@ struct RemiCompanionView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isInputFocused: Bool
-    @State private var chatSheetFraction: CGFloat = 0.4
+    @State private var chatSheetFraction: CGFloat = 0.2
+    @State private var dragStartFraction: CGFloat? = nil
+    @State private var showAccountMenu = false
 
     private let stageMinFraction: CGFloat = 0.15
     private let stageMaxFraction: CGFloat = 0.65
+    private let restingFraction: CGFloat = 0.2
+    /// Corner radius matching the iPhone's physical screen corners (~44pt).
+    private let sheetCornerRadius: CGFloat = 44
 
     init(store: RemiChatStore, identityKey: String, showSignOutButton: Bool, onSignOut: (() -> Void)?) {
         self.store = store
@@ -26,36 +31,60 @@ struct RemiCompanionView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let stageHeight = proxy.size.height * (1 - chatSheetFraction)
+            let effectiveFraction = store.nsfwEnabled ? 1 - stageMinFraction : chatSheetFraction
+            let stageHeight = proxy.size.height * (1 - effectiveFraction)
 
             ZStack {
                 backgroundLayer.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    RemiAvatarStageView(
-                        avatarState: avatarState,
-                        renderer: renderer,
-                        connectionPhase: store.connectionPhase
-                    )
-                    .frame(height: max(stageHeight, 56))
-                    .clipped()
+                    if !store.nsfwEnabled {
+                        ZStack(alignment: .topTrailing) {
+                            RemiAvatarStageView(
+                                avatarState: avatarState,
+                                renderer: renderer,
+                                connectionPhase: store.connectionPhase
+                            )
+
+                            avatarMenuButton
+                                .padding(.top, proxy.safeAreaInsets.top + 8)
+                                .padding(.trailing, 14)
+                        }
+                        .frame(height: max(stageHeight, 56))
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .onTapGesture { isInputFocused = false }
+                    }
 
                     chatSheet(width: proxy.size.width, safeAreaBottom: proxy.safeAreaInsets.bottom)
                 }
+                .ignoresSafeArea(edges: .top)
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if chatSheetFraction > 0.85 {
+                if effectiveFraction > 0.85 || store.nsfwEnabled {
                     RemiAvatarHeaderStrip(
+                        store: store,
                         avatarState: avatarState,
                         connectionPhase: store.connectionPhase,
                         showSignOutButton: showSignOutButton,
-                        onSignOut: onSignOut
+                        onSignOut: onSignOut,
+                        nsfwEnabled: store.nsfwEnabled,
+                        onMenuTap: { showAccountMenu = true }
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { isInputFocused = false }
+        }
+        .sheet(isPresented: $showAccountMenu) {
+            RemiAccountMenuView(
+                store: store,
+                avatarState: avatarState,
+                showSignOutButton: showSignOutButton,
+                onSignOut: onSignOut,
+                onDismiss: { showAccountMenu = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onAppear {
             renderer.lipSyncEngine = store.lipSyncEngine
@@ -70,32 +99,78 @@ struct RemiCompanionView: View {
         .onDisappear { store.stop() }
     }
 
+    // MARK: - Always-visible menu button
+
+    private var avatarMenuButton: some View {
+        Button(action: { showAccountMenu = true }) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(RemiDesignTokens.connectionColor(for: store.connectionPhase))
+                    .frame(width: 7, height: 7)
+
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(RemiDesignTokens.primaryText(colorScheme))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(.white.opacity(colorScheme == .dark ? 0.10 : 0.24), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("设置和账户")
+        .accessibilityHint("打开账户菜单和服务设置")
+    }
+
+    // MARK: - Chat Sheet
+
     private func chatSheet(width: CGFloat, safeAreaBottom: CGFloat) -> some View {
         VStack(spacing: 0) {
             dragHandle
             chatContent(width: width)
             inputBar(width: width, safeAreaBottom: safeAreaBottom)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea(edges: .bottom)
-        )
-        .gesture(sheetDragGesture)
+        .background {
+            UnevenRoundedRectangle(
+                topLeadingRadius: sheetCornerRadius,
+                topTrailingRadius: sheetCornerRadius,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
+            .overlay {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: sheetCornerRadius,
+                    topTrailingRadius: sheetCornerRadius,
+                    style: .continuous
+                )
+                .fill(
+                    colorScheme == .dark
+                        ? Color.black.opacity(0.30)
+                        : Color.white.opacity(0.40)
+                )
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private var dragHandle: some View {
         Capsule()
             .fill(RemiDesignTokens.secondaryText(colorScheme).opacity(0.4))
             .frame(width: 36, height: 4)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+            .gesture(store.nsfwEnabled ? nil : sheetDragGesture)
     }
 
     private var sheetDragGesture: some Gesture {
         DragGesture()
             .onChanged { value in
+                if dragStartFraction == nil {
+                    dragStartFraction = chatSheetFraction
+                }
                 let delta = -value.translation.height / UIScreen.main.bounds.height
-                let newFraction = chatSheetFraction + delta
+                let newFraction = (dragStartFraction ?? chatSheetFraction) + delta
                 chatSheetFraction = min(max(newFraction, 1 - stageMaxFraction), 1 - stageMinFraction)
             }
             .onEnded { value in
@@ -104,14 +179,17 @@ struct RemiCompanionView: View {
                 let snap: CGFloat
                 if target > 0.75 {
                     snap = 1 - stageMinFraction
-                } else if target < 0.45 {
+                } else if target > 0.55 {
+                    snap = 0.50
+                } else if target > 0.30 {
                     snap = 1 - stageMaxFraction
                 } else {
-                    snap = 0.55
+                    snap = restingFraction
                 }
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
                     chatSheetFraction = snap
                 }
+                dragStartFraction = nil
             }
     }
 
@@ -130,7 +208,7 @@ struct RemiCompanionView: View {
         )
         .padding(.horizontal, RemiDesignTokens.horizontalPadding(for: width))
         .padding(.top, 8)
-        .padding(.bottom, isInputFocused ? 6 : max(safeAreaBottom, 8))
+        .padding(.bottom, max(safeAreaBottom, 8))
     }
 
     private var backgroundLayer: some View {
@@ -141,7 +219,6 @@ struct RemiCompanionView: View {
                 endPoint: .bottom
             )
 
-            // Volumetric stage light — soft depth glow centred on the avatar.
             RadialGradient(
                 colors: [RemiDesignTokens.stageHaloColor(colorScheme), .clear],
                 center: UnitPoint(x: 0.5, y: 0.34),
@@ -152,6 +229,8 @@ struct RemiCompanionView: View {
         }
     }
 }
+
+// MARK: - Input Bar
 
 struct RemiCompanionInputBar: View {
     @ObservedObject var store: RemiChatStore
@@ -189,10 +268,6 @@ struct RemiCompanionInputBar: View {
         .padding(.vertical, 8)
         .frame(minHeight: RemiDesignTokens.surfaceMinHeight)
         .glassEffect(.regular.tint(RemiDesignTokens.strongGlassTint(colorScheme)).interactive(), in: RoundedRectangle(cornerRadius: RemiDesignTokens.surfaceCornerRadius, style: .continuous))
-        .background(
-            RoundedRectangle(cornerRadius: RemiDesignTokens.surfaceCornerRadius, style: .continuous)
-                .fill(.white.opacity(colorScheme == .dark ? 0.09 : 0.24))
-        )
     }
 
     private var duplexButton: some View {

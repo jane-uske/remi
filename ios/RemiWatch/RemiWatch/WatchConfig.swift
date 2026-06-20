@@ -28,12 +28,18 @@ enum WatchConfig {
     static let messageLimit = 80
 
     /// Builds the connect URL, appending the `client` discriminator the gateway
-    /// uses for per-client routing without clobbering caller-supplied params.
+    /// uses for per-client routing, plus `tts_transport=buffered_voice` so the
+    /// gateway sends base64 `voice` (MP3) frames this client can play rather than
+    /// `voice_pcm_chunk` streaming (which `WatchVoicePlayer` does not decode).
+    /// Caller-supplied params are never clobbered.
     static func resolvedWebSocketURL() -> URL? {
         guard var components = URLComponents(string: baseWsURLString) else { return nil }
         var items = components.queryItems ?? []
         if !items.contains(where: { $0.name == "client" && ($0.value?.isEmpty == false) }) {
             items.append(URLQueryItem(name: "client", value: clientFamily))
+        }
+        if !items.contains(where: { $0.name == "tts_transport" && ($0.value?.isEmpty == false) }) {
+            items.append(URLQueryItem(name: "tts_transport", value: "buffered_voice"))
         }
         components.queryItems = items.isEmpty ? nil : items
         return components.url

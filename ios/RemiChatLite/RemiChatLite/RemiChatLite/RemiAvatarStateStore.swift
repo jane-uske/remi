@@ -8,6 +8,7 @@ final class RemiAvatarStateStore: ObservableObject {
     @Published private(set) var avatarPhase: RemiAvatarPhase = .idle
     @Published private(set) var companionLine: String = "我会一直在这里接着聊。"
     @Published private(set) var presenceLabel: String = "在这里"
+    @Published private(set) var turnStateBadgeColor: Color = .gray
 
     private var cancellables = Set<AnyCancellable>()
     private weak var chatStore: RemiChatStore?
@@ -60,6 +61,16 @@ final class RemiAvatarStateStore: ObservableObject {
                 }
             }
             .assign(to: &$presenceLabel)
+
+        store.$turnState
+            .combineLatest(store.$connectionPhase)
+            .map { turnState, connectionPhase -> Color in
+                guard connectionPhase == .open else {
+                    return RemiDesignTokens.connectionColor(for: connectionPhase)
+                }
+                return RemiDesignTokens.turnStateColor(for: turnState)
+            }
+            .assign(to: &$turnStateBadgeColor)
     }
 
     private static func resolveCompanionLine(

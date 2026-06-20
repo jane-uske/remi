@@ -28,9 +28,22 @@
 	<string>Convert your dictation into text for Remi.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<!-- Dev-only: the MVP connects to a local ws:// gateway. Tighten before any release. -->
-		<key>NSAllowsArbitraryLoads</key>
+		<!-- Allow insecure ws:// only to the loopback dev gateway; public hosts must use wss://. -->
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 </dict>
 </plist>

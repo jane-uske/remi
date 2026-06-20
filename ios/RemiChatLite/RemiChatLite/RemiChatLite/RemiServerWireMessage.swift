@@ -23,6 +23,7 @@ enum RemiServerWireMessage {
     case avatarIntent(emotion: String, gesture: String, gestureIntensity: Int, energy: Int, holdMs: Int, beats: [[String: Any]])
     case ttsLipSync(generationId: Int, source: String, mode: String, complete: Bool, cues: [[String: Any]])
     case historyPage(RemiServerHistoryPage)
+    case nsfwModeState(enabled: Bool)
     case error(String)
 }
 
@@ -159,6 +160,10 @@ enum RemiServerWireMessageParser {
 
         case "history_page":
             return .historyPage(parseHistoryPage(payload))
+
+        case "nsfw_mode_state":
+            let enabled = payload["enabled"] as? Bool ?? false
+            return .nsfwModeState(enabled: enabled)
 
         case "error":
             return .error(payload["content"] as? String ?? "Server error")
