@@ -1,5 +1,6 @@
 import type { AvatarRenderModel, PortraitMotionPhase } from "@/runtime/avatarRenderModel";
 import type { CanonicalAvatarState } from "@/runtime/remiRuntimeAdapter";
+import type { VoiceIndicatorModel } from "@/runtime/remiRuntimeSelectors";
 
 export type ConversationPresencePhase = PortraitMotionPhase;
 export type ConversationAttentionTarget = "user" | "inner" | "front";
@@ -259,6 +260,8 @@ function resolveStatusLabel(
       return assistantText ? "在组织这句" : "准备回复";
     case "speaking_prepare":
       return "开口中";
+    case "speaking_active":
+      return assistantText ? "说着" : "开口中";
     case "speaking_tail":
       return "收尾中";
     case "yield":
@@ -401,6 +404,30 @@ function buildAvatarSync(
         attentivePulse: 0,
       };
   }
+}
+
+export function selectVoiceIndicatorFromPerformanceModel(
+  performanceModel: ConversationPerformanceModel,
+  runtimeState?: CanonicalAvatarState | null,
+): VoiceIndicatorModel {
+  const active =
+    performanceModel.phase === "speaking_active" ||
+    performanceModel.phase === "speaking_prepare" ||
+    performanceModel.phase === "speaking_tail" ||
+    Boolean(runtimeState?.assistant.playbackActive) ||
+    Boolean(runtimeState?.assistant.playbackTailActive);
+
+  const label =
+    performanceModel.chatSync.statusLabel ??
+    (active
+      ? "说着"
+      : performanceModel.phase === "listening"
+        ? "听着"
+        : performanceModel.phase === "thinking"
+          ? "思考"
+          : "在线");
+
+  return { active, label };
 }
 
 export function createDefaultConversationPresenceFixture(): ConversationPresenceFixture {

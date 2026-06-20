@@ -38,4 +38,18 @@ describe("app layout metadata", () => {
     assert.equal(fs.existsSync(path.join(root, "icon.png")), true);
     assert.equal(fs.existsSync(path.join(root, "apple-icon.png")), true);
   });
+
+  it("declares installable PWA metadata and service worker registration", () => {
+    const layoutPath = path.resolve(__dirname, "..", "src", "app", "layout.tsx");
+    const manifestPath = path.resolve(__dirname, "..", "src", "app", "manifest.ts");
+    const swPath = path.resolve(__dirname, "..", "public", "sw.js");
+    const layoutSource = fs.readFileSync(layoutPath, "utf8");
+    const manifestSource = fs.readFileSync(manifestPath, "utf8");
+
+    assert.ok(layoutSource.includes("appleWebApp"));
+    assert.ok(layoutSource.includes("RemiPwaRegister"));
+    assert.ok(manifestSource.includes('display: "standalone"'));
+    assert.ok(manifestSource.includes('short_name: "Remi"'));
+    assert.equal(fs.existsSync(swPath), true);
+  });
 });

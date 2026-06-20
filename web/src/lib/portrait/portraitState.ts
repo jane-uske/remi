@@ -8,6 +8,7 @@ import type {
   AvatarRenderModel,
   PortraitMotionPhase,
 } from "@/runtime/avatarRenderModel";
+import type { ConversationPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 import { samplePortraitMotionFrame } from "@/lib/portrait/motionModel";
 
 export type PortraitPresenceState =
@@ -47,6 +48,7 @@ export type PortraitDisplayModel = {
 
 export type DerivePortraitStateInput = {
   renderModel?: AvatarRenderModel | null;
+  performanceModel?: ConversationPerformanceModel | null;
   emotion?: string | null;
   turnState?: RemiTurnState;
   avatarIntent?: AvatarIntent | null;
@@ -104,6 +106,38 @@ function eyeScaleFor(presenceState: PortraitPresenceState): number {
     default:
       return 1;
   }
+}
+
+function enhancePortraitMotionWithPerformanceSync(
+  baseMotion: string,
+  performanceModel: ConversationPerformanceModel,
+): string {
+  const sync = performanceModel.avatarSync;
+  const headDeg = (sync.headImpulse * 4.5).toFixed(2);
+  const bodyScale = (1 + sync.bodyImpulse * 0.04).toFixed(3);
+  const gazeX = (sync.gazeBiasX * 8).toFixed(2);
+  const gazeY = (sync.gazeBiasY * 6).toFixed(2);
+  const yieldScale =
+    sync.yieldClamp > 0 ? (1 - sync.yieldClamp * 0.06).toFixed(3) : bodyScale;
+
+  return `${baseMotion} translate3d(${gazeX}px, ${gazeY}px, 0) rotate(${headDeg}deg) scale(${yieldScale})`;
+}
+
+function applyPerformanceModelToPortraitDisplay(
+  display: PortraitDisplayModel,
+  performanceModel: ConversationPerformanceModel,
+): PortraitDisplayModel {
+  const sync = performanceModel.avatarSync;
+
+  return {
+    ...display,
+    motionPhase: performanceModel.phase,
+    presenceLabel:
+      performanceModel.chatSync.statusLabel ?? display.presenceLabel,
+    companionLine: performanceModel.phaseCueText ?? display.companionLine,
+    mouthLevelFloor: Math.max(display.mouthLevelFloor, sync.mouthFloor),
+    motion: enhancePortraitMotionWithPerformanceSync(display.motion, performanceModel),
+  };
 }
 
 function bodyTransform(
@@ -299,6 +333,8 @@ export function derivePortraitState(
 export function buildPortraitDisplayModel(
   input: DerivePortraitStateInput,
 ): PortraitDisplayModel {
+  let display: PortraitDisplayModel;
+
   if (input.renderModel) {
     const emotion =
       normalizeEmotion(input.renderModel.emotion) ?? resolveEmotion(input);
@@ -308,7 +344,7 @@ export function buildPortraitDisplayModel(
       input.nowMs ?? 0,
     );
 
-    return {
+    display = {
       emotion,
       presenceState,
       motionPhase: motionFrame.motionPhase,
@@ -324,28 +360,34 @@ export function buildPortraitDisplayModel(
       breathOffset: motionFrame.breathOffset,
       motion: motionFrame.rootTransform,
     };
+  } else {
+    const portraitState = derivePortraitState(input);
+    const motionPhase = resolveFallbackMotionPhase(portraitState.presenceState);
+
+    display = {
+      emotion: portraitState.emotion,
+      presenceState: portraitState.presenceState,
+      motionPhase,
+      presenceLabel: PRESENCE_LABELS[portraitState.presenceState],
+      companionLine: stageCopy(
+        portraitState.presenceState,
+        portraitState.emotion,
+      ),
+      mouthLevel: portraitState.mouthLevel,
+      mouthLevelFloor: 0,
+      gaze: GAZE[portraitState.gazeMode],
+      eyeScale: eyeScaleFor(portraitState.presenceState),
+      breathOffset: BREATH[portraitState.presenceState],
+      motion: bodyTransform(
+        portraitState.presenceState,
+        portraitState.emphasis,
+      ),
+    };
   }
 
-  const portraitState = derivePortraitState(input);
-  const motionPhase = resolveFallbackMotionPhase(portraitState.presenceState);
+  if (input.performanceModel) {
+    return applyPerformanceModelToPortraitDisplay(display, input.performanceModel);
+  }
 
-  return {
-    emotion: portraitState.emotion,
-    presenceState: portraitState.presenceState,
-    motionPhase,
-    presenceLabel: PRESENCE_LABELS[portraitState.presenceState],
-    companionLine: stageCopy(
-      portraitState.presenceState,
-      portraitState.emotion,
-    ),
-    mouthLevel: portraitState.mouthLevel,
-    mouthLevelFloor: 0,
-    gaze: GAZE[portraitState.gazeMode],
-    eyeScale: eyeScaleFor(portraitState.presenceState),
-    breathOffset: BREATH[portraitState.presenceState],
-    motion: bodyTransform(
-      portraitState.presenceState,
-      portraitState.emphasis,
-    ),
-  };
+  return display;
 }

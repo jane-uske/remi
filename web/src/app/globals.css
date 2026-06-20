@@ -394,6 +394,53 @@ html[data-ios-safari="true"] .remi-app-shell::after {
   }
 }
 
+.remi-chat-mobile-immersive .remi-chat-scroll-fade {
+  --remi-chat-fade-top: 3.75rem;
+  --remi-chat-fade-bottom: 1.35rem;
+}
+
+@media (max-width: 767px) {
+  .remi-chat-mobile-immersive .remi-chat-scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      rgba(0, 0, 0, 0.12) 1.25rem,
+      rgba(0, 0, 0, 0.48) 2.5rem,
+      rgba(0, 0, 0, 0.88) 3.25rem,
+      #000 var(--remi-chat-fade-top),
+      #000 calc(100% - var(--remi-chat-fade-bottom)),
+      rgba(0, 0, 0, 0.42) calc(100% - 0.45rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      rgba(0, 0, 0, 0.12) 1.25rem,
+      rgba(0, 0, 0, 0.48) 2.5rem,
+      rgba(0, 0, 0, 0.88) 3.25rem,
+      #000 var(--remi-chat-fade-top),
+      #000 calc(100% - var(--remi-chat-fade-bottom)),
+      rgba(0, 0, 0, 0.42) calc(100% - 0.45rem),
+      transparent 100%
+    );
+  }
+
+  .remi-mobile-control-rail {
+    animation: remi-mobile-rail-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes remi-mobile-rail-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0.75rem, -0.35rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 .remi-airi-app {
   background: var(--remi-shell-overlay);
 }

@@ -43,7 +43,7 @@
 |---|---|---|---|---|
 | `W-PRES-01` | 默认人格稳定 | `in_progress` | 轻松聊 / 睡前聊 / 日常碎聊时，口气、边界、追问强度明显更稳定 | `W-PRES-02` |
 | `W-PRES-02` | 严肃场景承接修正 | `todo` | 现实压力 / 财务压力 / 自责 / 委屈类 bad case 明显减少轻浮、失焦和错位 | `W-PRES-03` |
-| `W-PRES-03` | Web 在场感统一 | `todo` | 说话态 / 停顿态 / 被打断态 / 口型与音频播放时间线不再互相打架 | `W-PRES-04` |
+| `W-PRES-03` | Web 在场感统一 | `in_progress` | 说话态 / 停顿态 / 被打断态 / 口型与音频播放时间线不再互相打架 | `W-PRES-04` |
 | `W-PRES-04` | 10 分钟体验压测 | `todo` | 睡前陪聊 / 日常碎聊 / 压力倾诉三个场景中，10 分钟体验明显不再像普通聊天框 | `observe` |
 
 状态枚举只允许：`todo` / `in_progress` / `blocked` / `done`。
@@ -77,6 +77,11 @@
     - 说话态、停顿态、听你说态更清楚
     - 口型、音频、表情、turn state 不互相打架
     - 打断时不出现明显错位
+  - 6.20 进展（Web 壳层）：
+    - 移动端舞台优先：聊天区上移 + 顶部强渐隐（`remi-chat-mobile-immersive`）+ 右侧 `RemiMobileControlRail` 状态岛
+    - `ConversationPerformanceModel` 深化：`speaking_active` 状态标签、VoiceIndicator / ChatWindow / Portrait fallback 共用同一 performance contract
+    - PWA 可安装：`manifest.ts` + `sw.js` shell 缓存 + `RemiPwaRegister`（生产环境注册）
+    - 仍待验收：真实浏览器 duplex 长时对话中口型/音频/打断时间线是否完全对齐
   - 已有基础：4.19 已接通 `tts_lip_sync`、lip timeline、`MicTxGate`
   - 4.29 试改：`MicTxGate` 增加稳定环境噪声自适应底噪门控，服务端 no-preview idle guard 加严；已过单测/duplex 回归，仍需真实浏览器噪声场景验收
   - 新增 SDK 接入：`useRemiChat` 的 WebSocket 创建、`client_context`、原始消息镜像、runtime reducer、`sendText`、语音协议出口（duplex start/stop、audio frame/fallback、playback start/end）已通过 `runtime/RemiRuntimeClient` 进入 SDK 边界；Web 仍保留 UI、麦克风采集、音频播放、口型、history 和 avatar 执行

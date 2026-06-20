@@ -9,10 +9,12 @@ export const remiChatLayoutClasses = {
     "relative z-10 flex min-h-0 flex-1 overflow-hidden",
   stageShell:
     "relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 pb-24 pt-20 sm:px-4 sm:pb-28 sm:pt-24 md:px-6 md:pb-10 md:pt-20 md:pr-[min(24rem,30vw)] lg:px-10 lg:pb-12 lg:pt-20 lg:pr-[min(26rem,32vw)]",
+  mobileControlRail:
+    "pointer-events-auto absolute right-2 top-[calc(env(safe-area-inset-top)+5.25rem)] z-25 flex flex-col items-end sm:right-3 md:hidden",
   chatAside:
-    "pointer-events-none absolute inset-x-0 bottom-0 z-20 flex min-h-0 flex-col gap-2 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-24 sm:px-3 md:pointer-events-auto md:left-auto md:right-6 md:top-auto md:w-[min(26rem,32vw)] md:max-w-[26rem] md:px-0 md:pb-0 md:pt-0 lg:right-8",
+    "remi-chat-mobile-immersive pointer-events-none absolute inset-x-0 bottom-0 z-20 flex min-h-0 flex-col gap-2 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[min(28svh,11.5rem)] sm:px-3 md:pointer-events-auto md:left-auto md:right-6 md:top-auto md:w-[min(26rem,32vw)] md:max-w-[26rem] md:px-0 md:pb-0 md:pt-0 lg:right-8",
   chatCard:
-    "remi-chat-shell pointer-events-none flex max-h-full min-h-0 w-full flex-col gap-2 overflow-hidden rounded-none border-transparent bg-transparent shadow-none backdrop-blur-0 md:pointer-events-auto md:max-h-[56svh] md:gap-0",
+    "remi-chat-shell pointer-events-none flex max-h-full min-h-0 w-full flex-col gap-1 overflow-hidden rounded-none border-transparent bg-transparent shadow-none backdrop-blur-0 md:pointer-events-auto md:max-h-[56svh] md:gap-0",
   chatWindowFrame:
     "pointer-events-auto mx-auto flex min-h-0 w-full max-w-[min(100%,34rem)] flex-col md:max-w-none md:flex-1",
   chatComposerDock:

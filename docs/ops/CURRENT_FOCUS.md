@@ -64,6 +64,7 @@
    - 现在的问题不是 persona 不够多，而是同一个默认人格还不够稳
 3. **Web 在场感统一**
    - 语音、口型、表情、播放态、idle 态已经有零件，但还没形成统一“她在”的感觉
+   - 6.20 已落地第一刀：移动端舞台优先布局、`ConversationPerformanceModel` 贯通聊天气泡/语音指示器/肖像 fallback、PWA 可安装；口型与音频长时对齐仍待真机验收
 4. **10 分钟体验可靠性**
    - 目前仍更像“会聊天的系统原型”，而不是“一个你愿意回来见的人”
 
@@ -158,8 +159,8 @@
    - 分类：事实承接错 / 情绪误判 / 场景切换失败 / 严肃时刻轻浮
    - 先修默认人格的 response policy / tone contract / structured interpretation
 2. **Web 在场感收口**
-   - 角色 idle / speaking / listening 状态统一
-   - 音频、口型、表情、turn state 不互相打架
+   - 角色 idle / speaking / listening 状态统一（6.20 已接 `ConversationPerformanceModel` 到 Chat / VoiceIndicator / Portrait fallback）
+   - 音频、口型、表情、turn state 不互相打架（Live2D/VRM 路径已有 performance sync；待 duplex 长时样本验收）
 3. **10 分钟体验压测**
    - 睡前陪聊
    - 日常碎聊

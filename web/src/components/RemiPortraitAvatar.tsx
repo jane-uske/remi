@@ -11,6 +11,7 @@ import {
 import {
   buildPortraitDisplayModel,
 } from "@/lib/portrait/portraitState";
+import type { ConversationPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 import type { AvatarRenderModel } from "@/runtime/avatarRenderModel";
 import type { CanonicalAvatarState } from "@/runtime/remiRuntimeAdapter";
 import type {
@@ -32,6 +33,7 @@ type RemiPortraitAvatarProps = {
   lipSignalRef: MutableRefObject<LipSignal>;
   runtimeState?: CanonicalAvatarState | null;
   renderModel?: AvatarRenderModel | null;
+  performanceModel?: ConversationPerformanceModel | null;
   className?: string;
 };
 
@@ -88,6 +90,7 @@ export function RemiPortraitAvatar({
   lipSignalRef,
   runtimeState = null,
   renderModel = null,
+  performanceModel = null,
   className = "",
 }: RemiPortraitAvatarProps) {
   // TODO(phase-3): drop legacy portrait props after all callers provide runtimeState/renderModel.
@@ -139,6 +142,7 @@ export function RemiPortraitAvatar({
     () =>
       buildPortraitDisplayModel({
         renderModel,
+        performanceModel,
         emotion,
         turnState,
         avatarIntent,
@@ -155,6 +159,7 @@ export function RemiPortraitAvatar({
       busy,
       emotion,
       liveLip.sampledAtMs,
+      performanceModel,
       recording,
       renderModel,
       turnState,
@@ -176,6 +181,8 @@ export function RemiPortraitAvatar({
     <section
       aria-label="Remi portrait"
       className={`remi-anime-stage relative flex min-h-[23rem] w-full min-w-0 flex-1 items-end justify-center overflow-hidden ${className}`}
+      data-conversation-phase={performanceModel?.phase ?? motionPhase}
+      data-language-beat-channel={performanceModel?.languageBeat.channel ?? "none"}
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div

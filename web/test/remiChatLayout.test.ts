@@ -25,6 +25,14 @@ describe("remiChatLayoutClasses", () => {
     assert.match(remiChatLayoutClasses.mainShell, /\boverflow-hidden\b/);
   });
 
+  it("keeps a mobile control rail and immersive chat fade for stage-first mobile layout", () => {
+    assert.match(remiChatLayoutClasses.mobileControlRail, /\bmd:hidden\b/);
+    assert.match(remiChatLayoutClasses.mobileControlRail, /\babsolute\b/);
+    assert.match(remiChatLayoutClasses.mobileControlRail, /\bright-2\b/);
+    assert.match(remiChatLayoutClasses.chatAside, /\bremi-chat-mobile-immersive\b/);
+    assert.match(remiChatLayoutClasses.chatAside, /pt-\[min\(28svh,11\.5rem\)\]/);
+  });
+
   it("uses a stage-first shell instead of restoring a desktop split-pane layout", () => {
     assert.doesNotMatch(remiChatLayoutClasses.mainShell, /(?:^|\s)flex-row(?:\s|$)/);
     assert.doesNotMatch(remiChatLayoutClasses.mainShell, /\bmd:flex-row\b/);

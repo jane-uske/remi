@@ -25,7 +25,7 @@ export function VoiceIndicator({ model }: VoiceIndicatorProps) {
           />
         ))}
       </div>
-      <span className="max-w-[4.5rem] truncate text-[10px] font-medium uppercase tracking-[0.14em] text-[#c8e9ef]">
+      <span className="max-w-[5.5rem] truncate text-[10px] font-medium tracking-[0.08em] text-[#c8e9ef]">
         {model.label}
       </span>
     </div>

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { RemiPwaRegister } from "@/components/RemiPwaRegister";
 import {
   buildSafariFocusZoomPatchScript,
 } from "@/lib/mobile/safariFocusZoom";
@@ -8,6 +9,15 @@ import { THEME_PREFERENCE_STORAGE_KEY } from "@/lib/theme/themePreference";
 export const metadata: Metadata = {
   title: "Remi AI",
   description: "实时 AI 陪伴 — 对话、记忆与情绪",
+  applicationName: "Remi",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Remi",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -68,7 +78,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <script dangerouslySetInnerHTML={{ __html: safariFocusZoomPatch }} />
       </head>
-      <body className="min-h-dvh overflow-x-hidden antialiased">{children}</body>
+      <body className="min-h-dvh overflow-x-hidden antialiased">
+        <RemiPwaRegister />
+        {children}
+      </body>
     </html>
   );
 }

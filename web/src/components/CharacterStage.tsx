@@ -108,6 +108,7 @@ export function CharacterStage({
         <RemiPortraitAvatar
           {...portraitProps}
           runtimeState={runtimeState}
+          performanceModel={performanceModel}
           className="min-h-0 min-w-0 flex-1"
         />
       )}

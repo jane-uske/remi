@@ -7,6 +7,7 @@ import { CharacterStage } from "@/components/CharacterStage";
 import { ChatWindow } from "@/components/ChatWindow";
 import { InputBar } from "@/components/InputBar";
 import { PresetControlPanel } from "@/components/PresetControlPanel";
+import { RemiMobileControlRail } from "@/components/RemiMobileControlRail";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
 import { VoiceStylePicker } from "@/components/VoiceStylePicker";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
@@ -17,10 +18,8 @@ import {
   buildConversationPerformanceModel,
   createDefaultConversationPresenceFixture,
 } from "@/lib/presence/conversationPerformanceModel";
-import {
-  selectChatWindowStatus,
-  selectVoiceIndicatorModel,
-} from "@/runtime/remiRuntimeSelectors";
+import { selectChatWindowStatus } from "@/runtime/remiRuntimeSelectors";
+import { selectVoiceIndicatorFromPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 
 function remiConnectionStatusText(
   phase: RemiConnectionPhase,
@@ -122,10 +121,6 @@ export function RemiChatApp() {
     () => selectChatWindowStatus(runtimeState),
     [runtimeState],
   );
-  const voiceIndicatorModel = useMemo(
-    () => selectVoiceIndicatorModel(runtimeState),
-    [runtimeState],
-  );
   const performanceModel = useMemo(
     () =>
       buildConversationPerformanceModel({
@@ -142,6 +137,10 @@ export function RemiChatApp() {
       sttPartialText,
       streamingText,
     ],
+  );
+  const voiceIndicatorModel = useMemo(
+    () => selectVoiceIndicatorFromPerformanceModel(performanceModel, runtimeState),
+    [performanceModel, runtimeState],
   );
 
   const inputDisabled = !connected || runtimeState.user.recording;
@@ -262,7 +261,16 @@ export function RemiChatApp() {
           <section className={layout.stageShell}>
             <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(116,224,238,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
 
-            <div className="absolute bottom-4 left-3 z-20 sm:bottom-5 sm:left-5">
+            <div className={layout.mobileControlRail}>
+              <RemiMobileControlRail
+                connectionPhase={connectionPhase}
+                reconnectInSec={reconnectInSec}
+                recording={runtimeState.user.recording}
+                performanceModel={performanceModel}
+              />
+            </div>
+
+            <div className="absolute bottom-4 left-3 z-20 hidden sm:bottom-5 sm:left-5 md:block">
               <VoiceIndicator model={voiceIndicatorModel} />
             </div>
 

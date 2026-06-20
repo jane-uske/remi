@@ -3,6 +3,7 @@ import type {} from "mocha";
 const assert = require("node:assert/strict");
 const {
   buildConversationPerformanceModel,
+  selectVoiceIndicatorFromPerformanceModel,
 } = require("../src/lib/presence/conversationPerformanceModel");
 
 function makeRuntimeState(overrides = {}) {
@@ -101,6 +102,36 @@ describe("buildConversationPerformanceModel", () => {
     assert.equal(model.chatSync.showPreparingBubble, true);
     assert.ok(model.avatarSync.mouthFloor > 0);
     assert.ok(model.avatarSync.headImpulse >= 0.5);
+  });
+
+  it("maps speaking active into a shared status label for chat and voice indicator", () => {
+    const model = buildConversationPerformanceModel({
+      runtimeState: makeRuntimeState({
+        phase: "speaking",
+        phaseReason: "assistant_audio_active",
+        assistant: {
+          waiting: false,
+          streaming: true,
+          playbackActive: true,
+          playbackTailActive: false,
+          textOnly: false,
+        },
+      }),
+      renderModel: makeRenderModel({
+        motionPhase: "speaking_active",
+        phase: "speaking",
+        phaseReason: "assistant_audio_active",
+      }),
+      streamingText: "我在这里。",
+      sttPartialText: "",
+    });
+
+    assert.equal(model.chatSync.statusLabel, "说着");
+    assert.equal(
+      selectVoiceIndicatorFromPerformanceModel(model).label,
+      "说着",
+    );
+    assert.equal(selectVoiceIndicatorFromPerformanceModel(model).active, true);
   });
 
   it("extracts deterministic beat cues from assistant streaming text", () => {
