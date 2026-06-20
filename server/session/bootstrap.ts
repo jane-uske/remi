@@ -27,7 +27,10 @@ export async function initializeSessionStorage(input: {
   authPrincipal: AuthPrincipal | null;
   brain: RemiSessionContext;
   historyPageSize: number;
+  /** Set the DB session id (called lazily on first message persist). */
   setSessionId: (sessionId: string) => void;
+  /** Register a lazy session creator (called once, on first message). */
+  setDbSessionCreator: (fn: () => Promise<string>) => void;
   sendHistoryPage: (mode: "replace" | "prepend") => Promise<void>;
 }): Promise<void> {
   if (!isDbReady()) return;
@@ -61,9 +64,20 @@ export async function initializeSessionStorage(input: {
       });
     }
 
-    const session = await createDbSession(userId);
-    input.setSessionId(session.id);
-    logger.info("[Storage] Session created", { sessionId: session.id, userId });
+    // ── Lazy session creation ──────────────────────────────────
+    // Don't INSERT INTO sessions immediately — >98% of WS connections never
+    // send a message and would create empty rows. Instead, register a
+    // one-shot creator that runner.ts calls before persisting the first msg.
+    const capturedUserId = userId;
+    input.setDbSessionCreator(async () => {
+      const session = await createDbSession(capturedUserId);
+      input.setSessionId(session.id);
+      logger.info("[Storage] Session created (lazy, first message)", {
+        sessionId: session.id,
+        userId: capturedUserId,
+      });
+      return session.id;
+    });
 
     const persistentRepo = getPgMemoryRepository(userId);
     if (relationshipStateEnabled()) {
@@ -73,7 +87,7 @@ export async function initializeSessionStorage(input: {
         input.brain.hydratePersistentRelationshipState(persistedState);
         logger.debug("[Memory] relationship state restored", {
           connId: input.connId,
-          sessionId: session.id,
+          userId,
           turns: persistedState.relationship.turnCount,
         });
       }
@@ -86,7 +100,7 @@ export async function initializeSessionStorage(input: {
         .then(() => {
           logger.debug("[Memory] persistent facts hydrated into session overlay", {
             connId: input.connId,
-            sessionId: session.id,
+            userId,
           });
         });
     }

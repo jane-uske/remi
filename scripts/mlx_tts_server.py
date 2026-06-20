@@ -28,6 +28,7 @@ class SpeechRequest(BaseModel):
     instruct: str | None = None
     response_format: str = "wav"
     stream: bool = False
+    temperature: float | None = None
 
 
 def make_wav_header(sample_rate: int = 24000, bits: int = 16, channels: int = 1) -> bytes:
@@ -66,6 +67,8 @@ async def speech(req: SpeechRequest):
     kwargs = {"text": req.input, "voice": req.voice, "language": req.language}
     if req.instruct:
         kwargs["instruct"] = req.instruct
+    if req.temperature is not None:
+        kwargs["temperature"] = req.temperature
 
     if req.stream:
         return StreamingResponse(

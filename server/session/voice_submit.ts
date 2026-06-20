@@ -28,6 +28,7 @@ interface SessionVoiceSubmitRuntime {
   interrupt: InterruptController;
   avatar: AvatarController;
   sessionId: string | null;
+  ensureDbSession: () => Promise<string | null>;
   currentPartialText: string;
   predictedReply: string;
   predictedStructuredAnalysis: TurnAnalysisBundle | null;
@@ -174,6 +175,7 @@ export async function runPreparedVoicePipelineTurn(
         interruptionType: prepared.interruptionType ?? undefined,
         inputSource: "voice",
         ttsTransport: runtime.getResolvedTtsTransport(),
+        ensureSessionId: () => runtime.ensureDbSession(),
       },
     );
   } else {
@@ -197,6 +199,7 @@ export async function runPreparedVoicePipelineTurn(
           interruptionType: prepared.interruptionType ?? undefined,
           inputSource: "voice",
           ttsTransport: runtime.getResolvedTtsTransport(),
+          ensureSessionId: () => runtime.ensureDbSession(),
         },
       );
   }

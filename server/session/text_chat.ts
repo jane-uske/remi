@@ -14,6 +14,7 @@ import { send } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { getConfig } from "../config";
+import { sanitizePastedChatContent } from "../../voice/tts_helpers";
 import { randomInterruptReaction } from "./runtime_config";
 import type { SessionTtsTransport } from "./tts_transport";
 
@@ -26,6 +27,7 @@ export type SessionTextChatRuntime = {
   interrupt: InterruptController;
   avatar: AvatarController;
   sessionId: string | null;
+  ensureDbSession: () => Promise<string | null>;
   activeGenerationId: number | null;
   touchUserActivity: (userMessage?: string) => void;
   classifyCarryForward: (userText: string) => {
@@ -62,7 +64,7 @@ export function handleSessionTextChat(
   runtime: SessionTextChatRuntime,
   data: { content?: string | null; situational?: string | null },
 ): void {
-  const content = data.content ?? "";
+  const content = sanitizePastedChatContent(data.content ?? "");
   if (!content?.trim()) {
     send(runtime.ws, { type: "error", content: "消息内容为空" });
     return;
@@ -158,6 +160,7 @@ export function handleSessionTextChat(
           interruptionType: interruptionType ?? undefined,
           inputSource: "text",
           ttsTransport: runtime.getResolvedTtsTransport(),
+          ensureSessionId: () => runtime.ensureDbSession(),
         },
       ),
     )

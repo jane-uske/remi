@@ -116,6 +116,25 @@ describe("SentenceChunker", () => {
     );
   });
 
+  it("does not hard-cut moaning lines on ASCII ellipsis dots", () => {
+    const chunker = new SentenceChunker({
+      eagerMinTtsChars: 1,
+      minTtsChars: 1,
+      maxChunkChars: 120,
+    });
+    chunker.setEager(true);
+
+    const text =
+      "嗯，啊，哈，嘶，不行了，要，要，要，来，来了，啊啊啊啊嗯啊啊啊呜呜呜，不行了，要高潮了，啊啊啊啊";
+    const out = [];
+    for (const ch of text) {
+      out.push(...chunker.push(ch));
+    }
+
+    assert.deepEqual(out, [text]);
+    assert.equal(chunker.flush(), "");
+  });
+
   it("prefers a soft break before max chunk overflow instead of flushing a huge remainder", () => {
     const chunker = new SentenceChunker({
       eagerCharThreshold: 24,

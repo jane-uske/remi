@@ -1,6 +1,7 @@
 import { getConfig } from "../server/config";
 
-export const SENTENCE_END = /[。！？.!?\n]/;
+// ASCII `.` omitted — LLM moaning uses `...` which must not hard-cut mid-phrase.
+export const SENTENCE_END = /[。！？!?\n]/;
 export const SOFT_BREAK_RE = /[，,、；;：:~～…]/;
 
 export type SentenceChunkBoundaryType =

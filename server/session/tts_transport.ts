@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "http";
 
-export type SessionClientFamily = "ios_lite" | "web" | "unknown";
+export type SessionClientFamily = "ios_lite" | "watch_lite" | "web" | "unknown";
 export type SessionTtsTransport = "auto" | "buffered_voice" | "pcm_stream_v1";
 export type ClientContextTtsTransport = Exclude<SessionTtsTransport, "auto">;
 
@@ -19,6 +19,7 @@ function readQueryValue(req: IncomingMessage, key: string): string | null {
 export function normalizeSessionClientFamily(raw: string | null | undefined): SessionClientFamily {
   const normalized = raw?.trim().toLowerCase();
   if (normalized === "ios_lite") return "ios_lite";
+  if (normalized === "watch_lite") return "watch_lite";
   if (normalized === "web") return "web";
   return "unknown";
 }
@@ -65,7 +66,13 @@ export function resolveSessionTransportFromRequest(req: IncomingMessage): {
 
   return {
     clientFamily,
-    ttsTransport: clientFamily === "ios_lite" ? "buffered_voice" : "auto",
+    // ios_lite and watch_lite play buffered base64 `voice` (MP3) frames and do not
+    // decode `voice_pcm_chunk` streaming, so they default to buffered_voice. Other
+    // clients negotiate streaming via `auto`.
+    ttsTransport:
+      clientFamily === "ios_lite" || clientFamily === "watch_lite"
+        ? "buffered_voice"
+        : "auto",
     rawClientFamily,
     rawTtsTransport,
   };

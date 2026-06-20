@@ -40,6 +40,42 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function spawnLockPath(host, port) {
+  return path.join(require("os").tmpdir(), `rem-whisper-${host}-${port}.spawn.lock`);
+}
+
+function releaseSpawnLock(lockPath) {
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // best effort
+  }
+}
+
+async function acquireSpawnLock(host, port, timeoutMs) {
+  const lockPath = spawnLockPath(host, port);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      return () => releaseSpawnLock(lockPath);
+    } catch (err) {
+      if (err && err.code !== "EEXIST") throw err;
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > timeoutMs) {
+          releaseSpawnLock(lockPath);
+          continue;
+        }
+      } catch {
+        // race: lock disappeared, retry
+      }
+    }
+    await sleep(120);
+  }
+  throw new Error("whisper-server spawn lock timeout");
+}
+
 async function isReady(baseUrl) {
   try {
     const res = await fetch(baseUrl, { method: "GET" });
@@ -129,26 +165,36 @@ async function main() {
     args.push(...extraArgs);
   }
 
-  const logDir = path.join(process.cwd(), "artifacts", "live");
-  fs.mkdirSync(logDir, { recursive: true });
-  const logPath = path.join(logDir, "local_prod_whisper_server.log");
-  const fd = fs.openSync(logPath, "a");
-  const child = spawn(cmd, args, {
-    detached: true,
-    stdio: ["ignore", fd, fd],
-  });
-  child.unref();
-
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
+  const releaseLock = await acquireSpawnLock(host, port, 15_000);
+  try {
     if (await isReady(localBaseUrl)) {
-      console.log(`[local-prod] host whisper-server ready at ${localBaseUrl}`);
+      console.log(`[local-prod] host whisper-server already ready at ${localBaseUrl}`);
       return;
     }
-    await sleep(250);
-  }
 
-  throw new Error(`host whisper-server failed to become ready at ${localBaseUrl}`);
+    const logDir = path.join(process.cwd(), "artifacts", "live");
+    fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, "local_prod_whisper_server.log");
+    const fd = fs.openSync(logPath, "a");
+    const child = spawn(cmd, args, {
+      detached: true,
+      stdio: ["ignore", fd, fd],
+    });
+    child.unref();
+
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (await isReady(localBaseUrl)) {
+        console.log(`[local-prod] host whisper-server ready at ${localBaseUrl}`);
+        return;
+      }
+      await sleep(250);
+    }
+
+    throw new Error(`host whisper-server failed to become ready at ${localBaseUrl}`);
+  } finally {
+    releaseLock();
+  }
 }
 
 main().catch((err) => {

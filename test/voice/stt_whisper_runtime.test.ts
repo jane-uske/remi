@@ -79,6 +79,7 @@ describe("stt whisper runtime", () => {
       return true;
     };
 
+    let getCalls = 0;
     const runtime = createWhisperServerRuntime({
       env: {
         whisper_use_server: "1",
@@ -100,6 +101,14 @@ describe("stt whisper runtime", () => {
       fetch: async (input, init) => {
         const method = init?.method || "GET";
         if (method === "GET") {
+          getCalls += 1;
+          if (getCalls < 3) {
+            return {
+              ok: false,
+              status: 503,
+              text: async () => "",
+            };
+          }
           return {
             ok: true,
             status: 200,
@@ -132,6 +141,48 @@ describe("stt whisper runtime", () => {
 
     await runtime.shutdown();
     assert.deepEqual(killSignals, ["SIGTERM"]);
+  });
+
+  it("reuses an already-running whisper-server instead of spawning another copy", async () => {
+    const spawnCalls = [];
+    const runtime = createWhisperServerRuntime({
+      env: {
+        whisper_use_server: "1",
+        whisper_server_autostart: "1",
+        whisper_server_cmd: "whisper-server",
+        whisper_server_url: "http://127.0.0.1:8178",
+        whisper_server_request_path: "/inference",
+        whisper_model: "/tmp/model.gguf",
+        whisper_lang: "zh",
+      },
+      sleep: async () => {},
+      spawn: ((cmd, args, options) => {
+        spawnCalls.push({ cmd, args, options });
+        throw new Error("should not spawn when server is already ready");
+      }),
+      fetch: async (_input, init) => {
+        const method = init?.method || "GET";
+        if (method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => "",
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ text: "复用成功" }),
+        };
+      },
+    });
+
+    assert.equal(await runtime.warm(), true);
+    assert.equal(spawnCalls.length, 0);
+
+    const result = await runtime.transcribeWav(Buffer.from("fake wav"), 16000);
+    assert.equal(result.path, "server");
+    assert.equal(result.text, "复用成功");
   });
 
   it("supports remote whisper-server mode without requiring a local model file", async () => {

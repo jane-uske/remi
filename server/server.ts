@@ -1,6 +1,7 @@
-import "dotenv/config";
-
+import { loadEnvFile } from "./config/load_env";
 import { getConfig } from "./config";
+
+const activeEnvFile = loadEnvFile();
 
 // Validate environment at startup — fails fast with clear error
 try {
@@ -42,6 +43,8 @@ import type { WebSocket } from "ws";
 import type { IncomingMessage } from "http";
 
 import { createLogger } from "../infra/logger";
+import { registerPlugin } from "../plugin/registry";
+import type { RemiPlugin } from "../plugin/types";
 import { setDbReady, setRedisReady } from "../infra/app_state";
 import { startDecayTimer, stopDecayTimer } from "../memory/memory_decay";
 import { getMemoryRepository, setMemoryRepository } from "../memory/memory_store";
@@ -170,6 +173,7 @@ function printCapabilityBanner(): void {
   const llm = cfg.REMI_LLM_API_KEY
     ? `${check} ${cfg.REMI_LLM_MODEL}`
     : `${cross} not configured`;
+  const envFile = process.env.REMI_ACTIVE_ENV_FILE ?? activeEnvFile;
   const tts = `${check} ${cfg.REMI_TTS_PROVIDER} (no key needed)`;
   const stt = new SttStream().configured
     ? `${check} ${cfg.REMI_STT_PROVIDER}`
@@ -187,6 +191,7 @@ function printCapabilityBanner(): void {
     "\x1b[36m" +
     `  Remi ready on ${url}\n` +
     "\x1b[0m" +
+    `  Env:    ${envFile}\n` +
     `  LLM:    ${llm}\n` +
     `  TTS:    ${tts}\n` +
     `  STT:    ${stt}\n` +
@@ -196,6 +201,28 @@ function printCapabilityBanner(): void {
 }
 
 async function bootstrap() {
+  // ── Load external plugins ────────────────────────────────────────
+  const pluginPath = process.env.REMI_PLUGIN_PATH?.trim();
+  if (pluginPath) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require(pluginPath);
+      const plugin: RemiPlugin = mod.default ?? mod;
+      registerPlugin(plugin);
+      logger.info("[Plugin] Loaded external plugin", {
+        id: plugin.id,
+        name: plugin.name,
+        version: plugin.version,
+        path: pluginPath,
+      });
+    } catch (err) {
+      logger.warn("[Plugin] Failed to load external plugin", {
+        path: pluginPath,
+        error: (err as Error).message,
+      });
+    }
+  }
+
   let memoryRepo = getMemoryRepository();
 
   if (process.env.DATABASE_URL) {

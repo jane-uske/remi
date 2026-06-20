@@ -69,6 +69,13 @@ Compose 隔离：
 - `prod:local:rebuild` 适合“我改了代码，现在要重新做一遍 production-like 验证”
 - 改后端代码、前端代码、依赖、`Dockerfile` 或 `NEXT_PUBLIC_*` 时，只重启不够，必须至少重新 `build`
 
+成人插件（`remi-plugin-adult`）：
+- `.env.local-prod` 需 `REMI_NSFW_ENABLED=1`、`REMI_ADULT_MODE=1`、`REMI_PLUGIN_PATH=/plugins/remi-plugin-adult/dist/index.js`
+- `REMI_ADULT_PLUGIN_HOST_PATH` 指向宿主机插件仓库；compose 会只读挂载到容器 `/plugins/remi-plugin-adult`
+- `prod:local:build` 会自动在宿主机执行 `npm run build` 编译插件；改 `src/adult_prompt.ts` 后重建镜像或重启容器即可
+- 会话级开关仍是聊天里说「开启成人模式」/「退出成人模式」（与 dev 一致）
+- 宿主机需常驻：LM Studio (`:1234`)、MLX TTS (`:3555`)、可选 whisper-server (`:8178`)
+
 ## 4. Persistence boundary (must keep)
 
 - `users/sessions/messages`：聊天与会话历史

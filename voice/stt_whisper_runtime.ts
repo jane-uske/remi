@@ -338,22 +338,67 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     });
   }
 
+  async function probeWhisperServerReady(timeoutMs = 800): Promise<boolean> {
+    const current = config();
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetchFn(current.baseUrl, { method: "GET", signal: controller.signal });
+      clearTimeout(timer);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async function waitWhisperServerReady(): Promise<void> {
     const current = config();
     const deadline = now() + current.readyTimeoutMs;
     while (now() < deadline) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 800);
-        const res = await fetchFn(current.baseUrl, { method: "GET", signal: controller.signal });
-        clearTimeout(timer);
-        if (res.ok) return;
-      } catch {
-        // retry until timeout
-      }
+      if (await probeWhisperServerReady()) return;
       await sleep(120);
     }
     throw new Error("whisper-server readiness timeout");
+  }
+
+  function spawnLockPath(current: WhisperServerConfig): string {
+    return path.join(os.tmpdir(), `rem-whisper-${current.host}-${current.port}.spawn.lock`);
+  }
+
+  function releaseSpawnLock(lockPath: string): void {
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      // best effort
+    }
+  }
+
+  async function acquireSpawnLock(current: WhisperServerConfig): Promise<() => void> {
+    const lockPath = spawnLockPath(current);
+    const deadline = now() + current.readyTimeoutMs;
+    while (now() < deadline) {
+      if (await probeWhisperServerReady()) {
+        return () => {};
+      }
+      try {
+        fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+        return () => releaseSpawnLock(lockPath);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "EEXIST") throw err;
+        try {
+          const stat = fs.statSync(lockPath);
+          if (now() - stat.mtimeMs > current.readyTimeoutMs) {
+            releaseSpawnLock(lockPath);
+            continue;
+          }
+        } catch {
+          // race: lock disappeared, retry
+        }
+      }
+      await sleep(120);
+    }
+    throw new Error("whisper-server spawn lock timeout");
   }
 
   async function ensureWhisperServerReady(): Promise<boolean> {
@@ -363,6 +408,10 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
     const nowTs = now();
     if (state.failedUntil > nowTs) return false;
     if (state.proc && state.proc.exitCode === null) return true;
+    if (await probeWhisperServerReady()) {
+      logger.info("whisper-server already running", { url: current.inferenceUrl });
+      return true;
+    }
     if (state.startPromise) {
       try {
         await state.startPromise;
@@ -374,46 +423,56 @@ export function createWhisperServerRuntime(deps: WhisperServerRuntimeDeps = {}):
 
     const args = buildWhisperServerArgs(current);
     state.startPromise = (async () => {
-      let stderrTail = "";
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawnFn(current.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-        state.proc = proc;
+      const releaseLock = await acquireSpawnLock(current);
+      try {
+        if (await probeWhisperServerReady()) {
+          logger.info("whisper-server already running", { url: current.inferenceUrl });
+          return;
+        }
 
-        proc.stderr?.on("data", (d) => {
-          stderrTail = (stderrTail + d.toString()).slice(-4000);
-        });
+        let stderrTail = "";
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawnFn(current.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+          state.proc = proc;
 
-        proc.once("error", (err) => {
-          state.proc = null;
-          reject(err);
-        });
+          proc.stderr?.on("data", (d) => {
+            stderrTail = (stderrTail + d.toString()).slice(-4000);
+          });
 
-        proc.on("exit", (code, signal) => {
-          state.proc = null;
-          if (code !== 0 && code !== null) {
-            logger.warn("whisper-server exited", { code, signal });
-          }
-        });
-
-        void waitWhisperServerReady()
-          .then(() => {
-            logger.info("whisper-server ready", { url: current.inferenceUrl });
-            resolve();
-          })
-          .catch((err) => {
-            try {
-              proc.kill("SIGKILL");
-            } catch {
-              // best effort
-            }
+          proc.once("error", (err) => {
             state.proc = null;
             reject(err);
           });
-      }).catch((err) => {
-        throw new Error(
-          `whisper-server 启动失败: ${(err as Error).message}${stderrTail ? ` | ${stderrTail.slice(-300)}` : ""}`,
-        );
-      });
+
+          proc.on("exit", (code, signal) => {
+            state.proc = null;
+            if (code !== 0 && code !== null) {
+              logger.warn("whisper-server exited", { code, signal });
+            }
+          });
+
+          void waitWhisperServerReady()
+            .then(() => {
+              logger.info("whisper-server ready", { url: current.inferenceUrl });
+              resolve();
+            })
+            .catch((err) => {
+              try {
+                proc.kill("SIGKILL");
+              } catch {
+                // best effort
+              }
+              state.proc = null;
+              reject(err);
+            });
+        }).catch((err) => {
+          throw new Error(
+            `whisper-server 启动失败: ${(err as Error).message}${stderrTail ? ` | ${stderrTail.slice(-300)}` : ""}`,
+          );
+        });
+      } finally {
+        releaseLock();
+      }
     })();
 
     try {

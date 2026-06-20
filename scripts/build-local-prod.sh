@@ -17,6 +17,22 @@ if ! node ./scripts/local_prod_config_check.cjs "$ENV_FILE"; then
   exit 1
 fi
 
+PLUGIN_HOST_PATH=$(
+  node -e "
+    require('dotenv').config({ path: process.argv[1], quiet: true });
+    process.stdout.write(
+      (process.env.REMI_ADULT_PLUGIN_HOST_PATH || '/Users/rare/Desktop/remi-plugin-adult').trim()
+    );
+  " "$ENV_FILE"
+)
+
+if [ -f "$PLUGIN_HOST_PATH/package.json" ]; then
+  echo "[prod:build] compiling adult plugin at $PLUGIN_HOST_PATH"
+  npm run build --prefix "$PLUGIN_HOST_PATH"
+else
+  echo "[prod:build] WARN adult plugin not found at $PLUGIN_HOST_PATH — skip plugin build"
+fi
+
 REMI_ENV_FILE="$ENV_FILE" docker compose -p "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f docker-compose.local-prod.yml build app
 
 echo "Local production app image built."

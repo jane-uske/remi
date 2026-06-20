@@ -20,6 +20,11 @@ services:
       REDIS_URL: redis://redis:6379
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Adult plugin dist is built on the host; mount read-only into the container.
+      - ${REMI_ADULT_PLUGIN_HOST_PATH:-/Users/rare/Desktop/remi-plugin-adult}:/plugins/remi-plugin-adult:ro
+      # ComfyUI workflow JSON (checkpoint names must exist in host ComfyUI models/).
+      - ${REMI_REPO_PATH:-/Users/rare/Desktop/remi}/capabilities/image_generation/workflows:/app/capabilities/image_generation/workflows:ro
     ports:
       - "127.0.0.1:${PORT:-3000}:3000"
     depends_on:
@@ -31,6 +36,8 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-rem_ai}
       POSTGRES_USER: ${POSTGRES_USER:-rem}
