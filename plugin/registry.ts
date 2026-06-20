@@ -1,4 +1,6 @@
+import { isNsfwEnabled } from "../brains/nsfw_mode";
 import { createLogger } from "../infra/logger";
+import type { PluginSessionContext } from "./types";
 import type {
   RemiPlugin,
   CharacterRulesHook,
@@ -54,6 +56,19 @@ export function getPromptInjectionHooks(): PromptInjectionHook[] {
       p.promptInjection != null,
     )
     .map((p) => p.promptInjection);
+}
+
+function pluginSessionContext(connId?: string): PluginSessionContext {
+  return {
+    connId,
+    nsfwEnabled: connId ? isNsfwEnabled(connId) : false,
+  };
+}
+
+/** True when any active plugin requests a lean persona (strips heavy persona layers). */
+export function anyPluginWantsLeanPersona(connId?: string): boolean {
+  const ctx = pluginSessionContext(connId);
+  return getPromptInjectionHooks().some((h) => h.wantsLeanPersona?.(ctx));
 }
 
 export function getOutputGuardHooks(): OutputGuardHook[] {

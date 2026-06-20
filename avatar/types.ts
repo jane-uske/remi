@@ -186,6 +186,11 @@ export type RemiServerMessage =
       emotion?: Emotion;
       content?: string;
       generationId: number;
+      ttsPending?: boolean;
+    }
+  | {
+      type: "tts_end";
+      generationId: number;
     }
   | {
       type: "voice";
@@ -270,6 +275,10 @@ export type RemiServerMessage =
   | {
       type: "dev_state_reset";
       scope: "session" | "relationship" | "all";
+    }
+  | {
+      type: "nsfw_mode_state";
+      enabled: boolean;
     }
   | {
       type: "error";

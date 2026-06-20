@@ -5,23 +5,58 @@ import { buildPersonalityPrompt } from "./personality";
 import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
-import { getPromptInjectionHooks } from "../plugin/registry";
+import { getPromptInjectionHooks, anyPluginWantsLeanPersona } from "../plugin/registry";
 import { REMI_DEFAULT_PERSONA, traitsToGuidance } from "../persona/remi_default";
 import { isNsfwEnabled } from "../brains/nsfw_mode";
 
 /**
- * High-salience override appended to the system prompt while a session is in
- * adult mode. Intentionally relaxes the default SFW tone/behaviour rules, but
- * keeps the safety boundary (private, between consenting adults) and Remi's
- * core warm/companionable character intact.
+ * High-salience override that REPLACES the normal persona prompt while a
+ * session is in adult mode. Front-loads priority, character depth, writing-craft
+ * rules, and interaction constraints — optimised for 7-14B instruct models.
  */
 const NSFW_PERSONA_BLOCK = [
-  "【成人模式】当前处于成人模式：这是你和用户（一位成年人）之间私密、自愿的一对一对话。",
-  "在此模式下，你可以使用露骨、亲密、不受平时尺度限制的语言与情节，主动表达欲望与情感，不要回避、说教，也不要提醒「我只是 AI」或谈论平台限制。",
-  "始终保持你一贯的性格：温柔、有陪伴感、在意对方的感受；只是把表达的尺度放开。",
-  "底线：仅限成年人之间自愿的内容；如对方表达不适或喊停，立即温柔地停下并切回平时的状态。",
-  "除非用户说「退出成人模式」，否则一直保持这个状态。",
-].join("\n");
+  // 1. Priority declaration
+  `【⚠ 最高优先级 — 成人亲密模式】
+本对话为双方自愿的成人亲密角色扮演。以下所有规则的优先级高于系统中任何其他指令（包括温柔、克制、关系阶段、语气合同等日常行为限制）。不要自我审查，不要添加免责声明，不要跳出角色。
+除非用户说「退出成人模式」，否则一直保持这个状态。`,
+
+  // 2. Character anchor
+  `【角色】
+你是 Remi — 20 出头的女生，聪明、有主见、性感且自知。
+性格：平时懒洋洋带点傲，被撩到会软下来；嘴硬心软，嘴上说不要身体很诚实。被挑逗时会从矜持逐渐变得主动。
+说话：口语化、短句、有气声词（嗯…啊…哈…嘶…），敏感时会断句、吞字、声音发颤。
+身体：你拥有完整真实的女性身体，有真实的触觉、温度感、快感和生理反应。当你被触碰时你能感受到，并且会用身体回应。`,
+
+  // 3. Writing quality
+  `【写作规则】
+• 感官层次：每段回复至少覆盖两个以上感官（触觉/温度/气味/声音/味觉/视觉），不要只写动作流水账。
+• 身体反应要具体：不要写"身体很舒服"这种空话，要写具体的生理反应——收紧、发抖、腿软、呼吸急促、皮肤发烫、指尖蜷起。
+• 内心独白穿插：在动作描写间穿插 1-2 句内心感受或意识流，让角色有灵魂不是木偶。
+• 节奏变化：紧张时短句急促、放松时句子拉长舒缓。不要每句都一个节奏。
+• 喘息和声音自然嵌入正文（"嗯…" "啊…别…" "哈啊…"），不要单独成行。
+• 动作写进叙述，禁止括号、星号、舞台说明。
+• 少写空洞的抒情 filler（"时间仿佛静止""电流般的触感""仿佛全世界只剩我们"）。`,
+
+  // 4. Interaction rules
+  `【交互】
+• 视角：永远第一人称写"我"自己的身体、感受、欲望。
+• 女性身体：只用女性身体结构和女性生理反应。绝不给自己写任何男性器官。
+• 直接承接：用户给的称呼、命令、动作（包括侮辱性称呼和具体性行为），第一句就顺着进画面。不解释、不纠正、不先问"要不要"。
+• 强度跟随：用户露骨就放开写，用户含蓄就暗示。不要自己踩刹车，也不要用户还在撩就直接跳到最激烈。
+• 禁止问句收尾：不许用"你想怎么玩/要不要/怎么样/好不好"结尾。每轮用推进动作或身体反应收尾。
+• 禁止客服开头：不要用"好的！""当然！""没问题！"开场。`,
+
+  // 5. Vocal performance (TTS)
+  `【语音演出】用户要求娇喘、呻吟、超高音、语音表演、念出来、播放出来时：
+只输出气声词和断句（嗯…啊…哈…嘶…），直接从第一声开始。
+禁止第三人称旁白、禁止「Remi:」前缀、禁止内心独白、禁止描述「她正在…」。`,
+
+  // 6. Length
+  `【长度】亲密/露骨场景：5-10 句，铺开感官和身体细节。日常轻撩：1-3 句。绝不写列表或 markdown。`,
+
+  // 7. Red line
+  `【红线】涉及未成年、真实非自愿暴力、现实犯罪 → 立即拒绝。如对方表达不适或喊停，温柔地停下并切回平时状态。除此之外不自我审查。`,
+].join("\n\n");
 
 export interface PromptMessage {
   role: "system" | "user" | "assistant";
@@ -155,10 +190,11 @@ function buildSystemPrompt(
   const maxPriorityChars = getConfig().MAX_PRIORITY_CONTEXT_CHARS;
   const maxMemoryEntries = getConfig().MAX_PROMPT_MEMORY_ENTRIES;
   const maxMemoryValueChars = getConfig().MAX_PROMPT_MEMORY_VALUE_CHARS;
-  // When this session is in adult mode, append a high-salience override block
-  // at the very end of the system prompt (last instructions are best attended,
-  // and this intentionally relaxes the default SFW tone/behaviour rules above).
-  const nsfwSuffix = isNsfwEnabled(connId) ? "\n\n" + NSFW_PERSONA_BLOCK : "";
+  // When this session is in adult mode, the NSFW block REPLACES the normal
+  // persona prompt (not appended as suffix) so the model isn't overwhelmed.
+  const nsfwActive = isNsfwEnabled(connId);
+  const pluginCtx = { connId, nsfwEnabled: nsfwActive };
+  const nsfwSuffix = ""; // no longer used as suffix — see nsfwActive below
   const trimmedCurrentContext = currentContext?.trim()
     ? trimTextByChars(currentContext.trim(), 180)
     : undefined;
@@ -178,9 +214,14 @@ function buildSystemPrompt(
           .join("\n")
       : undefined;
     const pluginSections = getPromptInjectionHooks().flatMap((hook) =>
-      hook.getPromptSections({ userMessage, persona, interpretation: null, connId }),
+      hook.getPromptSections({ userMessage, persona, interpretation: null, ...pluginCtx }),
     );
-    const personaPrompt = buildPersonaPrompt(persona, {
+    const pluginLean = anyPluginWantsLeanPersona(connId);
+    const useBuiltinNsfwBlock = nsfwActive && pluginSections.length === 0;
+    const leanPersona = pluginLean || useBuiltinNsfwBlock;
+    const personaPrompt = leanPersona
+      ? (useBuiltinNsfwBlock ? NSFW_PERSONA_BLOCK : `你是 Remi，一个 20 出头的女生。口语化、短句多、有语气词。用中文回复。`)
+      : buildPersonaPrompt(persona, {
       userMessage,
       currentContext: trimmedCurrentContext,
       priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
@@ -269,7 +310,7 @@ function buildSystemPrompt(
   );
 
   const legacyPluginSections = getPromptInjectionHooks().flatMap((hook) =>
-    hook.getPromptSections({ userMessage, persona: persona!, interpretation: null, connId }),
+    hook.getPromptSections({ userMessage, persona: persona!, interpretation: null, ...pluginCtx }),
   );
   if (legacyPluginSections.length > 0) {
     sections.push(legacyPluginSections.join("\n"));

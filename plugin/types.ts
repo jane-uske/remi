@@ -4,8 +4,15 @@ import type { TtsRequestContext } from "../voice/tts_request_context";
 
 // ── Hook interfaces ────────────────────────────────────────────────
 
+/** Per-connection context passed to plugin hooks (e.g. adult mode session flag). */
+export interface PluginSessionContext {
+  connId?: string;
+  /** Mirrors brains/nsfw_mode isNsfwEnabled(connId) — set by the host. */
+  nsfwEnabled?: boolean;
+}
+
 export interface CharacterRulesHook {
-  extendRules(baseRules: string[]): string[];
+  extendRules(baseRules: string[], context?: PluginSessionContext): string[];
 }
 
 export interface TurnInterpreterHook {
@@ -21,8 +28,10 @@ export interface PromptInjectionHook {
     userMessage: string;
     persona: PersonaState;
     interpretation?: TurnInterpretation | null;
-    connId?: string;
-  }): string[];
+  } & PluginSessionContext): string[];
+  /** When true, the host should strip heavy persona layers (soul, tone contract,
+   *  relational stance, proactive intent) so the plugin's own steering dominates. */
+  wantsLeanPersona?(context?: PluginSessionContext): boolean;
 }
 
 export type OutputGuardResult =
@@ -33,7 +42,7 @@ export type OutputGuardResult =
 export interface OutputGuardHook {
   review(
     reply: string,
-    context: { userMessage: string; persona: PersonaState; connId?: string },
+    context: { userMessage: string; persona: PersonaState } & PluginSessionContext,
   ): OutputGuardResult;
 }
 

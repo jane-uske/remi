@@ -1,3 +1,4 @@
+import { isNsfwEnabled } from "../brains/nsfw_mode";
 import { getCharacterRulesHooks } from "../plugin/registry";
 
 const BASE_CHARACTER_RULES: string[] = [
@@ -12,14 +13,18 @@ const BASE_CHARACTER_RULES: string[] = [
   "句间留白要有变化，不要每句都用相同节奏和相同长度；有时一两个字就够，有时需要一整段",
 ];
 
-export function getCharacterRules(): string[] {
+export function getCharacterRules(connId?: string): string[] {
+  const context = {
+    connId,
+    nsfwEnabled: connId ? isNsfwEnabled(connId) : false,
+  };
   let rules = [...BASE_CHARACTER_RULES];
   for (const hook of getCharacterRulesHooks()) {
-    rules = hook.extendRules(rules);
+    rules = hook.extendRules(rules, context);
   }
   return rules;
 }
 
-export function buildCharacterRulesPrompt(): string {
-  return `说话规则：${getCharacterRules().join("；")}。`;
+export function buildCharacterRulesPrompt(connId?: string): string {
+  return `说话规则：${getCharacterRules(connId).join("；")}。`;
 }
