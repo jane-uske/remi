@@ -68,6 +68,33 @@ import {
 
 const logger = createLogger("server");
 
+// ── 全局错误兜底 ──────────────────────────────────────────────────────────
+// 在此之前，任何未捕获的 Promise rejection / 异常都会让 Node 直接退出进程。
+// 配合 docker `restart: unless-stopped`，单个请求的报错会拉垮整个实例 →
+// 该实例上所有 WebSocket 全部断开 → 客户端集体重连（"短线重连接"）→
+// 内存态会话状态（如按 connId 存的成人模式 Set）全部丢失（"切回普通模式"）。
+//
+// 这里改成「记录完整栈并继续服务」：单次失败只影响那一次请求，不再波及其他连接，
+// 同时把崩溃栈打出来，方便定位真正的触发点（之前是静默崩溃重启，看不到任何栈）。
+// 注意：uncaughtException 后进程理论上可能处于不一致状态；对聊天服务而言，
+// 保活其余连接的收益远大于该风险。若日后发现某类异常确实需要重启，再按 name 精确退出。
+process.on("unhandledRejection", (reason: unknown) => {
+  const err = reason instanceof Error ? reason : undefined;
+  logger.error("[Process] 未处理的 Promise rejection（已记录并继续，未退出进程）", {
+    error: err?.message ?? String(reason),
+    name: err?.name,
+    stack: err?.stack,
+  });
+});
+
+process.on("uncaughtException", (err: Error) => {
+  logger.error("[Process] 未捕获异常（已记录并继续，未退出进程）", {
+    error: err?.message ?? String(err),
+    name: err?.name,
+    stack: err?.stack,
+  });
+});
+
 // 资源监控配置
 const MONITOR_INTERVAL = 30_000; // 每30秒检查一次
 const CONNECTIONS_WARNING_THRESHOLD = 20; // 20个连接警告

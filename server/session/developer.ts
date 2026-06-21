@@ -12,6 +12,7 @@ import {
   RELATIONSHIP_STATE_KEY,
   relationshipStateEnabled,
 } from "../../memory/relationship_state";
+import { isDatabaseReady } from "../../storage/database";
 import { deleteEpisodesByUser } from "../../storage/repositories/episode_repository";
 import { deleteMemoriesByUser } from "../../storage/repositories/memory_repository";
 import { deleteMessagesByUser } from "../../storage/repositories/message_repository";
@@ -37,6 +38,9 @@ export function runSessionDevCommand(
 export async function clearPersistentRelationshipState(
   brain: RemiSessionContext,
 ): Promise<void> {
+  // Memory mode (no DATABASE_URL): nothing is persisted, so skip the DB-backed
+  // repo whose delete() would throw "Database pool is not initialized".
+  if (!isDatabaseReady()) return;
   const repo =
     brain.persistentRelationshipRepo ??
     brain.memory.getPersistentBackend();
@@ -47,6 +51,7 @@ export async function clearPersistentRelationshipState(
 export async function clearPersistentEpisodeState(
   brain: RemiSessionContext,
 ): Promise<void> {
+  if (!isDatabaseReady()) return;
   const userId = brain.userId.trim();
   if (!userId) return;
   await deleteEpisodesByUser(userId);
@@ -55,6 +60,7 @@ export async function clearPersistentEpisodeState(
 export async function clearPersistentMessageHistory(
   brain: RemiSessionContext,
 ): Promise<void> {
+  if (!isDatabaseReady()) return;
   const userId = brain.userId.trim();
   if (!userId) return;
   await deleteMessagesByUser(userId);
@@ -63,6 +69,7 @@ export async function clearPersistentMessageHistory(
 export async function clearPersistentFactMemory(
   brain: RemiSessionContext,
 ): Promise<void> {
+  if (!isDatabaseReady()) return;
   const userId = brain.userId.trim();
   if (!userId) return;
   await deleteMemoriesByUser(userId);
