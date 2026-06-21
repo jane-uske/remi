@@ -60,10 +60,7 @@ function buildReply(result: GenerateImageResult, label: string): string {
     type: first.type ?? "output",
   });
   const imgUrl = `/api/comfyui/view?${proxyParams.toString()}`;
-  return [
-    `画好啦～这是「${label}」🎨${extra}`,
-    `![${label}](${imgUrl})`,
-  ].join("\n");
+  return `![${label}](${imgUrl})${extra}`;
 }
 
 /** Step 3: submit assembled prompt to ComfyUI. */

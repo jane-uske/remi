@@ -2,6 +2,10 @@ import { fastBrainStream } from "./reply_stream";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
+import { visionEnabled, describeImage, USER_IMAGE_PROMPT } from "../llm/vision_client";
+import { fetchImageAsBase64, extractFirstImageUrl } from "../utils/image_fetch";
+import { completeWithOptions } from "../llm/qwen_client";
+import { getFastBrainModel } from "./fast_brain_model";
 import {
   retrievePromptMemory,
 } from "../memory/memory_agent";
@@ -16,8 +20,20 @@ import { createLogger } from "../infra/logger";
  * conversation history.  This prevents the LLM from seeing (and imitating)
  * the image format in subsequent turns — only the DirectCapability layer
  * should produce image tags.
+ *
+ * When `imageContext` is provided (e.g. subject of a generated image), the
+ * markdown is replaced with a bracketed text description so the LLM knows
+ * what was drawn without seeing the raw URL.
  */
-function stripImageMarkdownForHistory(text: string): string {
+function stripImageMarkdownForHistory(
+  text: string,
+  imageContext?: string,
+): string {
+  if (imageContext) {
+    return text
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, `[我画了一张图：${imageContext}]`)
+      .trim();
+  }
   return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
 }
 import { getConfig } from "../server/config";
@@ -42,7 +58,9 @@ import {
 import type { RepairState, WorkingMemoryV2 } from "./background_analysis_store";
 import { resolvePersonaStyleDirective } from "../persona/style_override";
 
-const MAX_HISTORY = 10;
+function maxHistoryEntries(): number {
+  return getConfig().REMI_MAX_HISTORY;
+}
 const logger = createLogger("context_orchestrator");
 const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
 const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
@@ -320,6 +338,8 @@ export interface RouteMessageOptions {
   inputSource?: "text" | "voice";
   /** 延迟追踪 trace id，用于把 memory/analysis 开销记到同一轮。 */
   traceId?: string;
+  /** 用户附带的图片 (data:image/...;base64,...) — vision sidecar 会将其转为文字描述。 */
+  imageBase64?: string;
 }
 
 async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void> {
@@ -352,6 +372,8 @@ function finalizeDirectReply(input: {
   signal?: AbortSignal;
   systemTriggered?: boolean;
   inputSource?: "text" | "voice";
+  /** Capability that produced this reply, used to resolve image context. */
+  capabilityId?: string;
 }): "handled" | "aborted" {
   const { ctx, userMessage, reply, emotion, signal } = input;
   if (signal?.aborted) {
@@ -365,12 +387,19 @@ function finalizeDirectReply(input: {
     return "aborted";
   }
 
+  // When the reply was produced by image generation, preserve the image
+  // subject in conversation history so the LLM knows what was drawn.
+  const imageContext =
+    input.capabilityId === "image_generation"
+      ? getSessionLastImage(ctx.connId)?.subject
+      : undefined;
+
   const historyUserContent = input.systemTriggered
     ? "［你主动开口陪对方聊天］"
     : userMessage;
   ctx.history.push({ role: "user", content: historyUserContent });
-  ctx.history.push({ role: "assistant", content: stripImageMarkdownForHistory(reply) });
-  while (ctx.history.length > MAX_HISTORY) {
+  ctx.history.push({ role: "assistant", content: stripImageMarkdownForHistory(reply, imageContext) });
+  while (ctx.history.length > maxHistoryEntries()) {
     ctx.history.shift();
   }
 
@@ -403,6 +432,53 @@ function finalizeDirectReply(input: {
     });
   }
   return "handled";
+}
+
+async function generateImageProgressIntro(
+  ctx: RemiSessionContext,
+  userMessage: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const FALLBACK = "好，稍等一下～";
+  try {
+    const model = getFastBrainModel();
+    if (!model) return FALLBACK;
+    const recentHistory = ctx.history.slice(-6);
+    const reply = await completeWithOptions(
+      [
+        {
+          role: "system",
+          content: [
+            "/no_think",
+            "你是 Remi，正在和对方聊天。",
+            "对方说的话触发了你画图 / 展示图片的意图。",
+            "在图片开始生成之前，用**一句话**自然地回应对方，让对方知道你在画了。",
+            "要求：",
+            "- 语气符合你和对方的关系（亲密/活泼/温柔），不要机械",
+            '- 不要说"ComfyUI""生成中"等技术词',
+            '- 根据上下文自然回应：如果对方说"看看你的照片"就说展示相关的话，如果说"帮我画个夕阳"就说画画相关的话',
+            "- 只回一句话，不超过 20 字",
+          ].join("\n"),
+        },
+        ...recentHistory,
+        { role: "user", content: userMessage },
+      ],
+      {
+        model,
+        maxTokens: 60,
+        temperature: 0.7,
+        reasoningEffort: "none",
+        signal,
+      },
+    );
+    return reply.trim() || FALLBACK;
+  } catch (err) {
+    logger.warn("image progress intro LLM failed", {
+      connId: ctx.connId,
+      error: (err as Error).message,
+    });
+    return FALLBACK;
+  }
 }
 
 /**
@@ -442,6 +518,29 @@ export async function* routeMessage(
   const inputSource = opts?.inputSource ?? "text";
   const archiveTurnId = buildArchiveTurnId(ctx.connId, opts?.traceId);
 
+  // ── Vision sidecar: describe user-attached image ─────────────────────
+  // When the user sends a photo, call the vision model to produce a text
+  // description, then append it to the user message so the (text-only)
+  // main LLM can "see" what the user shared.
+  let effectiveUserMessage = userMessage;
+  if (opts?.imageBase64 && visionEnabled()) {
+    try {
+      const description = await describeImage(opts.imageBase64, USER_IMAGE_PROMPT);
+      if (description) {
+        effectiveUserMessage = `${userMessage}\n[用户附带了一张图片：${description}]`;
+        logger.info("vision sidecar described user image", { connId: ctx.connId, descriptionChars: description.length });
+      } else {
+        effectiveUserMessage = `${userMessage}\n[用户发了一张图片]`;
+      }
+    } catch (err) {
+      logger.warn("vision sidecar describe error", { connId: ctx.connId, error: (err as Error).message });
+      effectiveUserMessage = `${userMessage}\n[用户发了一张图片]`;
+    }
+  } else if (opts?.imageBase64) {
+    // Vision not available — still acknowledge the image
+    effectiveUserMessage = `${userMessage}\n[用户发了一张图片，但我暂时看不到图片内容]`;
+  }
+
   const imageIntent = await resolveImageIntent({
     userMessage,
     recentHistory: ctx.history.slice(-4),
@@ -451,8 +550,8 @@ export async function* routeMessage(
   });
   const config = getConfig();
   if (imageIntent.kind !== "none" && config.COMFYUI_ENABLED) {
-    ctx.skipTtsThisTurn = true;
-    yield "让我画一下，ComfyUI 正在生成中～ 🎨";
+    const intro = await generateImageProgressIntro(ctx, userMessage, signal);
+    yield intro;
   }
 
   const directCapabilityResult = await tryHandleDirectCapabilities({
@@ -482,10 +581,47 @@ export async function* routeMessage(
       signal,
       systemTriggered: opts?.systemTriggered,
       inputSource,
+      capabilityId: directCapabilityResult.capabilityId,
     });
     if (result === "handled" && !opts?.systemTriggered) {
       await persistContinuityCueState(ctx);
     }
+
+    // Vision sidecar: asynchronously upgrade the history entry with a real
+    // visual description from the vision model (fire-and-forget, non-blocking).
+    if (
+      result === "handled" &&
+      directCapabilityResult.capabilityId === "image_generation" &&
+      visionEnabled()
+    ) {
+      const imgUrl = extractFirstImageUrl(directCapabilityResult.reply);
+      if (imgUrl) {
+        fetchImageAsBase64(imgUrl)
+          .then((base64) => (base64 ? describeImage(base64) : ""))
+          .then((description) => {
+            if (!description) return;
+            // Replace the last assistant history entry with a richer description.
+            const lastEntry = ctx.history[ctx.history.length - 1];
+            if (lastEntry?.role === "assistant") {
+              lastEntry.content = stripImageMarkdownForHistory(
+                directCapabilityResult.reply,
+                description,
+              );
+              logger.info("vision sidecar upgraded image history", {
+                connId: ctx.connId,
+                descriptionChars: description.length,
+              });
+            }
+          })
+          .catch((err) =>
+            logger.warn("vision sidecar image describe failed", {
+              connId: ctx.connId,
+              error: (err as Error).message,
+            }),
+          );
+      }
+    }
+
     return;
   }
 
@@ -721,7 +857,7 @@ export async function* routeMessage(
       latencyTracer.mark("llm_request_start", traceId);
     }
     for await (const token of fastBrainStream({
-      userMessage,
+      userMessage: effectiveUserMessage,
       emotion,
       memory,
       history: historyForPrompt,
@@ -736,6 +872,7 @@ export async function* routeMessage(
       onFirstLlmVisibleContent,
       persona: ctx.persona,
       connId: ctx.connId,
+      timeContext: ctx.buildTimeContextBlock() ?? undefined,
     })) {
       fullReply += token;
       yield token;
@@ -769,14 +906,14 @@ export async function* routeMessage(
 
   const historyUserContent = opts?.systemTriggered
     ? "［你主动开口陪对方聊天］"
-    : userMessage;
+    : effectiveUserMessage;
   const shouldPersistAssistantReply = !isFallbackAssistantReply(fullReply);
   // Update history
   ctx.history.push({ role: "user", content: historyUserContent });
   if (shouldPersistAssistantReply) {
     ctx.history.push({ role: "assistant", content: stripImageMarkdownForHistory(fullReply) });
   }
-  while (ctx.history.length > MAX_HISTORY) {
+  while (ctx.history.length > maxHistoryEntries()) {
     ctx.history.shift();
   }
 
