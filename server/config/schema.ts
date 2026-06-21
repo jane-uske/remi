@@ -214,6 +214,35 @@ export const envSchema = z.object({
   COMFYUI_NSFW_CHECKPOINT: z.string().default(""),
   COMFYUI_NSFW_NEGATIVE: z.string().default(""),
 
+  // ── ComfyUI video generation (storyboard runner) ──────────────────────────
+  // Master switch — default off (beta). Drives the Python storyboard runner
+  // (Z-Image + LTX 2.3) via shell-out from the video_generation capability.
+  COMFYUI_VIDEO_ENABLED: booleanString("0"),
+  COMFYUI_VIDEO_TIMEOUT_MS: z.coerce.number().int().positive().default(1_800_000),
+  // Shared output root where the runner writes per-run directories (manifest, frames, video).
+  COMFYUI_SHARED_OUTPUT_DIR: z.string().default("/Users/rare/ComfyUI-Shared/output"),
+  // Absolute path to the storyboard runner script. Empty = auto-discover from
+  // well-known locations (/Users/rare/ComfyUI-Installs/ComfyUI/ComfyUI/tools/).
+  STORYBOARD_RUNNER_PATH: z.string().default(""),
+  // Python interpreter to invoke the runner with (inside its venv).
+  STORYBOARD_RUNNER_PYTHON: z.string().default(""),
+
+  // ── Vision sidecar (independent model for image understanding) ──────────
+  // When enabled, Remi can "see" generated and user-sent images by calling a
+  // separate vision model (e.g. MiniCPM-V, LLaVA, Qwen-VL in LM Studio).
+  // The text description is injected into conversation history — the main LLM
+  // stays pure-text.
+  REMI_VISION_ENABLED: booleanString("0"),
+  REMI_VISION_BASE_URL: z.string().default(""),
+  REMI_VISION_API_KEY: z.string().default("lm-studio"),
+  REMI_VISION_MODEL: z.string().default(""),
+  // High detail tiles the image instead of downscaling to ~512px — required for
+  // reading small / dense text (chat screenshots, documents). Slower but accurate.
+  REMI_VISION_DETAIL: z.enum(["auto", "low", "high"]).default("high"),
+  // Reading dense text at high detail is slower; give it room.
+  REMI_VISION_TIMEOUT_MS: z.coerce.number().int().positive().default(45000),
+  REMI_VISION_MAX_TOKENS: z.coerce.number().int().positive().default(1024),
+
   REMI_WORKING_MEMORY_ENABLED: booleanString("0"),
   REMI_EPISODE_MEMORY_ENABLED: booleanString("1"),
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
@@ -276,11 +305,13 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(4),
+  // M3-P0: 默认从 1000 保守上调到 1600（"这一档"）。放大不假设 prompt cache
+  // 生效；待本地栈探针确认缓存复用后再考虑继续放，不要直接拉到 8000。
   REMI_FAST_PATH_HISTORY_TOKENS: z.coerce
     .number()
     .int()
     .positive()
-    .default(1000),
+    .default(1600),
   REMI_ANALYSIS_PATH_PROMPT_MEMORY_ENTRIES: z.coerce
     .number()
     .int()
@@ -292,6 +323,12 @@ export const envSchema = z.object({
     .positive()
     .default(1200),
   MAX_HISTORY_TOKENS: z.coerce.number().int().positive().default(1200),
+  // M3-P0: 逐字窗口上限（条数）。原为 context_orchestrator 写死的 MAX_HISTORY=10
+  // （5 轮）。改成 env 可调，默认保守上调到 16（8 轮）；同样不假设缓存生效。
+  REMI_MAX_HISTORY: z.coerce.number().int().positive().default(16),
+  // M3-P0: 时间感开关（注入 now + 距上次间隔）。默认开；内容只进 prompt 动态
+  // 尾部、缓存断点之后，绝不污染可缓存前缀。
+  REMI_TIME_CONTEXT_ENABLED: booleanString("1"),
 
   // ── Memory ──────────────────────────────────────────────────────────────
   MAX_PROMPT_MEMORY_ENTRIES: z.coerce.number().int().positive().default(5),

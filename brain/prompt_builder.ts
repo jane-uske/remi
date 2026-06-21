@@ -79,6 +79,8 @@ interface BuildPromptInput {
   /** Optional structured persona state for v1 personality system */
   persona?: PersonaState;
   connId?: string;
+  /** M3-P0 时间感：注入 prompt 动态尾部（缓存断点之后），不进可缓存前缀。 */
+  timeContext?: string;
 }
 
 type PrioritySlots = {
@@ -328,10 +330,16 @@ export function buildPrompt({
   priorityContext,
   persona,
   connId,
+  timeContext,
 }: BuildPromptInput): PromptMessage[] {
-  return [
+  const messages: PromptMessage[] = [
     { role: "system", content: buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona, connId) },
     ...history,
-    { role: "user", content: userMessage },
   ];
+  // M3-P0: 时间上下文放在 history 之后、user 之前 —— 动态尾部，绝不进可缓存前缀。
+  if (timeContext?.trim()) {
+    messages.push({ role: "system", content: timeContext.trim() });
+  }
+  messages.push({ role: "user", content: userMessage });
+  return messages;
 }

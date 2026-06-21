@@ -217,7 +217,7 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
   "interests": ["..."],
   "personality_note": "对用户性格的一句话观察，没有明显观察则为空字符串",
   "emotional_undertone": "用户在这段对话中的深层情绪（一两个词）",
-  "conversation_summary": "用一两句话概括到目前为止的对话内容和进展",
+  "conversation_summary": "在【已有摘要】基础上增量更新后的整段对话摘要（一到三句，覆盖整段关系，而不是只概括最近几轮）",
   "proactive_topics": ["Remi 下次可以主动提起的话题"],
   "relationship_signal": "warming 或 stable 或 cooling"
 }
@@ -227,8 +227,39 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
 - user_facts confidence 表示事实可靠程度（0.0–1.0），用户直接说"我叫X"给0.9+，推测性的给0.5以下
 - user_facts source 标注事实来源："user" 表示用户直接陈述，"assistant" 表示助手推断
 - interests 只提取用户表现出兴趣的事物
-- conversation_summary 要覆盖整段对话，不只是最后一轮
+- conversation_summary 必须在【已有摘要】基础上做增量更新：融入【最新一轮】的新进展，保留仍然重要的旧信息不要丢弃；若本轮无实质进展，就在旧摘要上做最小改动或原样保留。它要累积覆盖整段关系，而不是只概括最近几轮
 - proactive_topics 是未来可以自然聊到的话题，基于用户兴趣`;
+
+/**
+ * 构造慢脑摘要分析消息。导出供测试：验证"喂回上一版摘要 + 增量累积"，而不是
+ * 只镜像最近窗口。recentHistory 仅作本轮新增上下文；窗口外的旧信息由
+ * priorSummary 承载，不依赖窗口保留（修 history.slice(-8) + 整条覆盖的洞）。
+ */
+export function buildAnalysisMessages(input: {
+  userMessage: string;
+  assistantReply: string;
+  history: PromptMessage[];
+  priorSummary: string;
+  observationDate: string;
+}): ChatMessage[] {
+  const recentHistory = input.history.slice(-8);
+  const historyText = recentHistory
+    .map((m) => `${m.role === "user" ? "用户" : "Remi"}：${m.content}`)
+    .join("\n");
+  const currentTurn = `用户：${input.userMessage}\nRem：${input.assistantReply}`;
+  const priorBlock = input.priorSummary.trim() || "（暂无，本轮为首次生成）";
+  return [
+    { role: "system", content: ANALYSIS_PROMPT },
+    {
+      role: "user",
+      content:
+        `观察日期：${input.observationDate}\n\n` +
+        `【已有摘要】（在此基础上增量更新，保留仍然重要的旧信息）：\n${priorBlock}\n\n` +
+        `最近对话（仅本轮新增上下文，不要因为它没出现就丢弃已有摘要里更早的信息）：\n${historyText}\n\n` +
+        `最新一轮：\n${currentTurn}`,
+    },
+  ];
+}
 
 async function llmAnalysis(
   userMessage: string,
@@ -239,21 +270,14 @@ async function llmAnalysis(
   signal?: AbortSignal,
   connId?: string,
 ): Promise<void> {
-  const recentHistory = history.slice(-8);
-  const historyText = recentHistory
-    .map((m) => `${m.role === "user" ? "用户" : "Remi"}：${m.content}`)
-    .join("\n");
-
-  const currentTurn = `用户：${userMessage}\nRem：${assistantReply}`;
   const observationDate = new Date().toISOString().slice(0, 10);
-
-  const messages: ChatMessage[] = [
-    { role: "system", content: ANALYSIS_PROMPT },
-    {
-      role: "user",
-      content: `观察日期：${observationDate}\n\n对话历史：\n${historyText}\n\n最新一轮：\n${currentTurn}`,
-    },
-  ];
+  const messages = buildAnalysisMessages({
+    userMessage,
+    assistantReply,
+    history,
+    priorSummary: store.getSnapshot().conversationSummary,
+    observationDate,
+  });
 
   const raw = await complete(messages, 512, signal);
   const analysis = parseAnalysis(raw);

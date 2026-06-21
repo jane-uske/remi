@@ -5,6 +5,8 @@ import type { PersistentRelationshipStateV1 } from "../memory/relationship_state
 import { SessionMemoryOverlayRepository } from "../memory/session_memory_overlay";
 import { SlowBrainStore } from "./background_analysis_store";
 import { trimHistoryToTokenBudget } from "./history_budget";
+import { getConfig } from "../server/config";
+import { buildTimeContext, describeGap } from "../brain/time_context";
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import type { DbMessage } from "../storage/types";
 import {
@@ -184,6 +186,12 @@ export class RemiSessionContext {
   persistentRelationshipRepo: MemoryRepository | null = null;
   private clientTimeZone: string | null = null;
   private clientLocale: string | null = null;
+  /** 会话创建时刻，用于"距上次对话"的一次性计算。 */
+  readonly sessionStartedAt = new Date();
+  /** 上次互动时间（bootstrap 从 DB 最近一条消息读入）。 */
+  private lastInteractionAt: Date | null = null;
+  /** 距上次对话的人话描述，bootstrap 时算一次并锁定整会话。 */
+  private sessionGapDescriptor: string | null = null;
   private slowBrainController: AbortController | null = null;
   /** 最后一次被打断的AI回复内容，用于回答「刚才说到哪了」 */
   lastInterruptedReply: string | null = null;
@@ -195,6 +203,12 @@ export class RemiSessionContext {
   lastResponsePolicy: ResponsePolicy | null = null;
   analysisSource: StructuredAnalysisSource | null = null;
   analysisLatencyMs: number | null = null;
+  /**
+   * Push an arbitrary server message to the connected WS client.
+   * Set by the session bootstrap; used by async capabilities (video generation)
+   * that need to push results after tryHandle() returns.
+   */
+  sendServerMessage: ((msg: Record<string, unknown>) => void) | null = null;
 
   constructor(readonly connId: string) {
     this.emotion = new EmotionRuntime(connId);
@@ -266,6 +280,36 @@ export class RemiSessionContext {
 
   getClientLocale(): string | null {
     return this.clientLocale;
+  }
+
+  /**
+   * 记录上次互动时间，并把"距上次对话"的描述算一次锁定整会话（不每轮重算）。
+   * 由 bootstrap 用 DB 里最近一条消息的时间调用；内存模式无 DB 则不调用。
+   */
+  setLastInteractionAt(at: Date | null): void {
+    if (!at || Number.isNaN(at.getTime())) {
+      this.lastInteractionAt = null;
+      this.sessionGapDescriptor = null;
+      return;
+    }
+    this.lastInteractionAt = at;
+    this.sessionGapDescriptor = describeGap(
+      this.sessionStartedAt.getTime() - at.getTime(),
+    );
+  }
+
+  /**
+   * 组装时间上下文块（now 实时 + 锁定的 gap）。供组装层放进 prompt 动态尾部。
+   * 关闭 REMI_TIME_CONTEXT_ENABLED 时返回 null。
+   */
+  buildTimeContextBlock(now: Date = new Date()): string | null {
+    if (!getConfig().REMI_TIME_CONTEXT_ENABLED) return null;
+    return buildTimeContext({
+      now,
+      timeZone: this.clientTimeZone,
+      locale: this.clientLocale,
+      gapDescriptor: this.sessionGapDescriptor,
+    });
   }
 
   hydrateHistoryFromDb(messages: DbMessage[]): void {

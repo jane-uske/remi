@@ -109,6 +109,9 @@ export async function initializeSessionStorage(input: {
       const recentPage = await getUserMessagesPage(userId, input.historyPageSize);
       if (recentPage.messages.length > 0) {
         input.brain.hydrateHistoryFromDb(recentPage.messages);
+        // 最近一条消息时间 = 上次互动（页按 created_at DESC，messages[0] 最新）。
+        // 用于"距上次多久"，bootstrap 算一次锁定整会话。
+        input.brain.setLastInteractionAt(recentPage.messages[0].created_at);
         logger.debug("[Memory] conversation history restored", {
           connId: input.connId,
           userId,

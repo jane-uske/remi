@@ -55,6 +55,30 @@ import {
 const MAX_INTERESTS = 12; // 与 normalizePersistentRelationshipState toStringList(12) 对齐
 const MAX_PERSONALITY_NOTES = 5;
 
+// ── conversation summary 护栏 ─────────────────────────────
+/** 对话摘要硬上限（字符数）。超过此值在句号处截断；防止无限增量累积撑爆 prompt。 */
+export const MAX_SUMMARY_CHARS = 500;
+
+/**
+ * 截断摘要到 MAX_SUMMARY_CHARS。优先在中文句号或换行处断开，
+ * 保证截断后仍是语义完整的段落。
+ */
+export function clipSummary(s: string): string {
+  if (s.length <= MAX_SUMMARY_CHARS) return s;
+  // 优先在最后一个中/英文句号或换行处断
+  const haystack = s.slice(0, MAX_SUMMARY_CHARS);
+  const lastBreak = Math.max(
+    haystack.lastIndexOf("。"),
+    haystack.lastIndexOf("."),
+    haystack.lastIndexOf("\n"),
+  );
+  if (lastBreak > MAX_SUMMARY_CHARS * 0.4) {
+    return haystack.slice(0, lastBreak + 1).trimEnd();
+  }
+  // 兜底硬截
+  return haystack.trimEnd();
+}
+
 /** 两个字符串是否互为子串包含（忽略标点/空白差异），用于近重复过滤。 */
 function subsumes(a: string, b: string): boolean {
   const na = a.replace(/[\s,，、。；;!！?？~～/／—–()（）""''"'-]+/gu, "");
@@ -481,8 +505,12 @@ export class SlowBrainStore {
     this.invalidateDerivedCache();
   }
 
+  /**
+   * 设置对话摘要。超过 MAX_SUMMARY_CHARS 时，按句号截断到上限以内，
+   * 保证 token 预算可控（M3-P0 §14）。
+   */
   setConversationSummary(summary: string): void {
-    this.conversationSummary = summary;
+    this.conversationSummary = clipSummary(summary);
     this.invalidateDerivedCache();
   }
 

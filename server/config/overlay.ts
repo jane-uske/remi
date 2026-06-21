@@ -35,6 +35,19 @@ export const OVERLAY_WRITABLE_KEYS = [
   "COMFYUI_DEFAULT_WIDTH",
   "COMFYUI_DEFAULT_HEIGHT",
   "REMI_IMAGE_CHARACTER_STYLE",
+  // ComfyUI video (storyboard) generation — the master toggle plus the override
+  // params the Settings panel writes. Without these here, saveOverlay() would
+  // silently drop them and the toggle could never turn the feature on.
+  "COMFYUI_VIDEO_ENABLED",
+  "VIDEO_CHARACTER",
+  "VIDEO_SCENE",
+  "VIDEO_STYLE",
+  "VIDEO_NEGATIVE",
+  "VIDEO_WIDTH",
+  "VIDEO_HEIGHT",
+  "VIDEO_SHOTS",
+  "VIDEO_FPS",
+  "VIDEO_REFERENCE_RUN",
   // Local MLX (Qwen3-TTS) voice
   "REMI_TTS_PROVIDER",
   "REMI_TTS_MLX_URL",

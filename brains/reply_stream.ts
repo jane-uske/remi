@@ -99,6 +99,8 @@ export interface FastBrainInput {
   /** Optional structured persona state for v1 personality system */
   persona?: PersonaState;
   connId?: string;
+  /** M3-P0 时间感：透传给 buildPrompt，注入 prompt 动态尾部。 */
+  timeContext?: string;
 }
 
 /**
@@ -128,6 +130,7 @@ export async function* fastBrainStream(
     priorityContext,
     persona: input.persona,
     connId: input.connId,
+    timeContext: input.timeContext,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
@@ -258,6 +261,7 @@ export async function fastBrainPredictOnly(
     priorityContext,
     persona: input.persona,
     connId: input.connId,
+    timeContext: input.timeContext,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
