@@ -201,8 +201,10 @@ export function adaptRemiRuntimeState(
     input.avatarFrame,
   );
   const speech = resolveSpeech(input);
-  const assistantStreaming =
-    input.typing || String(input.streamingText ?? "").trim().length > 0;
+  const streamingText = String(input.streamingText ?? "").trim();
+  const assistantStreaming = input.typing || streamingText.length > 0;
+  const awaitingAssistantReply =
+    streamingText.length === 0 && (input.waiting || input.typing);
   const speakingTailUntilMs = nextTailUntilMs(input, prevState);
   const reactingUntilMs = nextReactingUntilMs(input, prevState);
   const playbackTailActive =
@@ -232,6 +234,9 @@ export function adaptRemiRuntimeState(
   } else if (reactingUntilMs != null && input.nowMs <= reactingUntilMs) {
     phase = "reacting";
     phaseReason = "user_interrupt";
+  } else if (awaitingAssistantReply) {
+    phase = "thinking";
+    phaseReason = "awaiting_model";
   } else if (input.voiceActive) {
     phase = "speaking";
     phaseReason = "assistant_audio_active";

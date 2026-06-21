@@ -257,7 +257,7 @@ function resolveStatusLabel(
     case "open_mic_idle":
       return "在线等你";
     case "thinking":
-      return assistantText ? "在组织这句" : "准备回复";
+      return assistantText ? "在组织这句" : "Remi 正在回复";
     case "speaking_prepare":
       return "开口中";
     case "speaking_active":
@@ -280,7 +280,7 @@ function resolvePhaseCueText(
     case "open_mic_idle":
       return "Remi 在线，等你继续";
     case "thinking":
-      return "Remi 正在组织这句回复";
+      return "Remi 正在回复";
     case "speaking_prepare":
       return "Remi 正在起句";
     case "speaking_active":
@@ -498,7 +498,9 @@ export function buildConversationPerformanceModel(
     chatSync: {
       statusLabel: resolveStatusLabel(phase, assistantText, partialText),
       bubbleTone: resolveBubbleTone(phase),
-      showPreparingBubble: phase === "speaking_prepare" && assistantText.length === 0,
+      showPreparingBubble:
+        (phase === "thinking" || phase === "speaking_prepare") &&
+        assistantText.length === 0,
       showThinkingPulse: phase === "thinking",
       showListeningPulse: phase === "listening" || phase === "open_mic_idle",
       showYieldClamp: phase === "yield",

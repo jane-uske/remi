@@ -56,13 +56,13 @@ describe("ChatWindow", () => {
         sttPartialText: "",
         streamingText: "",
         statusModel: {
-          badgeLabel: "准备回复",
+          badgeLabel: "Remi 正在回复",
           responseBusy: true,
         },
       }),
     );
 
-    assert.ok(markup.includes("准备回复"));
+    assert.ok(markup.includes("Remi 正在回复"));
     assert.ok(markup.includes('aria-busy="true"'));
   });
 
@@ -127,8 +127,112 @@ describe("ChatWindow", () => {
 
     assert.ok(markup.includes('data-chat-presence-phase="speaking_prepare"'));
     assert.ok(markup.includes('data-chat-stream-phase="preparing"'));
-    assert.ok(markup.includes("Remi 正在起句"));
-    assert.ok(markup.includes("…"));
+    assert.ok(markup.includes("正在起句"));
+    assert.ok(markup.includes("remi-typing-dot"));
+  });
+
+  it("renders a thinking reply indicator before the first streamed token arrives", () => {
+    const markup = renderToStaticMarkup(
+      ReactLib.createElement(ChatWindow, {
+        messages: [
+          {
+            id: "m1",
+            role: "user",
+            text: "你好",
+          },
+        ],
+        hasMoreHistory: false,
+        loadingMoreHistory: false,
+        onLoadMore: () => {},
+        listMutation: "idle",
+        listMutationNonce: 0,
+        sttPartialText: "",
+        streamingText: "",
+        statusModel: {
+          badgeLabel: "Remi 正在回复",
+          responseBusy: true,
+        },
+        performanceModel: {
+          phase: "thinking",
+          phaseStartedAtMs: 9_960,
+          phaseCueText: "Remi 正在回复",
+          attentionTarget: "inner",
+          energyLevel: 0.24,
+          languageBeat: {
+            channel: "none",
+            text: "",
+            textLength: 0,
+            tokenCount: 0,
+            clauseIndex: 0,
+            boundary: "none",
+            emphasis: 0,
+            progress: 0,
+            cadenceMs: 40,
+            seed: 0,
+          },
+          chatSync: {
+            statusLabel: "Remi 正在回复",
+            bubbleTone: "thinking",
+            showPreparingBubble: true,
+            showThinkingPulse: true,
+            showListeningPulse: false,
+            showYieldClamp: false,
+            revealCadenceMs: 28,
+            tailHoldMs: 0,
+            emphasisStrength: 0,
+            displayStreamingText: "",
+            displayPartialText: "",
+          },
+          avatarSync: {
+            mouthFloor: 0.01,
+            gazeBiasX: -0.08,
+            gazeBiasY: -0.2,
+            headImpulse: -0.08,
+            bodyImpulse: -0.04,
+            yieldClamp: 0,
+            attentivePulse: 0,
+          },
+        },
+      }),
+    );
+
+    assert.ok(markup.includes('data-chat-presence-phase="thinking"'));
+    assert.ok(markup.includes('data-chat-stream-phase="thinking"'));
+    assert.ok(markup.includes("Remi 正在回复"));
+    assert.ok(markup.includes("正在回复"));
+    assert.ok(markup.includes("remi-typing-dot"));
+  });
+
+  it("renders the reply indicator from awaitingAssistantReply before performance model catches up", () => {
+    const markup = renderToStaticMarkup(
+      ReactLib.createElement(ChatWindow, {
+        messages: [
+          {
+            id: "m1",
+            role: "user",
+            text: "你好",
+          },
+        ],
+        hasMoreHistory: false,
+        loadingMoreHistory: false,
+        onLoadMore: () => {},
+        listMutation: "idle",
+        listMutationNonce: 0,
+        sttPartialText: "",
+        streamingText: "",
+        awaitingAssistantReply: true,
+        statusModel: {
+          badgeLabel: null,
+          responseBusy: false,
+        },
+        performanceModel: null,
+      }),
+    );
+
+    assert.ok(markup.includes("Remi 正在回复"));
+    assert.ok(markup.includes("正在回复"));
+    assert.ok(markup.includes('data-chat-stream-phase="thinking"'));
+    assert.ok(markup.includes('aria-busy="true"'));
   });
 
   it("renders an explicit yield cue so interrupted state is visibly distinct", () => {

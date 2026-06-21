@@ -173,6 +173,21 @@ describe("adaptRemiRuntimeState", () => {
     assert.equal(textOnly.assistant.textOnly, true);
   });
 
+  it("prioritizes awaiting reply over open-mic recording state", () => {
+    const awaiting = adaptRemiRuntimeState(makeInput({
+      recording: true,
+      duplexEnabled: true,
+      waiting: true,
+      typing: true,
+      streamingText: "",
+      turnState: "confirmed_end",
+      turnReason: "confirmed_end",
+    }));
+
+    assert.equal(awaiting.phase, "thinking");
+    assert.equal(awaiting.phaseReason, "awaiting_model");
+  });
+
   it("keeps duplex open-mic idle separate from active user speech", () => {
     const duplexIdle = adaptRemiRuntimeState(makeInput({
       recording: true,

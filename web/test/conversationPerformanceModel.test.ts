@@ -74,6 +74,41 @@ function makeRenderModel(overrides = {}) {
 }
 
 describe("buildConversationPerformanceModel", () => {
+  it("maps thinking into a reply-preparing bubble before assistant text arrives", () => {
+    const model = buildConversationPerformanceModel({
+      runtimeState: makeRuntimeState({
+        phase: "thinking",
+        phaseReason: "awaiting_model",
+        assistant: {
+          waiting: true,
+          streaming: false,
+          playbackActive: false,
+          playbackTailActive: false,
+          textOnly: true,
+        },
+        turn: {
+          serverState: "confirmed_end",
+          reason: "confirmed_end",
+          previewText: null,
+          interruptionType: null,
+          sinceAtMs: 9_960,
+        },
+      }),
+      renderModel: makeRenderModel({
+        motionPhase: "thinking",
+        phase: "thinking",
+        phaseReason: "awaiting_model",
+      }),
+      streamingText: "",
+      sttPartialText: "",
+    });
+
+    assert.equal(model.phase, "thinking");
+    assert.equal(model.chatSync.statusLabel, "Remi 正在回复");
+    assert.equal(model.chatSync.showPreparingBubble, true);
+    assert.equal(model.phaseCueText, "Remi 正在回复");
+  });
+
   it("maps speaking prepare into a shared prepare contract for chat and avatar", () => {
     const model = buildConversationPerformanceModel({
       runtimeState: makeRuntimeState({

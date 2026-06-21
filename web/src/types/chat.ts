@@ -12,6 +12,8 @@ export type ChatMessage = {
   id: string;
   role: MessageRole;
   text: string;
+  /** User-attached image for display (data URL or blob URL). */
+  imageUrl?: string;
   createdAt?: string;
 };
 

@@ -1,11 +1,15 @@
 // Aurora background field — framework-free WebGL renderer for Remi's portal.
 // Mouse-reactive aurora curtains whose palette bends toward the current emotion.
 // No deps. Instantiate with a <canvas>, call start(), setTint(hex), and dispose().
+//
+// Perf budget: native refresh rate, hidden 0fps.
+// FBM reduced to 3 octaves, aurora bands reduced to 3, DPR capped at 1.
+
 
 const VERT = `attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos,0.0,1.0); }`;
 
 const FRAG = `
-precision highp float;
+precision mediump float;
 
 uniform vec2  u_resolution;
 uniform float u_time;
@@ -17,7 +21,6 @@ uniform vec4  u_ripples[6];// xy pos px, z age sec (<0 dead), w strength
 #define PI 3.14159265359
 #define TAU 6.28318530718
 mat2 rot(float a){ float c=cos(a),s=sin(a); return mat2(c,-s,s,c); }
-vec3 h3(vec2 p){ vec3 q=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973)); q+=dot(q,q.yzx+33.33); return fract((q.xxy+q.yzz)*q.zyx); }
 float hash21(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
 vec2 hash22(vec2 p){ vec3 q=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973)); q+=dot(q,q.yzx+33.33); return fract((q.xx+q.yz)*q.zy); }
 float gnoise(vec2 p){
@@ -27,7 +30,7 @@ float gnoise(vec2 p){
   float va=dot(ga,f), vb=dot(gb,f-vec2(1,0)), vc=dot(gc,f-vec2(0,1)), vd=dot(gd,f-vec2(1,1));
   return mix(mix(va,vb,u.x),mix(vc,vd,u.x),u.y);
 }
-float fbm(vec2 p){ float s=0.0,a=0.5; mat2 m=rot(0.5); for(int i=0;i<5;i++){ s+=a*gnoise(p); p=m*p*2.0; a*=0.5; } return s; }
+float fbm(vec2 p){ float s=0.0,a=0.5; mat2 m=rot(0.5); for(int i=0;i<3;i++){ s+=a*gnoise(p); p=m*p*2.0; a*=0.5; } return s; }
 float ripples(vec2 px, float speed, float wave, float decay){
   float sum=0.0;
   for(int i=0;i<6;i++){ vec4 r=u_ripples[i]; if(r.z<0.0) continue;
@@ -70,11 +73,11 @@ void main(){
   col += step(0.9991, st)*vec3(0.5,0.6,0.85)*(0.25+0.7*uv.y);
 
   vec3 aur=vec3(0.0);
-  for(int k=0;k<4;k++){
+  for(int k=0;k<3;k++){
     float fk=float(k);
     float t=u_time*(0.05+0.018*fk);
     float wav=fbm(vec2(p.x*0.85 - t + fk*5.3, fk*2.1));
-    float cy = -0.32 + 0.14*fk + 0.18*wav;
+    float cy = -0.32 + 0.17*fk + 0.18*wav;
     float striate = fbm(vec2(p.x*4.6 + t*2.0 + fk*3.0, p.y*1.5 - t));
     float d=abs(p.y-cy);
     float band = 0.0090/(d*d+0.0090);
@@ -118,6 +121,7 @@ export class AuroraField {
   private smooth: { x: number; y: number };
   private inside = 0;
   private insideTarget = 0;
+  private hidden = false; // tab visibility
   private ripples: Ripple[] = [];
   private tintTarget: [number, number, number] = [0.18, 0.83, 0.75];
   private tintCur: [number, number, number] = [0.18, 0.83, 0.75];
@@ -125,7 +129,7 @@ export class AuroraField {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const opts: WebGLContextAttributes = { antialias: false, alpha: false, powerPreference: "high-performance" };
+    const opts: WebGLContextAttributes = { antialias: false, alpha: false, powerPreference: "low-power" };
     const gl = (canvas.getContext("webgl", opts) ||
       canvas.getContext("experimental-webgl", opts)) as WebGLRenderingContext | null;
     if (!gl) throw new Error("WebGL unavailable");
@@ -158,6 +162,9 @@ export class AuroraField {
     });
     this.on(window, "pointerleave", () => { this.insideTarget = 0; });
     this.on(window, "blur", () => { this.insideTarget = 0; });
+    this.on(document, "visibilitychange", () => {
+      this.hidden = document.hidden;
+    });
     this.resize();
   }
 
@@ -202,7 +209,8 @@ export class AuroraField {
   }
 
   resize() {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Cap DPR at 1 — this shader is per-pixel heavy; retina doubles pixel count 4x.
+    this.dpr = 1;
     const w = Math.floor(window.innerWidth * this.dpr);
     const h = Math.floor(window.innerHeight * this.dpr);
     this.canvas.width = w; this.canvas.height = h;
@@ -210,11 +218,15 @@ export class AuroraField {
   }
 
   start() {
-    const loop = () => { this.render(); this.raf = requestAnimationFrame(loop); };
+    const loop = () => {
+      this.raf = requestAnimationFrame(loop);
+      if (this.hidden) return;
+      this.renderFrame();
+    };
     this.raf = requestAnimationFrame(loop);
   }
 
-  private render() {
+  private renderFrame() {
     const gl = this.gl;
     const now = performance.now();
     const t = (now - this.startTime) / 1000;

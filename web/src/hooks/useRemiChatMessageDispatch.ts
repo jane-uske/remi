@@ -27,6 +27,17 @@ import {
 import type { ChatMessage } from "@/types/chat";
 import { stripEmotionTags, stripTrailingEmotionWord } from "@/lib/chat/stripEmotionTags";
 
+// ── Video progress ────────────────────────────────────────
+
+/** Stable id for the single live "video generating…" bar message. */
+const VIDEO_PROGRESS_ID = "video-progress";
+
+function clampPercent(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 // ── Ref shorthand ─────────────────────────────────────────
 
 type Ref<T> = { current: T };
@@ -853,6 +864,69 @@ export function createMessageDispatch(
       case "dev_state_reset":
         handleDevStateChange(ctx, data);
         break;
+
+      // ── Video generation async results ────────────────────────────
+      case "video_progress": {
+        const percent = clampPercent(data.percent);
+        const label = typeof data.label === "string" ? data.label : "";
+        // Upsert a single live "bar" message so progress updates in place
+        // rather than spamming the chat with one bubble per tick.
+        ctx.msgs.setLiveMessages((prev) => {
+          const text = `[videoprogress:${percent}|${label}]`;
+          const idx = prev.findIndex((m) => m.id === VIDEO_PROGRESS_ID);
+          if (idx === -1) {
+            return [
+              ...prev,
+              {
+                id: VIDEO_PROGRESS_ID,
+                role: "rem" as const,
+                text,
+                createdAt: new Date().toISOString(),
+              },
+            ];
+          }
+          const next = prev.slice();
+          next[idx] = { ...next[idx], text };
+          return next;
+        });
+        break;
+      }
+      case "video_cancelled": {
+        ctx.msgs.setLiveMessages((prev) =>
+          prev.filter((m) => m.id !== VIDEO_PROGRESS_ID),
+        );
+        break;
+      }
+      case "video_ready": {
+        const reply = typeof data.reply === "string" ? data.reply : "";
+        ctx.msgs.setLiveMessages((prev) => {
+          const cleared = prev.filter((m) => m.id !== VIDEO_PROGRESS_ID);
+          if (!reply) return cleared;
+          return [
+            ...cleared,
+            {
+              id: `video-${Date.now()}`,
+              role: "rem" as const,
+              text: reply,
+              createdAt: new Date().toISOString(),
+            },
+          ];
+        });
+        break;
+      }
+      case "video_error": {
+        const errMsg = typeof data.error === "string" ? data.error : "视频生成失败了";
+        ctx.msgs.setLiveMessages((prev) => [
+          ...prev.filter((m) => m.id !== VIDEO_PROGRESS_ID),
+          {
+            id: `video-err-${Date.now()}`,
+            role: "rem" as const,
+            text: errMsg,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        break;
+      }
 
       default:
         break;

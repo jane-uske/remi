@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import type { MessageRole } from "@/types/chat";
+import { InlineVideo } from "./InlineVideo";
 
 export type MessageBubbleProps = {
   role: MessageRole;
-  children: string;
+  children: ReactNode;
   wide?: boolean;
+  /** User-attached image (data URL or blob URL) — displayed above the text. */
+  imageUrl?: string;
 };
 
 const base =
@@ -54,6 +57,18 @@ const speakerTone: Record<MessageRole, string> = {
  */
 const IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const TRUSTED_IMG_PREFIX = "/api/comfyui/view";
+/**
+ * Video marker: `[video:runName](videoUrl|posterUrl)`
+ * Rendered as InlineVideo — same security filter as images (must be our proxy).
+ */
+const VIDEO_RE = /\[video:([^\]]+)\]\(([^|)]+)\|([^)]+)\)/g;
+const TRUSTED_VIDEO_PREFIX = "/api/comfyui/video";
+/**
+ * Live progress marker: `[videoprogress:<pct>|<label>]` — pushed/upserted while
+ * a video render is running. Self-generated (never from the LLM), so no URL
+ * filter is needed; the percent is clamped at render time.
+ */
+const VIDEOPROGRESS_RE = /\[videoprogress:(\d{1,3})\|([^\]]*)\]/g;
 
 /* ── Lightbox overlay for full-screen image preview ─────────────────── */
 
@@ -117,31 +132,94 @@ function InlineImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/* ── Live video-generation progress bar ─────────────────────────────── */
+
+function VideoProgressBar({ percent, label }: { percent: number; label: string }) {
+  const pct = Math.min(100, Math.max(0, percent));
+  return (
+    <div className="mt-1.5 w-[min(18rem,100%)]">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[12px] opacity-80">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--remi-accent)]" />
+          <span className="truncate">{label || "生成中…"}</span>
+        </span>
+        <span className="shrink-0 tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-[var(--remi-accent)] transition-[width] duration-700 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function renderContent(text: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
   let key = 0;
 
+  // Collect all image and video matches, sort by position, and render in order.
+  type Match = { index: number; length: number; node: React.ReactNode };
+  const matches: Match[] = [];
+
   IMG_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
   while ((match = IMG_RE.exec(text)) !== null) {
-    const alt = match[1];
-    const src = match[2];
-
-    // Only render images from our trusted proxy; strip LLM-hallucinated ones.
-    if (!src.startsWith(TRUSTED_IMG_PREFIX)) {
-      continue;
-    }
-
-    // Text before the image
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<InlineImage key={key++} src={src} alt={alt} />);
-    lastIndex = match.index + match[0].length;
+    const [full, alt, src] = match;
+    if (!src.startsWith(TRUSTED_IMG_PREFIX)) continue;
+    matches.push({
+      index: match.index,
+      length: full.length,
+      node: <InlineImage key={`img-${key++}`} src={src} alt={alt} />,
+    });
   }
 
-  // Trailing text (or the entire string if no images)
+  VIDEO_RE.lastIndex = 0;
+  while ((match = VIDEO_RE.exec(text)) !== null) {
+    const [full, label, videoUrl, posterUrl] = match;
+    if (!videoUrl.startsWith(TRUSTED_VIDEO_PREFIX)) continue;
+    matches.push({
+      index: match.index,
+      length: full.length,
+      node: (
+        <InlineVideo
+          key={`vid-${key++}`}
+          src={videoUrl}
+          poster={posterUrl}
+          label={label}
+        />
+      ),
+    });
+  }
+
+  VIDEOPROGRESS_RE.lastIndex = 0;
+  while ((match = VIDEOPROGRESS_RE.exec(text)) !== null) {
+    const [full, pct, label] = match;
+    matches.push({
+      index: match.index,
+      length: full.length,
+      node: (
+        <VideoProgressBar
+          key={`vidprog-${key++}`}
+          percent={Number(pct)}
+          label={label}
+        />
+      ),
+    });
+  }
+
+  matches.sort((a, b) => a.index - b.index);
+
+  for (const m of matches) {
+    if (m.index > lastIndex) {
+      parts.push(text.slice(lastIndex, m.index));
+    }
+    parts.push(m.node);
+    lastIndex = m.index + m.length;
+  }
+
   if (lastIndex < text.length) {
     parts.push(text.slice(lastIndex));
   }
@@ -149,7 +227,7 @@ function renderContent(text: string): React.ReactNode {
   return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : parts;
 }
 
-export function MessageBubble({ role, children, wide = false }: MessageBubbleProps) {
+export function MessageBubble({ role, children, wide = false, imageUrl }: MessageBubbleProps) {
   return (
     <div
       className={`${base} ${baseWidth[wide ? "wide" : "default"]} ${styles[role]}`}
@@ -163,7 +241,13 @@ export function MessageBubble({ role, children, wide = false }: MessageBubblePro
         </div>
       ) : null}
       <span className="sr-only">{speakerLine[role]}: </span>
-      <div>{renderContent(children)}</div>
+      {/* User-attached image */}
+      {imageUrl && (
+        <InlineImage src={imageUrl} alt="用户发送的图片" />
+      )}
+      <div>
+        {typeof children === "string" ? renderContent(children) : children}
+      </div>
     </div>
   );
 }

@@ -17,6 +17,8 @@ export type ChatWindowProps = {
   streamingText: string;
   statusModel: ChatWindowStatusModel;
   performanceModel?: ConversationPerformanceModel | null;
+  /** True from send until the first assistant token is rendered. */
+  awaitingAssistantReply?: boolean;
   immersive?: boolean;
 };
 
@@ -31,6 +33,7 @@ export function ChatWindow({
   streamingText,
   statusModel,
   performanceModel = null,
+  awaitingAssistantReply = false,
   immersive = false,
 }: ChatWindowProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -57,8 +60,9 @@ export function ChatWindow({
   const revealCadenceMs = performanceModel?.chatSync.revealCadenceMs ?? 24;
   const emphasisStrength = performanceModel?.chatSync.emphasisStrength ?? 0;
   const showPreparingBubble =
-    Boolean(performanceModel?.chatSync.showPreparingBubble) &&
-    targetStreamingText.length === 0;
+    targetStreamingText.length === 0 &&
+    (awaitingAssistantReply ||
+      Boolean(performanceModel?.chatSync.showPreparingBubble));
   const showThinkingPulse = Boolean(performanceModel?.chatSync.showThinkingPulse);
   const showListeningPulse = Boolean(performanceModel?.chatSync.showListeningPulse);
   const showYieldClamp = Boolean(performanceModel?.chatSync.showYieldClamp);
@@ -188,22 +192,30 @@ export function ChatWindow({
     }
   }, [visibleStreamingText]);
 
-  const statusLabel = effectiveStatusLabel;
-  const responseBusy = statusModel.responseBusy;
+  const displayPhase =
+    awaitingAssistantReply && targetStreamingText.length === 0
+      ? "thinking"
+      : effectivePhase;
+  const statusLabel = awaitingAssistantReply
+    ? "Remi 正在回复"
+    : effectiveStatusLabel;
+  const responseBusy = statusModel.responseBusy || awaitingAssistantReply;
   const statusClass =
-    effectivePhase === "thinking"
+    displayPhase === "thinking"
       ? "border-amber-300/30 bg-amber-500/10 text-amber-50"
-      : effectivePhase === "speaking_prepare"
+      : displayPhase === "speaking_prepare"
         ? "border-cyan-300/30 bg-cyan-500/10 text-cyan-50"
-        : effectivePhase === "speaking_tail"
+        : displayPhase === "speaking_tail"
           ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-50"
-          : effectivePhase === "yield"
+          : displayPhase === "yield"
             ? "border-rose-300/30 bg-rose-500/10 text-rose-50"
             : showListeningPulse
               ? "border-sky-300/30 bg-sky-500/10 text-sky-50"
               : "border-[#0f7287]/35 bg-black/20 text-[#9fd1db]";
   const statusMotionClass =
-    showThinkingPulse || showListeningPulse ? "animate-pulse" : "";
+    awaitingAssistantReply || showThinkingPulse || showListeningPulse
+      ? "animate-pulse"
+      : "";
   const streamingBubbleStyle =
     emphasisStrength > 0
       ? {
@@ -215,7 +227,7 @@ export function ChatWindow({
   const phaseCue =
     performanceModel?.phaseCueText ??
     (effectivePhase === "thinking"
-      ? "Remi 正在组织这句回复"
+      ? "Remi 正在回复"
       : effectivePhase === "speaking_prepare"
         ? "Remi 正在起句"
         : effectivePhase === "speaking_active"
@@ -282,7 +294,7 @@ export function ChatWindow({
             </div>
           </div>
         ) : null}
-        {phaseCue ? (
+        {phaseCue && !showPreparingBubble ? (
           <div className="flex justify-start px-1">
             <div
               data-chat-stream-phase={
@@ -303,7 +315,7 @@ export function ChatWindow({
           </div>
         ) : null}
         {messages.map((m) => (
-          <MessageBubble key={m.id} role={m.role} wide={immersive}>
+          <MessageBubble key={m.id} role={m.role} wide={immersive} imageUrl={m.imageUrl}>
             {m.text}
           </MessageBubble>
         ))}
@@ -314,11 +326,23 @@ export function ChatWindow({
         ) : null}
         {showPreparingBubble ? (
           <div
-            data-chat-stream-phase="preparing"
-            className="animate-pulse"
+            data-chat-stream-phase={
+              displayPhase === "speaking_prepare" ? "preparing" : "thinking"
+            }
+            className="remi-thinking-bubble"
           >
             <MessageBubble role="rem" wide={immersive}>
-              …
+              <span className="inline-flex items-center gap-1">
+                {displayPhase === "speaking_prepare" ? "正在起句" : "正在回复"}
+                <span
+                  className="inline-flex items-center gap-0.5 pl-0.5"
+                  aria-hidden="true"
+                >
+                  <span className="remi-typing-dot inline-block h-1 w-1 rounded-full bg-current opacity-70" />
+                  <span className="remi-typing-dot inline-block h-1 w-1 rounded-full bg-current opacity-70" />
+                  <span className="remi-typing-dot inline-block h-1 w-1 rounded-full bg-current opacity-70" />
+                </span>
+              </span>
             </MessageBubble>
           </div>
         ) : null}

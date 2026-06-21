@@ -86,7 +86,7 @@ describe("remiRuntimeSelectors", () => {
     );
 
     assert.deepEqual(model, {
-      badgeLabel: "准备回复",
+      badgeLabel: "Remi 正在回复",
       responseBusy: true,
     });
   });

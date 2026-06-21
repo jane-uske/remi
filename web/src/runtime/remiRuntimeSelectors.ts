@@ -105,7 +105,7 @@ export function selectChatWindowStatus(
 
   if (state.phase === "thinking") {
     badgeLabel =
-      state.turn.serverState === "likely_end" ? "准备回应" : "准备回复";
+      state.turn.serverState === "likely_end" ? "Remi 正在回应" : "Remi 正在回复";
   }
 
   if (state.connection !== "open") {
