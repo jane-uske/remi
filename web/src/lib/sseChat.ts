@@ -55,6 +55,10 @@ export interface SseSendOptions {
   situational?: string;
   /** User-attached image as a data:image/...;base64 URL. */
   image?: string;
+  /** Voice style overrides — synced from localStorage each turn. */
+  voiceStyleId?: string | null;
+  speedModifier?: string | null;
+  pitchModifier?: string | null;
   authToken?: string | null;
   signal?: AbortSignal;
   onEvent?: (event: SseChatEvent) => void;
@@ -103,6 +107,9 @@ export class SseChatClient {
         content,
         ...(opts.situational ? { situational: opts.situational } : {}),
         ...(opts.image ? { image: opts.image } : {}),
+        ...(opts.voiceStyleId !== undefined ? { voiceStyleId: opts.voiceStyleId } : {}),
+        ...(opts.speedModifier !== undefined ? { speedModifier: opts.speedModifier } : {}),
+        ...(opts.pitchModifier !== undefined ? { pitchModifier: opts.pitchModifier } : {}),
       }),
       signal: opts.signal,
     });

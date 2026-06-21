@@ -12,6 +12,11 @@ import {
 import { handleSessionTextChat } from "../session/text_chat";
 import { sendSessionHistoryPage, parseHistoryCursor } from "../session/history";
 import { isNsfwEnabled } from "../../brains/nsfw_mode";
+import {
+  setSessionMlxVoiceStyle,
+  setSessionMlxSpeedModifier,
+  setSessionMlxPitchModifier,
+} from "../../voice/tts_runtime_overrides";
 
 const logger = createLogger("sse-chat");
 
@@ -109,6 +114,10 @@ interface ChatRequest {
   content: string;
   situational?: string;
   image?: string;
+  /** Voice style override — synced from client localStorage each turn. */
+  voiceStyleId?: string | null;
+  speedModifier?: string | null;
+  pitchModifier?: string | null;
 }
 
 async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -151,6 +160,18 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   sseHeaders(res);
   res.write(`event: session\ndata: ${JSON.stringify({ token: entry.token })}\n\n`);
+
+  // Apply voice style overrides from client localStorage so TTS uses the
+  // user's chosen voice even though set_voice_style only travels over WS.
+  if (body.voiceStyleId !== undefined) {
+    setSessionMlxVoiceStyle(entry.connId, body.voiceStyleId);
+  }
+  if (body.speedModifier !== undefined) {
+    setSessionMlxSpeedModifier(entry.connId, body.speedModifier);
+  }
+  if (body.pitchModifier !== undefined) {
+    setSessionMlxPitchModifier(entry.connId, body.pitchModifier);
+  }
 
   const sink = new SseResponseSink(res);
   const runtime = buildTextChatRuntime(entry, sink);
