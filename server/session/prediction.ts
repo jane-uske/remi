@@ -1,4 +1,4 @@
-import type { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import { analyzeTurn } from "../../brain/turn_interpreter";
@@ -19,7 +19,7 @@ export type SessionPredictionOptions = {
 
 export type ComputeSessionPredictionInput = {
   connId: string;
-  ws: WebSocket;
+  sink: MessageSink;
   brain: RemiSessionContext;
   text: string;
   signal: AbortSignal;
@@ -133,7 +133,7 @@ export async function computeSessionPrediction(
   });
 
   if (!signal.aborted && input.pushPrediction && reply) {
-    send(input.ws, {
+    send(input.sink, {
       type: "stt_prediction",
       status: "finished",
       preview: reply.slice(0, 50),

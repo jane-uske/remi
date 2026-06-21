@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import type {
   InterruptionType,
@@ -22,7 +22,7 @@ import type { SessionTtsTransport } from "./tts_transport";
 const logger = createLogger("session");
 
 interface SessionVoiceSubmitRuntime {
-  ws: WebSocket;
+  sink: MessageSink;
   connId: string;
   brain: RemiSessionContext;
   interrupt: InterruptController;
@@ -107,7 +107,7 @@ export function prepareVoicePipelineTurn(
   }
   getLatencyTracer(runtime.connId).mark("stt_final", input.traceId);
   getLatencyTracer(runtime.connId).mark("input_received", input.traceId);
-  send(runtime.ws, { type: "stt_final", content: finalText });
+  send(runtime.sink, { type: "stt_final", content: finalText });
   logger.info(`${input.logPrefix ?? "[用户·语音]"} ${finalText}`, {
     connId: runtime.connId,
     ...input.logMeta,
@@ -160,7 +160,7 @@ export async function runPreparedVoicePipelineTurn(
       replyPreview: prepared.predictedReply.slice(0, 30),
     });
     await runPipeline(
-      runtime.ws,
+      runtime.sink,
       prepared.finalText,
       runtime.interrupt,
       runtime.avatar,
@@ -186,7 +186,7 @@ export async function runPreparedVoicePipelineTurn(
       });
     }
     await runPipeline(
-      runtime.ws,
+      runtime.sink,
       prepared.finalText,
       runtime.interrupt,
       runtime.avatar,

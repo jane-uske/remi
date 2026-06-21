@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import { chatStream } from "../../agents/conversation_agent";
 import { inferAvatarIntentFromReply } from "../../agents/avatar_intent_agent";
@@ -49,11 +49,11 @@ function ttsSegmentPreview(text: string): string {
 }
 
 function sendTtsLipSync(
-  ws: WebSocket,
+  sink: MessageSink,
   generationId: number,
   chunk: TtsLipSyncChunk,
 ): void {
-  send(ws, {
+  send(sink, {
     type: "tts_lip_sync",
     generationId,
     source: chunk.source,
@@ -110,7 +110,7 @@ export type RunPipelineOptions = {
 };
 
 export async function runPipeline(
-  ws: WebSocket,
+  sink: MessageSink,
   text: string,
   ic: InterruptController,
   avatar: AvatarController,
@@ -134,11 +134,11 @@ export async function runPipeline(
       ? ctx.emotion.getEmotion()
       : updateEmotion(text, ctx.emotion);
     let finalReplyEmotion = replyEmotion;
-    send(ws, { type: "emotion", emotion: replyEmotion });
+    send(sink, { type: "emotion", emotion: replyEmotion });
 
     const avatarFrames = avatar.setEmotion(replyEmotion as any);
     for (const frame of avatarFrames) {
-      send(ws, { type: "avatar_frame", frame });
+      send(sink, { type: "avatar_frame", frame });
     }
 
     // ── Lazy session: create DB row only when we actually persist a message ──
@@ -264,7 +264,7 @@ export async function runPipeline(
           })
             .then((buf) => {
               if (!signal.aborted && !firstAudioSent) {
-                send(ws, { type: "voice", audio: buf.toString("base64"), generationId });
+                send(sink, { type: "voice", audio: buf.toString("base64"), generationId });
             }
           })
           .catch(() => {});
@@ -286,7 +286,7 @@ export async function runPipeline(
           try {
             ic.markSpeaking();
             await ttsSend(
-              ws,
+              sink,
               sentence,
               generationId,
               traceId,
@@ -389,7 +389,7 @@ export async function runPipeline(
         if (containsImageMarkdown(full)) {
           suppressTts("image_markdown_full");
         }
-        send(ws, { type: "chat_chunk", content: parsed.cleanText, generationId });
+        send(sink, { type: "chat_chunk", content: parsed.cleanText, generationId });
 
         const chunkToken = prepareTextForTtsChunking(
           parsed.cleanText,
@@ -414,7 +414,7 @@ export async function runPipeline(
       if (flushed.cleanText) {
         full += flushed.cleanText;
         ctx.currentAssistantDraft = full;
-        send(ws, { type: "chat_chunk", content: flushed.cleanText, generationId });
+        send(sink, { type: "chat_chunk", content: flushed.cleanText, generationId });
         const flushedChunkToken = prepareTextForTtsChunking(
           flushed.cleanText,
           getConfig().REMI_TTS_SPEAKABLE_PUNCT,
@@ -430,10 +430,10 @@ export async function runPipeline(
       const llmEmotion = emotionParser.getDetectedEmotion();
       if (llmEmotion) {
         finalReplyEmotion = llmEmotion;
-        send(ws, { type: "emotion", emotion: finalReplyEmotion });
+        send(sink, { type: "emotion", emotion: finalReplyEmotion });
         const newFrames = avatar.setEmotion(finalReplyEmotion as any);
         for (const frame of newFrames) {
-          send(ws, { type: "avatar_frame", frame });
+          send(sink, { type: "avatar_frame", frame });
         }
       }
     } else {
@@ -453,7 +453,7 @@ export async function runPipeline(
 
     // ── Post-LLM steps (run while TTS processes in parallel) ──
 
-    send(ws, {
+    send(sink, {
       type: "chat_end",
       emotion: finalReplyEmotion,
       content: signal.aborted ? "[interrupted]" : undefined,
@@ -497,7 +497,7 @@ export async function runPipeline(
     if (full && !signal.aborted && shouldPersistAssistantReply) {
       const actionFrames = avatar.processReply(full);
       for (const frame of actionFrames) {
-        send(ws, { type: "avatar_frame", frame });
+        send(sink, { type: "avatar_frame", frame });
       }
     }
 
@@ -508,7 +508,7 @@ export async function runPipeline(
         null,
       );
       if (avatarIntentEnvelope) {
-        send(ws, {
+        send(sink, {
           type: "avatar_intent",
           intent: avatarIntentEnvelope.intent,
           beats: avatarIntentEnvelope.beats,
@@ -530,7 +530,7 @@ export async function runPipeline(
 
     if (signal.aborted) {
       clearThinkingFillerTimer();
-      send(ws, { type: "emotion", emotion: "neutral" });
+      send(sink, { type: "emotion", emotion: "neutral" });
       latencyTracer.mark("tts_end", traceId);
       latencyTracer.log(traceId);
       return;
@@ -546,13 +546,13 @@ export async function runPipeline(
     clearThinkingFillerTimer();
 
     if (signal.aborted) {
-      send(ws, { type: "emotion", emotion: "neutral" });
+      send(sink, { type: "emotion", emotion: "neutral" });
       latencyTracer.mark("tts_end", traceId);
       latencyTracer.log(traceId);
       return;
     }
 
-    send(ws, { type: "tts_end", generationId });
+    send(sink, { type: "tts_end", generationId });
 
     decayEmotion(ctx.emotion);
 
@@ -561,7 +561,7 @@ export async function runPipeline(
   } catch (err) {
     if ((err as Error).name !== "AbortError") {
       logger.error("[错误]", { error: err, connId });
-      send(ws, { type: "error", content: "AI 回复生成失败" });
+      send(sink, { type: "error", content: "AI 回复生成失败" });
     }
   } finally {
     if (ctx.currentAssistantDraft !== null) {
@@ -573,7 +573,7 @@ export async function runPipeline(
 }
 
 async function ttsSend(
-  ws: WebSocket,
+  sink: MessageSink,
   sentence: string,
   generationId: number,
   traceId: string,
@@ -603,7 +603,7 @@ async function ttsSend(
                 latencyTracer.mark("tts_first_audio", traceId);
               }
             }
-            send(ws, {
+            send(sink, {
               type: "voice_pcm_chunk",
               audio: pcm.toString("base64"),
               sampleRate,
@@ -618,7 +618,7 @@ async function ttsSend(
             if (signal?.aborted) return;
             streamedLipSource = chunk.source;
             if (chunk.cues.length > 0 || chunk.complete) {
-              sendTtsLipSync(ws, generationId, chunk);
+              sendTtsLipSync(sink, generationId, chunk);
             }
           },
           {
@@ -628,7 +628,7 @@ async function ttsSend(
           },
         );
         if (!signal?.aborted) {
-          sendTtsLipSync(ws, generationId, {
+          sendTtsLipSync(sink, generationId, {
             source: streamedLipSource,
             mode: "append",
             complete: true,
@@ -669,14 +669,14 @@ async function ttsSend(
           };
     const audio = result.audio;
     if (result.lipSync) {
-      sendTtsLipSync(ws, generationId, result.lipSync);
+      sendTtsLipSync(sink, generationId, result.lipSync);
     }
     if (signal?.aborted) return;
     if (!audio || audio.length === 0) return;
     if (isFirstSentence && latencyTracer) {
       latencyTracer.mark("tts_first_audio", traceId);
     }
-    send(ws, { type: "voice", audio: audio.toString("base64"), generationId });
+    send(sink, { type: "voice", audio: audio.toString("base64"), generationId });
   } catch (err) {
     if ((err as Error).name !== "AbortError") {
       logger.warn("[TTS]", { error: (err as Error).message });

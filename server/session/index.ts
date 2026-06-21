@@ -468,7 +468,7 @@ export class ConnectionSession {
     cursor?: UserMessageHistoryCursor | null,
   ): Promise<void> {
     await sendSessionHistoryPage({
-      ws: this.ws,
+      sink: this.ws,
       storageUserId: this.storageUserId,
       connId: this.connId,
       pageSize: HISTORY_PAGE_SIZE,
@@ -1824,7 +1824,7 @@ export class ConnectionSession {
     publishSessionTurnState(
       {
         connId: this.connId,
-        ws: this.ws,
+        sink: this.ws,
         turnState: this.turnState,
         lastPublishedTurnState: this.lastPublishedTurnState,
         lastPublishedTurnReason: this.lastPublishedTurnReason,
@@ -2020,7 +2020,7 @@ export class ConnectionSession {
       logger.debug("[预判] 开始预判", { text: text.slice(0, 30) });
       const { reply, analysis } = await computeSessionPrediction({
         connId: this.connId,
-        ws: this.ws,
+        sink: this.ws,
         brain: this.brain,
         text,
         signal: abort.signal,
@@ -2941,7 +2941,7 @@ export class ConnectionSession {
   private async handleDevApplyPreset(data: any): Promise<void> {
     await applyDeveloperPreset({
       connId: this.connId,
-      ws: this.ws,
+      sink: this.ws,
       brain: this.brain,
       resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
       persistRelationshipContinuityState: () =>
@@ -2953,7 +2953,7 @@ export class ConnectionSession {
     await applyDeveloperTtsVoiceOverride(
       {
         connId: this.connId,
-        ws: this.ws,
+        sink: this.ws,
         brain: this.brain,
         resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
         persistRelationshipContinuityState: () =>
@@ -2966,7 +2966,7 @@ export class ConnectionSession {
   private async handleDevResetState(data: any): Promise<void> {
     await resetDeveloperState({
       connId: this.connId,
-      ws: this.ws,
+      sink: this.ws,
       brain: this.brain,
       resetDeveloperLiveState: () => this.resetDeveloperLiveState(),
       persistRelationshipContinuityState: () =>
@@ -2977,7 +2977,7 @@ export class ConnectionSession {
   private buildContinuityRuntime() {
     return {
       connId: this.connId,
-      ws: this.ws,
+      sink: this.ws,
       brain: this.brain,
       interrupt: this.interrupt,
       avatar: this.avatar,
@@ -3020,7 +3020,7 @@ export class ConnectionSession {
 
   private buildVoiceSubmitRuntime() {
     return {
-      ws: this.ws,
+      sink: this.ws,
       connId: this.connId,
       brain: this.brain,
       interrupt: this.interrupt,
@@ -3491,7 +3491,7 @@ export class ConnectionSession {
   private handleChat(data: any): void {
     handleSessionTextChat(
       {
-        ws: this.ws,
+        sink: this.ws,
         connId: this.connId,
         brain: this.brain,
         interrupt: this.interrupt,

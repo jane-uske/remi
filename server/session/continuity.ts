@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import type { AvatarController } from "../../avatar/avatar_controller";
 import type { RemiSessionContext } from "../../brains/remi_session_context";
@@ -24,7 +24,7 @@ type TraceSource = "voice" | "text" | "silence_nudge";
 
 export interface SessionContinuityRuntime {
   connId: string;
-  ws: WebSocket;
+  sink: MessageSink;
   brain: RemiSessionContext;
   interrupt: InterruptController;
   avatar: AvatarController;
@@ -182,7 +182,7 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
       }
       runtime.bindActiveGeneration(generationId, traceId, "silence_nudge");
       await runPipeline(
-        runtime.ws,
+        runtime.sink,
         nudgePlan.userMessage,
         runtime.interrupt,
         runtime.avatar,

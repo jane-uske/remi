@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import type { NextUrlWithParsedQuery } from "next/dist/server/request-meta";
 import next from "next";
 import { WebSocketServer, WebSocket } from "ws";
+import type { MessageSink } from "./types";
 import type { Server as HttpServer } from "http";
 import type { IncomingMessage } from "http";
 import type { Request, Response } from "express";
@@ -20,8 +21,10 @@ import {
 import { createWsRateLimiter, createRateLimiter } from "../../infra/rate_limiter";
 import type { ServerMessage } from "./types";
 import { handleExtApi } from "./rest_api";
+import { handleSseChatApi } from "./sse_chat";
 import { handleDesktopExchangeToken } from "./desktop_auth";
 import { handleSettingsApi, handleServiceHealth } from "./settings_api";
+import { textSessionPool } from "../session/pool";
 
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
@@ -432,9 +435,9 @@ export interface GatewayConfig {
   onConnection: (ws: WebSocket, req: IncomingMessage) => void;
 }
 
-export function send(ws: WebSocket, msg: ServerMessage): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
+export function send(sink: MessageSink, msg: ServerMessage): void {
+  if (sink.readyState === WebSocket.OPEN) {
+    sink.send(JSON.stringify(msg));
   }
 }
 
@@ -547,6 +550,11 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
         return;
       }
 
+      if (pathname?.startsWith("/api/chat")) {
+        await handleSseChatApi(req, res, pathname);
+        return;
+      }
+
       if (pathname?.startsWith("/api/ext/")) {
         await handleExtApi(req, res, pathname);
         return;
@@ -566,6 +574,31 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
   });
 
   const wss = new WebSocketServer({ noServer: true });
+
+  textSessionPool.start();
+
+  const WS_PING_INTERVAL_MS = 30_000;
+  const pingInterval = setInterval(() => {
+    for (const ws of wss.clients) {
+      if ((ws as any).__remiAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      (ws as any).__remiAlive = false;
+      ws.ping();
+    }
+  }, WS_PING_INTERVAL_MS);
+  pingInterval.unref();
+
+  wss.on("connection", (ws) => {
+    (ws as any).__remiAlive = true;
+    ws.on("pong", () => { (ws as any).__remiAlive = true; });
+  });
+
+  server.on("close", () => {
+    clearInterval(pingInterval);
+    textSessionPool.stop();
+  });
 
   server.on("upgrade", (req, socket, head) => {
     const pathname = requestPathname(req);

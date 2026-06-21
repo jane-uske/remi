@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import {
   buildEmptyRelationshipState,
@@ -22,7 +22,7 @@ const logger = createLogger("session");
 
 export function runSessionDevCommand(
   connId: string,
-  ws: WebSocket,
+  sink: MessageSink,
   task: Promise<void>,
 ): void {
   void task.catch((err) => {
@@ -30,7 +30,7 @@ export function runSessionDevCommand(
       error: (err as Error).message,
       connId,
     });
-    send(ws, { type: "error", content: "开发预设操作失败，请稍后重试" });
+    send(sink, { type: "error", content: "开发预设操作失败，请稍后重试" });
   });
 }
 
@@ -70,7 +70,7 @@ export async function clearPersistentFactMemory(
 
 interface SessionDeveloperRuntime {
   connId: string;
-  ws: WebSocket;
+  sink: MessageSink;
   brain: RemiSessionContext;
   resetDeveloperLiveState(): void;
   persistRelationshipContinuityState(): Promise<void>;
@@ -122,7 +122,7 @@ export async function applyDeveloperPreset(
       : "";
 
   if (personaPreset && !isPersonaPresetId(personaPreset)) {
-    send(runtime.ws, {
+    send(runtime.sink, {
       type: "error",
       content: `未知 personaPreset：${personaPreset}`,
     });
@@ -130,7 +130,7 @@ export async function applyDeveloperPreset(
   }
 
   if (relationshipPreset && !isRelationshipPresetId(relationshipPreset)) {
-    send(runtime.ws, {
+    send(runtime.sink, {
       type: "error",
       content: `未知 relationshipPreset：${relationshipPreset}`,
     });
@@ -151,7 +151,7 @@ export async function applyDeveloperPreset(
     }
   }
 
-  send(runtime.ws, {
+  send(runtime.sink, {
     type: "dev_preset_applied",
     personaPreset: personaPreset || null,
     relationshipPreset: relationshipPreset || null,
@@ -173,7 +173,7 @@ export async function applyDeveloperTtsVoiceOverride(
     !resetToEnv &&
     !/^[a-z0-9_./-]{3,128}$/i.test(rawVoiceType)
   ) {
-    send(runtime.ws, {
+    send(runtime.sink, {
       type: "error",
       content: `非法 voiceType：${rawVoiceType}`,
     });
@@ -181,7 +181,7 @@ export async function applyDeveloperTtsVoiceOverride(
   }
 
   setSessionVolcVoiceTypeOverride(runtime.connId, resetToEnv ? null : rawVoiceType);
-  send(runtime.ws, {
+  send(runtime.sink, {
     type: "dev_tts_voice_applied",
     voiceType: resetToEnv ? null : rawVoiceType,
     source: resetToEnv ? "env_default" : "runtime_override",
@@ -212,5 +212,5 @@ export async function resetDeveloperState(
     runtime.brain.slowBrain.hydratePersistentState(buildEmptyRelationshipState());
   }
 
-  send(runtime.ws, { type: "dev_state_reset", scope });
+  send(runtime.sink, { type: "dev_state_reset", scope });
 }

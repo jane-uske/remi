@@ -1,4 +1,4 @@
-import type { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import { isDbReady } from "../../infra/app_state";
 import { createLogger } from "../../infra/logger";
@@ -45,7 +45,7 @@ export function parseHistoryCursor(raw: unknown): UserMessageHistoryCursor | nul
 }
 
 export async function sendSessionHistoryPage(input: {
-  ws: WebSocket;
+  sink: MessageSink;
   storageUserId: string;
   connId: string;
   pageSize: number;
@@ -54,7 +54,7 @@ export async function sendSessionHistoryPage(input: {
 }): Promise<void> {
   if (!isDbReady()) return;
   const page = await getUserMessagesPage(input.storageUserId, input.pageSize, input.cursor);
-  send(input.ws, {
+  send(input.sink, {
     type: "history_page",
     mode: input.mode,
     messages: page.messages.map((message) => ({

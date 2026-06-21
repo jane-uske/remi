@@ -96,13 +96,14 @@ Remi 不是通用 AI 助手。她是一个以**活人感、人格连续性、存
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                     Node.js Server (单进程)                              │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ Gateway (raw http + ws)                                          │  │
+│  │ Gateway (raw http + ws + sse)                                    │  │
 │  │  /health  /ws  /__access/login  /api/desktop/exchange-token      │  │
+│  │  /api/chat (SSE text chat)  /api/chat/history  /api/chat/events  │  │
 │  │  /api/ext/chat (SSE)   → Next.js handle (all other routes)       │  │
 │  └──┬────────────────────────────────────────────────────────────────┘  │
 │     ▼                                                                   │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │ Session (per WebSocket connection)                               │   │
+│  │ Session (per WS connection or SSE text pool entry)              │   │
 │  │  message_router → pipeline (LLM + TTS + persist)                │   │
 │  │  duplex audio → VAD → STT → voice_submit                       │   │
 │  │  interruption · turn_taking · continuity · bootstrap            │   │
@@ -146,12 +147,15 @@ remi/
 ├── server/                 # 服务端入口 + 网关 + 会话 + 管道
 │   ├── server.ts           # ★ 主入口：dotenv → Zod 校验 → 初始化 → createGateway
 │   ├── config/schema.ts    # Zod 环境变量 schema（全部变量的 source of truth）
-│   ├── gateway/            # HTTP 路由 + WebSocket 升级 + 鉴权
-│   │   ├── index.ts        # 路由分发、Next.js 集成、WS server
-│   │   ├── rest_api.ts     # /api/ext/chat SSE 接口
+│   ├── gateway/            # HTTP 路由 + WebSocket 升级 + SSE 端点 + 鉴权
+│   │   ├── index.ts        # 路由分发、Next.js 集成、WS server + ping/pong
+│   │   ├── types.ts        # ServerMessage + MessageSink（transport-agnostic 接口）
+│   │   ├── sse_chat.ts     # /api/chat SSE 端点 + SseResponseSink
+│   │   ├── rest_api.ts     # /api/ext/chat SSE 接口（外部 API）
 │   │   └── desktop_auth.ts # Clerk → JWT 交换（桌面端用）
 │   ├── session/            # 每连接会话状态机 (~30 个文件)
-│   │   ├── index.ts        # ConnectionSession 主类
+│   │   ├── index.ts        # ConnectionSession 主类（WS 全双工会话）
+│   │   ├── pool.ts         # TextSessionPool（SSE 文本会话池，30min TTL）
 │   │   ├── bootstrap.ts    # 连接初始化、身份解析、历史加载
 │   │   ├── message_router.ts # WS 消息分发
 │   │   ├── pipeline/       # LLM + TTS + 持久化管道
@@ -692,7 +696,7 @@ REMI_LOG_LEVEL=debug npm run dev
 ### 添加新 API 接口
 
 1. **WebSocket 消息**: 在 `server/session/message_router.ts` 的 `routeMessage()` 中添加 case
-2. **REST 端点**: 在 `server/gateway/index.ts` 的 HTTP handler 中添加路径匹配，或扩展 `server/gateway/rest_api.ts`
+2. **SSE/REST 端点**: 在 `server/gateway/index.ts` 的 HTTP handler 中添加路径匹配。文本聊天相关的扩展 `server/gateway/sse_chat.ts`，外部 API 扩展 `server/gateway/rest_api.ts`
 3. **类型定义**: 服务端消息类型在 `server/gateway/types.ts`
 
 ### 添加新前端页面
@@ -756,11 +760,32 @@ npm run desktop:build  # 构建桌面端发行版
 
 ---
 
-## 9. WebSocket 协议速查
+## 9. 通信协议速查
 
-所有客户端共用同一 WebSocket 协议，连接 `/ws`。
+Remi 使用**双通道架构**：纯文本聊天走 HTTP+SSE，语音走 WebSocket。
 
-### 客户端 → 服务端
+### 9a. SSE 文本聊天（推荐用于文本场景）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 发送文本，SSE 流式返回。请求体 `{ content, situational? }`。响应先发 `event: session` 含 `{ token }` 用于后续请求 |
+| `/api/chat/history` | GET | 分页历史。Query: `pageSize`, `cursor` (JSON) |
+| `/api/chat/events` | GET | EventSource 推送通道（沉默搭话等）。需 `X-Remi-Session` header |
+
+**会话管理**: 首次 POST `/api/chat` 分配 session token（`X-Remi-Session` header），后续请求复用。服务端 `TextSessionPool` 按用户保持会话上下文（brain + memory + pipeline chain），30 分钟无活动自动回收。
+
+**SSE 事件格式**:
+```
+event: <type>
+data: <json>
+```
+事件类型与 WebSocket `ServerMessage.type` 一致（`chat_chunk`, `chat_end`, `emotion`, `turn_state` 等）。流结束发 `event: done`。
+
+### 9b. WebSocket（语音 + 全双工）
+
+所有客户端共用同一 WebSocket 协议，连接 `/ws`。服务端每 30 秒发 ping，客户端需回 pong（否则 terminate）。
+
+#### 客户端 → 服务端
 
 | type | 字段 | 说明 |
 |------|------|------|
@@ -772,7 +797,7 @@ npm run desktop:build  # 构建桌面端发行版
 | `playback_start/end` | `generationId` | TTS 播放生命周期 |
 | _(binary)_ | RAUD header + PCM16 | 音频帧 |
 
-### 服务端 → 客户端
+#### 服务端 → 客户端
 
 | type | 说明 |
 |------|------|
@@ -789,7 +814,7 @@ npm run desktop:build  # 构建桌面端发行版
 | `history_page` | 聊天历史 |
 | `error` | 错误信息 |
 
-### 音频帧格式 (RAUD)
+#### 音频帧格式 (RAUD)
 
 ```
 Bytes 0-3:  Magic  52 41 55 44 ("RAUD")
@@ -798,6 +823,12 @@ Bytes 8-11: SampleRate (uint32 LE, 通常 16000)
 Bytes 12-15: Length (uint32 LE)
 Bytes 16+:  PCM16 payload
 ```
+
+### 9c. 重连策略
+
+WebSocket 客户端使用指数退避 + 随机抖动：`min(3s × 2^attempt + random(0,1s), 30s)`。连接成功后计数器归零。Web 客户端实现在 `web/src/hooks/useRemiConnection.ts`。
+
+**`MessageSink` 接口**: pipeline、text-chat、continuity 等模块不直接依赖 WebSocket 类型，而是通过 `MessageSink { readyState, send() }` 抽象层发送消息，使 SSE 和 WS 共享同一套管道代码（`server/gateway/types.ts`）。
 
 ---
 

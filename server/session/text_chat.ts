@@ -1,4 +1,4 @@
-import type { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import type { AvatarController } from "../../avatar/avatar_controller";
 import type {
@@ -21,7 +21,7 @@ import type { SessionTtsTransport } from "./tts_transport";
 const logger = createLogger("session");
 
 export type SessionTextChatRuntime = {
-  ws: WebSocket;
+  sink: MessageSink;
   connId: string;
   brain: RemiSessionContext;
   interrupt: InterruptController;
@@ -66,7 +66,7 @@ export function handleSessionTextChat(
 ): void {
   const content = sanitizePastedChatContent(data.content ?? "");
   if (!content?.trim()) {
-    send(runtime.ws, { type: "error", content: "消息内容为空" });
+    send(runtime.sink, { type: "error", content: "消息内容为空" });
     return;
   }
   // 世界情境（RW-P1-4）：来自 RemiWorld 客户端，封顶防滥用
@@ -99,7 +99,7 @@ export function handleSessionTextChat(
       },
     )
       .then((buf) => {
-        send(runtime.ws, {
+        send(runtime.sink, {
           type: "voice",
           audio: buf.toString("base64"),
           generationId: interruptedGenerationId ?? 0,
@@ -146,7 +146,7 @@ export function handleSessionTextChat(
     .getPipelineChain()
     .then(() =>
       runPipeline(
-        runtime.ws,
+        runtime.sink,
         content,
         runtime.interrupt,
         runtime.avatar,

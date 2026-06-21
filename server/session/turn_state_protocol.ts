@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import type { MessageSink } from "../gateway/types";
 
 import type {
   InterruptionType,
@@ -13,7 +13,7 @@ const logger = createLogger("session");
 
 export interface SessionTurnStateRuntime {
   connId: string;
-  ws: WebSocket;
+  sink: MessageSink;
   turnState: RemiTurnState;
   lastPublishedTurnState: RemiTurnState | null;
   lastPublishedTurnReason: RemiTurnStateReason | null;
@@ -107,7 +107,7 @@ export function publishSessionTurnState(
     });
   }
 
-  send(runtime.ws, {
+  send(runtime.sink, {
     type: "turn_state",
     state,
     reason,

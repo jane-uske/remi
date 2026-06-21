@@ -5,6 +5,7 @@ import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import type { RemiConnectionPhase } from "@/hooks/useRemiChat";
 import {
   buildClientContextPayload,
+  computeReconnectDelay,
   INITIAL_BROWSER_IDENTITY,
   REM_WS_RECONNECT_DELAY_MS,
   resolveWsTargetLabel,
@@ -105,6 +106,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
   // If an external wsRef is provided, use it; otherwise fall back to internal.
   const wsRef = params.wsRef ?? internalWsRef;
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const mountedRef = useRef(true);
   const suppressDisconnectSysMsgRef = useRef(false);
   const hasAnnouncedConnectedRef = useRef(false);
@@ -181,6 +183,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
 
       ws.onopen = () => {
         window.clearTimeout(connectTimer);
+        reconnectAttemptRef.current = 0;
         setConnected(true);
         setConnectionPhase("open");
         setReconnectDeadline(null);
@@ -217,9 +220,12 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         const shouldResumeDuplex = params.recordingRef.current || params.duplexRef.current;
         params.stopVoiceSession({ preserveAutoResume: shouldResumeDuplex });
 
+        const reconnectDelay = computeReconnectDelay(reconnectAttemptRef.current);
+        reconnectAttemptRef.current += 1;
+
         setConnected(false);
         setConnectionPhase("closed");
-        setReconnectDeadline(Date.now() + REM_WS_RECONNECT_DELAY_MS);
+        setReconnectDeadline(Date.now() + reconnectDelay);
         setConnLabel("已断开");
         params.setHistoryLoadingMoreState(false);
         params.setWaitingState(false);
@@ -235,24 +241,27 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         params.setTyping(false);
         const quiet = suppressDisconnectSysMsgRef.current;
         suppressDisconnectSysMsgRef.current = false;
+        const delaySec = Math.ceil(reconnectDelay / 1000);
         pushAvatarDevtoolsLog("system", "ws closed", {
           quiet,
-          reconnectInMs: REM_WS_RECONNECT_DELAY_MS,
+          reconnectInMs: reconnectDelay,
+          attempt: reconnectAttemptRef.current,
         });
         if (!quiet) {
           params.markHistoryMutation("append");
           params.setLiveMessages((m) => {
             const last = m[m.length - 1];
-            if (last?.role === "sys" && last.text === "连接已断开，3 秒后重连…") {
+            const msg = `连接已断开，${delaySec} 秒后重连…`;
+            if (last?.role === "sys" && last.text.startsWith("连接已断开")) {
               return m;
             }
-            return [...m, { id: uid(), role: "sys", text: "连接已断开，3 秒后重连…" }];
+            return [...m, { id: uid(), role: "sys", text: msg }];
           });
         }
         params.onCloseExtras();
         reconnectRef.current = setTimeout(() => {
           if (mountedRef.current) connectRef.current?.();
-        }, REM_WS_RECONNECT_DELAY_MS);
+        }, reconnectDelay);
       };
 
       ws.onerror = () => {
