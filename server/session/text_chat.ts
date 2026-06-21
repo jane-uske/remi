@@ -62,7 +62,7 @@ export type SessionTextChatRuntime = {
 
 export function handleSessionTextChat(
   runtime: SessionTextChatRuntime,
-  data: { content?: string | null; situational?: string | null },
+  data: { content?: string | null; situational?: string | null; image?: string | null },
 ): void {
   const content = sanitizePastedChatContent(data.content ?? "");
   if (!content?.trim()) {
@@ -161,6 +161,7 @@ export function handleSessionTextChat(
           inputSource: "text",
           ttsTransport: runtime.getResolvedTtsTransport(),
           ensureSessionId: () => runtime.ensureDbSession(),
+          ...(data.image ? { imageBase64: data.image } : {}),
         },
       ),
     )

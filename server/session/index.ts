@@ -59,7 +59,7 @@ import {
   relationshipStateEnabled,
   savePersistentRelationshipState,
 } from "../../memory/relationship_state";
-import { bindNsfwNotifier, sendNsfwModeState } from "../../brains/nsfw_mode";
+import { bindNsfwNotifier, restoreNsfwForUser, sendNsfwModeState } from "../../brains/nsfw_mode";
 import { attachSessionMessageHandlers } from "./message_router";
 import { getConfig } from "../config";
 import { isPersonaPresetId } from "../../persona/presets";
@@ -162,6 +162,7 @@ import {
   setSessionMlxVoiceStyle,
   setSessionMlxSpeedModifier,
   setSessionMlxPitchModifier,
+  setSessionTtsEnabled,
 } from "../../voice/tts_runtime_overrides";
 import { notifySessionStart, notifySessionEnd } from "../../plugin/registry";
 
@@ -432,6 +433,15 @@ export class ConnectionSession {
     notifySessionStart(this.connId);
     this.ws = ws;
     bindNsfwNotifier(this.connId, this.ws);
+    // Async capabilities (video generation) finish long after tryHandle() returns
+    // (~28 min). They push their result over this same long-lived WS via the
+    // brain's sendServerMessage hook. Web text chat also rides this WS, so the
+    // result reaches the browser's onMessage dispatch (video_ready/video_error).
+    this.brain.sendServerMessage = (msg) => {
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify(msg));
+      }
+    };
     this.stt = new SttStream();
     this.vad = new VadDetector();
     this.interrupt = new InterruptController();
@@ -503,6 +513,10 @@ export class ConnectionSession {
       this.personaPresetBootstrapReady = true;
     }
     this.sendPersonaPresetState();
+    // Re-enable adult mode if this user dropped while in it and reconnected
+    // within the restore window (crash / network blip / redeploy). New sessions
+    // past the window stay off. Must run before announcing the state below.
+    await restoreNsfwForUser(this.connId, this.brain.userId);
     sendNsfwModeState(this.connId);
   }
 
@@ -2897,6 +2911,9 @@ export class ConnectionSession {
     }
     if (data.pitchModifier !== undefined) {
       setSessionMlxPitchModifier(connId, data.pitchModifier ?? null);
+    }
+    if (data.ttsEnabled !== undefined) {
+      setSessionTtsEnabled(connId, data.ttsEnabled === false ? false : true);
     }
     send(this.ws, { type: "voice_style_ack", ...data });
   }

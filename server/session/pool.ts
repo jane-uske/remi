@@ -22,7 +22,7 @@ import { send } from "../gateway";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
 import { buildCarryForwardHint, classifyInterruption } from "./interruption";
 import type { SessionTtsTransport } from "./tts_transport";
-import { clearNsfw, unbindNsfwNotifier } from "../../brains/nsfw_mode";
+import { clearNsfw, restoreNsfwForUser, unbindNsfwNotifier } from "../../brains/nsfw_mode";
 import { endSession } from "../../storage/repositories/session_repository";
 import { isDbReady } from "../../infra/app_state";
 
@@ -147,6 +147,10 @@ class TextSessionPool {
       });
       entry.bootstrapReady = true;
     }
+
+    // Restore adult mode if this user dropped while in it and came back within
+    // the window (keyed by the bootstrap-resolved user id, matching setNsfw).
+    await restoreNsfwForUser(connId, brain.userId);
 
     logger.info("[Pool] session created", { connId, token: token.slice(0, 8) });
     return entry;

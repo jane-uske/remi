@@ -53,6 +53,26 @@ export const INITIAL_BROWSER_IDENTITY: BrowserIdentityState = {
   wsTargetLabel: "",
 };
 
+export const REMI_TTS_ENABLED_STORAGE_KEY = "remi_tts_enabled";
+
+export function readStoredTtsEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(REMI_TTS_ENABLED_STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function writeStoredTtsEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMI_TTS_ENABLED_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    /* noop */
+  }
+}
+
 export function buildClientContextPayload(): {
   type: "client_context";
   timeZone?: string;

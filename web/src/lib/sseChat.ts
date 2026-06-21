@@ -2,10 +2,48 @@
  * SSE-based text chat transport.
  *
  * Usage:
- *   const sse = new SseChatClient("/api/chat");
- *   const { sessionToken } = await sse.send("Hello", { onChunk, onEnd, onEvent });
+ *   const sse = new SseChatClient(getRemHttpBase());
+ *   const { sessionToken } = await sse.send("Hello", { onEvent });
  *   const history = await sse.fetchHistory();
  */
+
+import { getRemWsUrl } from "./wsUrl";
+
+export type TextTransport = "sse" | "ws";
+
+/**
+ * Which transport to use for text turns. Defaults to "sse"; can be forced to
+ * "ws" via the NEXT_PUBLIC_REMI_TEXT_TRANSPORT build flag, or — for an instant
+ * no-rebuild kill switch — `localStorage.remi_text_transport = "ws"`.
+ */
+export function getTextTransport(): TextTransport {
+  if (typeof window !== "undefined") {
+    try {
+      const override = window.localStorage.getItem("remi_text_transport");
+      if (override === "ws" || override === "sse") return override;
+    } catch {
+      /* ignore */
+    }
+  }
+  const flag = process.env.NEXT_PUBLIC_REMI_TEXT_TRANSPORT?.trim().toLowerCase();
+  return flag === "ws" ? "ws" : "sse";
+}
+
+/** Derive the HTTP(S) origin for the API from the configured WS URL. */
+export function getRemHttpBase(): string {
+  const wsUrl = getRemWsUrl();
+  if (wsUrl) {
+    try {
+      const u = new URL(wsUrl);
+      const proto = u.protocol === "wss:" ? "https:" : "http:";
+      return `${proto}//${u.host}`;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (typeof window !== "undefined") return window.location.origin;
+  return "";
+}
 
 export interface SseChatEvent {
   type: string;
@@ -15,6 +53,8 @@ export interface SseChatEvent {
 export interface SseSendOptions {
   sessionToken?: string | null;
   situational?: string;
+  /** User-attached image as a data:image/...;base64 URL. */
+  image?: string;
   authToken?: string | null;
   signal?: AbortSignal;
   onEvent?: (event: SseChatEvent) => void;
@@ -22,6 +62,8 @@ export interface SseSendOptions {
 
 export interface SseSendResult {
   sessionToken: string;
+  /** Whether any non-session event was dispatched (i.e. the reply started). */
+  startedStreaming: boolean;
 }
 
 export interface SseHistoryPage {
@@ -60,6 +102,7 @@ export class SseChatClient {
       body: JSON.stringify({
         content,
         ...(opts.situational ? { situational: opts.situational } : {}),
+        ...(opts.image ? { image: opts.image } : {}),
       }),
       signal: opts.signal,
     });
@@ -70,6 +113,7 @@ export class SseChatClient {
     }
 
     let sessionToken = opts.sessionToken ?? "";
+    let startedStreaming = false;
 
     const reader = res.body?.getReader();
     if (!reader) throw new Error("No response body");
@@ -96,6 +140,8 @@ export class SseChatClient {
             const parsed = JSON.parse(data) as SseChatEvent;
             if (eventType === "session" && typeof parsed.token === "string") {
               sessionToken = parsed.token;
+            } else {
+              startedStreaming = true;
             }
             parsed.type = parsed.type ?? eventType;
             opts.onEvent?.(parsed);
@@ -105,7 +151,7 @@ export class SseChatClient {
       }
     }
 
-    return { sessionToken };
+    return { sessionToken, startedStreaming };
   }
 
   async fetchHistory(opts: {

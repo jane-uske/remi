@@ -1,6 +1,6 @@
-const CACHE_NAME = "remi-shell-v1";
+// Bump this on shell-strategy changes so the activate handler purges old caches.
+const CACHE_NAME = "remi-shell-v2";
 const SHELL_ASSETS = [
-  "/",
   "/icon.png",
   "/apple-icon.png",
   "/favicon.ico",
@@ -35,6 +35,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Navigations (the HTML shell): NETWORK-FIRST. Cache-first here served a stale
+  // shell after every redeploy — it referenced old JS chunks/Server-Action ids,
+  // which surfaced as "signed out after refresh" until a hard refresh. Always
+  // fetch fresh HTML; fall back to cache only when truly offline.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() =>
+          caches.match(request).then((cached) => cached || caches.match("/")),
+        ),
+    );
+    return;
+  }
+
+  // Other GET (Next content-hashed static assets, icons): cache-first is safe —
+  // a new build ships new hashed URLs, so it just misses cache and fetches fresh.
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;

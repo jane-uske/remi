@@ -33,6 +33,7 @@ import {
   resolveTtsQueueText,
   stripImageMarkdownForTts,
 } from "../../voice/tts_helpers";
+import { isSessionTtsEnabled } from "../../voice/tts_runtime_overrides";
 
 const logger = createLogger("pipeline");
 
@@ -107,6 +108,8 @@ export type RunPipelineOptions = {
   ttsTransport?: SessionTtsTransport;
   /** Lazy DB session creator — called once before first message persist. */
   ensureSessionId?: () => Promise<string | null>;
+  /** User-attached image (data:image/...;base64,...) for vision sidecar. */
+  imageBase64?: string;
 };
 
 export async function runPipeline(
@@ -171,7 +174,8 @@ export async function runPipeline(
     let waitResolve: (() => void) | null = null;
 
     let enqueuedSegmentCount = 0;
-    let ttsSuppressed = ctx.skipTtsThisTurn;
+    let ttsSuppressed =
+      ctx.skipTtsThisTurn || !isSessionTtsEnabled(ctx.connId);
     let firstAudioSent = false;
     let thinkingFillerTimer: ReturnType<typeof setTimeout> | null = null;
     const clearThinkingFillerTimer = () => {
@@ -352,11 +356,14 @@ export async function runPipeline(
             : {
                 traceId,
               };
-    // 世界情境与上述各分支正交，统一附加（silence nudge 不带情境）
-    const routeOptions =
-      options?.situationalContext && !options?.silenceNudge
-        ? { ...baseRouteOptions, situationalContext: options.situationalContext }
-        : baseRouteOptions;
+    // 世界情境、用户图片与上述各分支正交，统一附加
+    const routeOptions: Record<string, unknown> = {
+      ...baseRouteOptions,
+      ...(options?.situationalContext && !options?.silenceNudge
+        ? { situationalContext: options.situationalContext }
+        : {}),
+      ...(options?.imageBase64 ? { imageBase64: options.imageBase64 } : {}),
+    };
 
     const emotionParser = new EmotionTagParser();
 

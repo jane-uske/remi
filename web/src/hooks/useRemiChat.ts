@@ -11,8 +11,10 @@ import { useAudioBase64Queue } from "@/hooks/useAudioBase64Queue";
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import {
   mergeChatMessageLists,
+  readStoredTtsEnabled,
   resolveMessageStorageKey,
   uid,
+  writeStoredTtsEnabled,
 } from "./useRemiChatHelpers";
 import { stripEmotionTags } from "@/lib/chat/stripEmotionTags";
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
@@ -22,6 +24,7 @@ import { useRemiTurnEngine } from "./useRemiTurnEngine";
 import { useRemiVoice } from "./useRemiVoice";
 import { useRemiAvatar } from "./useRemiAvatar";
 import { createMessageDispatch } from "./useRemiChatMessageDispatch";
+import { SseChatClient, getTextTransport, getRemHttpBase } from "@/lib/sseChat";
 
 export type RemiConnectionPhase = "connecting" | "open" | "closed";
 
@@ -52,9 +55,11 @@ export function useRemiChat() {
   const [waiting, setWaiting] = useState(false);
   const [personaPreset, setPersonaPreset] = useState<string | null>(null);
   const [nsfwEnabled, setNsfwEnabled] = useState(false);
+  const [ttsEnabled, setTtsEnabledState] = useState(true);
   const [devStatus, setDevStatus] = useState<DevStatus>({ tone: "idle", message: "" });
 
   const waitingRef = useRef(false);
+  const ttsEnabledRef = useRef(true);
   const streamingBufRef = useRef("");
   const pendingDevCommandRef = useRef<{
     kind: DevCommandKind;
@@ -63,6 +68,16 @@ export function useRemiChat() {
 
   // wsRef is owned by the composition layer and shared with both connection and voice layers.
   const wsRef = useRef<WebSocket | null>(null);
+
+  // SSE text transport (default). Text turns ride HTTP POST /api/chat so a WS
+  // blip never interrupts a text reply; voice/avatar/push/history stay on WS.
+  const sseClientRef = useRef<SseChatClient | null>(null);
+  const sseSessionTokenRef = useRef<string | null>(null);
+  const sseAbortRef = useRef<AbortController | null>(null);
+  const getSseClient = useCallback((): SseChatClient => {
+    if (!sseClientRef.current) sseClientRef.current = new SseChatClient(getRemHttpBase());
+    return sseClientRef.current;
+  }, []);
 
   /* ── Messages layer ── */
   const msgs = useRemiMessages(messageStorageKey);
@@ -88,6 +103,12 @@ export function useRemiChat() {
   const serverTtsStreamingRef = useRef(false);
   const markServerTtsStreaming = useCallback((streaming: boolean) => {
     serverTtsStreamingRef.current = streaming;
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredTtsEnabled();
+    ttsEnabledRef.current = stored;
+    setTtsEnabledState(stored);
   }, []);
 
   const {
@@ -135,6 +156,42 @@ export function useRemiChat() {
     streamingBufRef.current = "";
     setStreamingText("");
   }, []);
+
+  const syncTtsEnabledToServer = useCallback(
+    (enabled: boolean) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "set_voice_style", ttsEnabled: enabled }));
+    },
+    [],
+  );
+
+  const setTtsEnabled = useCallback(
+    (enabled: boolean) => {
+      ttsEnabledRef.current = enabled;
+      setTtsEnabledState(enabled);
+      writeStoredTtsEnabled(enabled);
+      if (!enabled) clearQueue();
+      syncTtsEnabledToServer(enabled);
+    },
+    [clearQueue, syncTtsEnabledToServer],
+  );
+
+  const enqueueBase64IfAudible = useCallback(
+    (audio: string, generationId?: number | null) => {
+      if (!ttsEnabledRef.current) return;
+      enqueueBase64(audio, generationId);
+    },
+    [enqueueBase64],
+  );
+
+  const enqueuePcmChunkIfAudible = useCallback(
+    (audio: string, sampleRate: number, generationId: number | null) => {
+      if (!ttsEnabledRef.current) return;
+      enqueuePcmChunk(audio, sampleRate, generationId);
+    },
+    [enqueuePcmChunk],
+  );
 
   const setWaitingState = useCallback((v: boolean) => {
     waitingRef.current = v;
@@ -235,8 +292,8 @@ export function useRemiChat() {
     voiceActive,
     markServerTtsStreaming,
     clearQueue,
-    enqueueBase64,
-    enqueuePcmChunk,
+    enqueueBase64: enqueueBase64IfAudible,
+    enqueuePcmChunk: enqueuePcmChunkIfAudible,
     applyTtsLipSyncPatch,
     allowServerGeneration,
     turnEngine: {
@@ -294,7 +351,7 @@ export function useRemiChat() {
   /* ── Connection layer ── */
   const conn = useRemiConnection({
     onOpenExtras: () => {
-      // duplex resume is handled inside useRemiConnection directly
+      syncTtsEnabledToServer(ttsEnabledRef.current);
     },
     onCloseExtras: () => {},
     onErrorExtras: () => {},
@@ -328,10 +385,20 @@ export function useRemiChat() {
 
   /* ── Text chat ── */
   const sendText = useCallback(
-    (text: string, situational?: string) => {
+    (text: string, imageOrSituational?: string) => {
       const ws = conn.wsRef.current;
       const trimmed = text.trim();
-      if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return;
+      // Distinguish image (data:image/...) from situational context
+      const isImage =
+        typeof imageOrSituational === "string" &&
+        imageOrSituational.startsWith("data:image/");
+      const image = isImage ? imageOrSituational : undefined;
+      const situational = isImage ? undefined : imageOrSituational;
+      const transport = getTextTransport();
+      // SSE decouples text from WS health, so it only needs content. WS mode
+      // still requires an open socket.
+      if (!trimmed && !image) return;
+      if (transport === "ws" && (!ws || ws.readyState !== WebSocket.OPEN)) return;
       markServerTtsStreaming(false);
       clearQueue();
       turnEngine.clearPendingChatEnd();
@@ -359,21 +426,75 @@ export function useRemiChat() {
       msgs.appendLiveMessage({
         id: uid(),
         role: "user",
-        text: trimmed,
+        text: trimmed || "看看这张图",
+        imageUrl: image,
         createdAt: new Date().toISOString(),
       });
       pushAvatarDevtoolsLog("system", "chat send", {
         interruptedGeneration,
         contentLength: trimmed.length,
+        transport,
       });
-      ws.send(
-        JSON.stringify({
-          type: "chat",
-          content: trimmed,
-          // 世界情境（RW-P1-4）：仅 RemiWorld 传入，普通聊天为 undefined 不影响
-          ...(situational?.trim() ? { situational: situational.trim() } : {}),
-        }),
-      );
+      const content = trimmed || "看看这张图";
+      const wsChatPayload = {
+        type: "chat" as const,
+        content,
+        // 世界情境（RW-P1-4）：仅 RemiWorld 传入，普通聊天为 undefined 不影响
+        ...(situational?.trim() ? { situational: situational.trim() } : {}),
+        // 用户附带图片
+        ...(image ? { image } : {}),
+      };
+
+      if (transport === "sse") {
+        // Cancel any in-flight SSE turn (the server aborts the prior pipeline on
+        // request close), then stream the new one.
+        sseAbortRef.current?.abort();
+        const ac = new AbortController();
+        sseAbortRef.current = ac;
+        let sawReply = false;
+        void (async () => {
+          let authToken: string | null = null;
+          try {
+            authToken = await remiAuth.getSessionToken();
+          } catch {
+            /* anonymous / no token */
+          }
+          try {
+            const result = await getSseClient().send(content, {
+              sessionToken: sseSessionTokenRef.current,
+              authToken,
+              signal: ac.signal,
+              ...(situational?.trim() ? { situational: situational.trim() } : {}),
+              ...(image ? { image } : {}),
+              onEvent: (event) => {
+                if (event.type && event.type !== "session") sawReply = true;
+                onMessageRef.current({ data: JSON.stringify(event) } as MessageEvent);
+              },
+            });
+            if (result.sessionToken) sseSessionTokenRef.current = result.sessionToken;
+          } catch (err) {
+            if (ac.signal.aborted || sawReply) return;
+            // SSE failed before any reply — fall back to WS if it's open so the
+            // turn isn't silently dropped (honors the no-silent-fallback rule).
+            const wsNow = conn.wsRef.current;
+            if (wsNow && wsNow.readyState === WebSocket.OPEN) {
+              pushAvatarDevtoolsLog("system", "sse send failed, ws fallback", {
+                error: (err as Error)?.message,
+              });
+              wsNow.send(JSON.stringify(wsChatPayload));
+            } else {
+              onMessageRef.current({
+                data: JSON.stringify({ type: "error", content: "消息发送失败，请稍后重试" }),
+              } as MessageEvent);
+              waitingRef.current = false;
+              setWaiting(false);
+              setTyping(false);
+            }
+          }
+        })();
+      } else {
+        ws!.send(JSON.stringify(wsChatPayload));
+      }
       waitingRef.current = true;
       setWaiting(true);
       setTyping(true);
@@ -383,7 +504,10 @@ export function useRemiChat() {
       avatar,
       clearQueue,
       conn.wsRef,
+      getSseClient,
+      markServerTtsStreaming,
       msgs,
+      remiAuth,
       resetStreaming,
       turnEngine,
       unlockPlayback,
@@ -410,12 +534,17 @@ export function useRemiChat() {
       voiceStyleId?: string | null;
       speedModifier?: string | null;
       pitchModifier?: string | null;
+      ttsEnabled?: boolean;
     }) => {
       const ws = conn.wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (opts.ttsEnabled !== undefined) {
+        setTtsEnabled(opts.ttsEnabled);
+        return;
+      }
       ws.send(JSON.stringify({ type: "set_voice_style", ...opts }));
     },
-    [conn.wsRef],
+    [conn.wsRef, setTtsEnabled],
   );
 
   const loadMoreHistory = useCallback(() => {
@@ -554,6 +683,8 @@ export function useRemiChat() {
     sendText,
     sendWorldEvent,
     setVoiceStyle,
+    ttsEnabled,
+    setTtsEnabled,
     requestPersonaPreset,
     updatePersonaPreset,
     loadMoreHistory,

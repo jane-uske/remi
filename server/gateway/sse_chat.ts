@@ -11,6 +11,7 @@ import {
 } from "../session/pool";
 import { handleSessionTextChat } from "../session/text_chat";
 import { sendSessionHistoryPage, parseHistoryCursor } from "../session/history";
+import { isNsfwEnabled } from "../../brains/nsfw_mode";
 
 const logger = createLogger("sse-chat");
 
@@ -107,6 +108,7 @@ function sseHeaders(res: ServerResponse): void {
 interface ChatRequest {
   content: string;
   situational?: string;
+  image?: string;
 }
 
 async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -119,7 +121,9 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   let body: ChatRequest;
   try {
-    body = await readJsonBody<ChatRequest>(req);
+    // 10MB ceiling: text is tiny, but an attached image rides as a base64 data
+    // URL and easily exceeds the default 16KB limit.
+    body = await readJsonBody<ChatRequest>(req, 10 * 1024 * 1024);
   } catch {
     jsonError(res, 400, "Invalid request body");
     return;
@@ -162,6 +166,7 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   handleSessionTextChat(runtime, {
     content,
     situational: body.situational ?? null,
+    image: body.image ?? null,
   });
 
   req.on("close", () => {
@@ -171,6 +176,10 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   });
 
   await pipelineDone;
+  // Report current adult-mode state so the client UI (layout / theme) reflects a
+  // toggle made this turn. The WS-based nsfw notifier doesn't cover SSE pool
+  // connections, so without this an "开启成人模式" over SSE never flips the UI.
+  sink.send(JSON.stringify({ type: "nsfw_mode_state", enabled: isNsfwEnabled(entry.connId) }));
   sink.end();
 }
 

@@ -39,7 +39,7 @@ export const modeControlCapability: DirectCapability = {
     if (intent === "none") return { handled: false };
 
     const connId = request.ctx.connId;
-    setNsfw(connId, intent === "enable");
+    setNsfw(connId, intent === "enable", request.ctx.userId);
     logger.info("adult mode toggled", { connId, enabled: intent === "enable" });
 
     return {

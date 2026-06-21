@@ -6,6 +6,8 @@ export interface SessionTtsRuntimeOverride {
   mlxSpeedModifier?: string;
   /** Pitch modifier appended to instruct (e.g. "，语调偏高"). */
   mlxPitchModifier?: string;
+  /** When false, pipeline skips TTS for this session. Absent = enabled. */
+  ttsEnabled?: boolean;
 }
 
 const sessionTtsRuntimeOverrides = new Map<string, SessionTtsRuntimeOverride>();
@@ -16,7 +18,8 @@ function isEmpty(o: SessionTtsRuntimeOverride): boolean {
     !o.volcVoiceType &&
     !o.mlxVoiceStyleId &&
     !o.mlxSpeedModifier &&
-    !o.mlxPitchModifier
+    !o.mlxPitchModifier &&
+    o.ttsEnabled !== false
   );
 }
 
@@ -69,6 +72,30 @@ export function setSessionMlxPitchModifier(
   modifier?: string | null,
 ): void {
   upsert(connId, { mlxPitchModifier: modifier?.trim() || undefined });
+}
+
+export function setSessionTtsEnabled(
+  connId: string,
+  enabled?: boolean | null,
+): void {
+  const next: SessionTtsRuntimeOverride = {
+    ...(sessionTtsRuntimeOverrides.get(connId) ?? {}),
+  };
+  if (enabled === false) {
+    next.ttsEnabled = false;
+  } else {
+    delete next.ttsEnabled;
+  }
+  if (isEmpty(next)) {
+    sessionTtsRuntimeOverrides.delete(connId);
+  } else {
+    sessionTtsRuntimeOverrides.set(connId, next);
+  }
+}
+
+export function isSessionTtsEnabled(connId?: string | null): boolean {
+  if (!connId) return true;
+  return sessionTtsRuntimeOverrides.get(connId)?.ttsEnabled !== false;
 }
 
 export function clearSessionTtsRuntimeOverride(connId: string): void {

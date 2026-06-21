@@ -171,12 +171,25 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         if (ws.readyState === WebSocket.CONNECTING) {
           suppressDisconnectSysMsgRef.current = true;
           setConnLabel("连接超时");
-          params.appendLiveMessage({
-            id: uid(),
-            role: "error",
-            text:
-              "连接服务器超时。请确认已在仓库根目录运行「npm run dev」（默认端口 3000），或设置 NEXT_PUBLIC_WS_URL=ws://你的后端:端口/ws",
-          });
+          const isLocalDev = /localhost|127\.0\.0\.1/.test(getRemWsUrl() || "");
+          if (isLocalDev) {
+            // Local dev: keep the actionable troubleshooting hint.
+            params.appendLiveMessage({
+              id: uid(),
+              role: "error",
+              text:
+                "连接服务器超时。请确认已在仓库根目录运行「npm run dev」（默认端口 3000），或设置 NEXT_PUBLIC_WS_URL=ws://你的后端:端口/ws",
+            });
+          } else if (reconnectAttemptRef.current >= 2) {
+            // Hosted: a brief first-connect hiccup (e.g. right after a redeploy)
+            // auto-reconnects silently; only after repeated failures show a soft,
+            // non-alarming hint — never the dev-only "run npm run dev" message.
+            params.appendLiveMessage({
+              id: uid(),
+              role: "sys",
+              text: "网络不太稳定，正在重新连接…",
+            });
+          }
           ws.close();
         }
       }, WS_CONNECT_TIMEOUT_MS);
