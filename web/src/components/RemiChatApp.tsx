@@ -5,11 +5,11 @@ import { RemiAccountMenu } from "@/components/RemiAccountMenu";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { CharacterStage } from "@/components/CharacterStage";
 import { ChatWindow } from "@/components/ChatWindow";
-import { InputBar } from "@/components/InputBar";
+import { RemiChatComposer } from "@/components/RemiChatComposer";
 import { PresetControlPanel } from "@/components/PresetControlPanel";
 import { RemiMobileControlRail } from "@/components/RemiMobileControlRail";
 import { VoiceIndicator } from "@/components/VoiceIndicator";
-import { VoiceStylePicker } from "@/components/VoiceStylePicker";
+
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { remiChatLayoutForNsfw } from "@/components/remiChatLayout";
 import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
@@ -89,6 +89,8 @@ export function RemiChatApp() {
     historyMutationNonce,
     sttPartialText,
     streamingText,
+    typing,
+    waiting,
     runtimeState,
     avatarRenderModel,
     inputPlaceholder,
@@ -101,7 +103,6 @@ export function RemiChatApp() {
     sendText,
     loadMoreHistory,
     applyDevPreset,
-    applyDevVolcVoiceType,
     resetDevState,
     devStatus,
     devCommandPending,
@@ -109,6 +110,8 @@ export function RemiChatApp() {
     unlockAudio,
     nsfwEnabled,
     setVoiceStyle,
+    ttsEnabled,
+    setTtsEnabled,
   } = useRemiChat();
   const [showDevtools, setShowDevtools] = useState(false);
   const [showPresetPanel, setShowPresetPanel] = useState(false);
@@ -120,6 +123,11 @@ export function RemiChatApp() {
   const chatWindowStatus = useMemo(
     () => selectChatWindowStatus(runtimeState),
     [runtimeState],
+  );
+  const awaitingAssistantReply = useMemo(
+    () =>
+      (waiting || typing) && streamingText.trim().length === 0,
+    [streamingText, typing, waiting],
   );
   const performanceModel = useMemo(
     () =>
@@ -236,7 +244,6 @@ export function RemiChatApp() {
                     <PresetControlPanel
                       connected={connected}
                       onApply={applyDevPreset}
-                      onApplyVolcVoiceType={applyDevVolcVoiceType}
                       onReset={resetDevState}
                       devStatus={devStatus}
                       busy={devCommandPending}
@@ -306,6 +313,7 @@ export function RemiChatApp() {
                 streamingText={streamingText}
                 statusModel={chatWindowStatus}
                 performanceModel={performanceModel}
+                awaitingAssistantReply={awaitingAssistantReply}
                 immersive={nsfwEnabled}
               />
             </div>
@@ -323,35 +331,22 @@ export function RemiChatApp() {
                 </div>
               ) : null}
               <div className={layout.chatComposerDock}>
-                <div className="relative flex w-full items-end gap-1.5">
-                  <button
-                    type="button"
-                    title="音色风格"
-                    onClick={() => setShowVoiceStylePicker((v) => !v)}
-                    className={`mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm transition ${
-                      showVoiceStylePicker
-                        ? "bg-white/20 text-white"
-                        : "bg-transparent text-white/30 hover:bg-white/10 hover:text-white/50"
-                    }`}
-                  >
-                    🎵
-                  </button>
-                  <div className="relative min-w-0 flex-1">
-                    <VoiceStylePicker
-                      open={showVoiceStylePicker}
-                      onClose={() => setShowVoiceStylePicker(false)}
-                      setVoiceStyle={setVoiceStyle}
-                    />
-                    <InputBar
-                      onSend={sendText}
-                      onMicToggle={toggleMic}
-                      disabled={inputDisabled}
-                      micDisabled={micDisabled}
-                      recording={runtimeState.user.recording}
-                      placeholder={inputPlaceholder}
-                    />
-                  </div>
-                </div>
+                <RemiChatComposer
+                  onSend={sendText}
+                  onMicToggle={toggleMic}
+                  disabled={inputDisabled}
+                  micDisabled={micDisabled}
+                  recording={runtimeState.user.recording}
+                  placeholder={inputPlaceholder}
+                  setVoiceStyle={setVoiceStyle}
+                  ttsEnabled={ttsEnabled}
+                  onTtsEnabledChange={setTtsEnabled}
+                  voiceStyleOpen={showVoiceStylePicker}
+                  onVoiceStyleToggle={() =>
+                    setShowVoiceStylePicker((value) => !value)
+                  }
+                  onVoiceStyleClose={() => setShowVoiceStylePicker(false)}
+                />
               </div>
             </div>
           </section>

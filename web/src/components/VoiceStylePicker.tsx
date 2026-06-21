@@ -13,7 +13,7 @@ import { useCallback, useState } from "react";
  * (the parent should gate visibility accordingly).
  * ──────────────────────────────────────────────────────────────────────── */
 
-const PRESETS = [
+export const VOICE_STYLE_PRESETS = [
   { id: "default", label: "默认", emoji: "🎙️" },
   { id: "yujie", label: "御姐", emoji: "👩‍💼" },
   { id: "luoli", label: "萝莉", emoji: "🧸" },
@@ -22,6 +22,12 @@ const PRESETS = [
   { id: "lengku", label: "冷酷", emoji: "🧊" },
   { id: "wumei", label: "妩媚", emoji: "💋" },
 ] as const;
+
+export function voiceStyleLabelForId(id: string): string {
+  return (
+    VOICE_STYLE_PRESETS.find((preset) => preset.id === id)?.label ?? "默认"
+  );
+}
 
 const SPEED_LEVELS = [
   { value: null, label: "正常" },
@@ -38,24 +44,41 @@ const PITCH_LEVELS = [
 export type VoiceStylePickerProps = {
   open: boolean;
   onClose: () => void;
+  activePresetId?: string;
+  onPresetChange?: (presetId: string) => void;
   setVoiceStyle: (opts: {
     voiceStyleId?: string | null;
     speedModifier?: string | null;
     pitchModifier?: string | null;
+    ttsEnabled?: boolean;
   }) => void;
+  ttsEnabled?: boolean;
+  onTtsEnabledChange?: (enabled: boolean) => void;
 };
 
-export function VoiceStylePicker({ open, onClose, setVoiceStyle }: VoiceStylePickerProps) {
-  const [activePreset, setActivePreset] = useState("default");
+export function VoiceStylePicker({
+  open,
+  onClose,
+  activePresetId: activePresetIdProp,
+  onPresetChange,
+  setVoiceStyle,
+  ttsEnabled = true,
+  onTtsEnabledChange,
+}: VoiceStylePickerProps) {
+  const [activePresetInternal, setActivePresetInternal] = useState("default");
+  const activePreset = activePresetIdProp ?? activePresetInternal;
   const [speedIdx, setSpeedIdx] = useState(0);
   const [pitchIdx, setPitchIdx] = useState(0);
 
   const selectPreset = useCallback(
     (id: string) => {
-      setActivePreset(id);
+      if (activePresetIdProp == null) {
+        setActivePresetInternal(id);
+      }
+      onPresetChange?.(id);
       setVoiceStyle({ voiceStyleId: id === "default" ? null : id });
     },
-    [setVoiceStyle],
+    [activePresetIdProp, onPresetChange, setVoiceStyle],
   );
 
   const selectSpeed = useCallback(
@@ -74,38 +97,72 @@ export function VoiceStylePicker({ open, onClose, setVoiceStyle }: VoiceStylePic
     [setVoiceStyle],
   );
 
+  const selectTtsEnabled = useCallback(
+    (enabled: boolean) => {
+      onTtsEnabledChange?.(enabled);
+      if (!onTtsEnabledChange) {
+        setVoiceStyle({ ttsEnabled: enabled });
+      }
+    },
+    [onTtsEnabledChange, setVoiceStyle],
+  );
+
   if (!open) return null;
 
   return (
     <div
-      className="absolute bottom-full left-0 right-0 z-50 mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200"
+      className="absolute bottom-full left-0 right-0 z-50 mb-2 w-full min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-200"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="mx-auto w-[min(94vw,28rem)] rounded-2xl border border-white/10 bg-black/80 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl">
-        {/* Header */}
+      <div className="remi-voice-style-picker box-border w-full max-w-full border p-3 backdrop-blur-xl">
         <div className="mb-2.5 flex items-center justify-between">
-          <span className="text-xs font-medium text-white/60">🎵 音色风格</span>
+          <span className="text-xs font-medium text-[var(--remi-input-muted)]">
+            🎵 音色风格
+          </span>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white/70"
+            className="remi-voice-style-picker-close flex h-6 w-6 items-center justify-center rounded-full transition"
             aria-label="关闭"
           >
             ✕
           </button>
         </div>
 
-        {/* Preset pills */}
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {PRESETS.map((p) => (
+        <div className="mb-3">
+          <span className="mb-1 block text-[10px] text-[var(--remi-input-muted)]">
+            声音
+          </span>
+          <div className="flex min-w-0 gap-1">
+            <button
+              type="button"
+              onClick={() => selectTtsEnabled(true)}
+              className={`remi-voice-style-option flex-1 ${
+                ttsEnabled ? "remi-voice-style-option--active" : ""
+              }`}
+            >
+              🔊 打开声音
+            </button>
+            <button
+              type="button"
+              onClick={() => selectTtsEnabled(false)}
+              className={`remi-voice-style-option flex-1 ${
+                !ttsEnabled ? "remi-voice-style-option--active" : ""
+              }`}
+            >
+              🔇 关闭声音
+            </button>
+          </div>
+        </div>
+
+        <div className="remi-voice-style-pills mb-3">
+          {VOICE_STYLE_PRESETS.map((p) => (
             <button
               key={p.id}
               type="button"
               onClick={() => selectPreset(p.id)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                activePreset === p.id
-                  ? "bg-white/20 text-white shadow-sm"
-                  : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+              className={`remi-voice-style-pill ${
+                activePreset === p.id ? "remi-voice-style-pill--active" : ""
               }`}
             >
               {p.emoji} {p.label}
@@ -113,20 +170,19 @@ export function VoiceStylePicker({ open, onClose, setVoiceStyle }: VoiceStylePic
           ))}
         </div>
 
-        {/* Speed + Pitch row */}
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <span className="mb-1 block text-[10px] text-white/40">语速</span>
-            <div className="flex gap-1">
+        <div className="remi-voice-style-tuning flex min-w-0 flex-col gap-3 sm:flex-row sm:gap-4">
+          <div className="min-w-0 flex-1">
+            <span className="mb-1 block text-[10px] text-[var(--remi-input-muted)]">
+              语速
+            </span>
+            <div className="flex min-w-0 gap-1">
               {SPEED_LEVELS.map((s, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => selectSpeed(i)}
-                  className={`flex-1 rounded-lg px-2 py-1 text-[11px] transition ${
-                    speedIdx === i
-                      ? "bg-white/15 text-white"
-                      : "bg-white/5 text-white/40 hover:bg-white/10"
+                  className={`remi-voice-style-option flex-1 ${
+                    speedIdx === i ? "remi-voice-style-option--active" : ""
                   }`}
                 >
                   {s.label}
@@ -134,18 +190,18 @@ export function VoiceStylePicker({ open, onClose, setVoiceStyle }: VoiceStylePic
               ))}
             </div>
           </div>
-          <div className="flex-1">
-            <span className="mb-1 block text-[10px] text-white/40">音调</span>
-            <div className="flex gap-1">
+          <div className="min-w-0 flex-1">
+            <span className="mb-1 block text-[10px] text-[var(--remi-input-muted)]">
+              音调
+            </span>
+            <div className="flex min-w-0 gap-1">
               {PITCH_LEVELS.map((p, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => selectPitch(i)}
-                  className={`flex-1 rounded-lg px-2 py-1 text-[11px] transition ${
-                    pitchIdx === i
-                      ? "bg-white/15 text-white"
-                      : "bg-white/5 text-white/40 hover:bg-white/10"
+                  className={`remi-voice-style-option flex-1 ${
+                    pitchIdx === i ? "remi-voice-style-option--active" : ""
                   }`}
                 >
                   {p.label}

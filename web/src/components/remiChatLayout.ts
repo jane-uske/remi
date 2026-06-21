@@ -20,7 +20,7 @@ export const remiChatLayoutClasses = {
   chatComposerDock:
     "shrink-0 border-transparent bg-transparent px-0 py-0 backdrop-blur-0 md:px-3 md:py-3",
   chatComposerFrame:
-    "pointer-events-auto mx-auto w-full max-w-[min(100%,34rem)] shrink-0 px-0 md:max-w-none",
+    "pointer-events-auto mx-auto w-full min-w-0 max-w-[min(100%,34rem)] shrink-0 overflow-visible px-0 md:max-w-none",
 } as const;
 
 const nsfwChatLayoutClasses = {

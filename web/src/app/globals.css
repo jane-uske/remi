@@ -63,13 +63,15 @@ html {
   --remi-chat-card-shadow: 0 28px 72px rgba(0, 0, 0, 0.18);
   --remi-hero-panel-bg: rgba(10, 75, 93, 0.18);
   --remi-hero-panel-border: rgba(255, 255, 255, 0.1);
-  --remi-input-shell-bg: rgba(8, 21, 30, 0.52);
-  --remi-input-shell-border: rgba(202, 239, 244, 0.14);
-  --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 14px 32px rgba(0, 0, 0, 0.12);
+  --remi-input-shell-bg: rgba(6, 14, 22, 0.62);
+  --remi-input-shell-border: rgba(148, 210, 228, 0.18);
+  --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 40px rgba(0, 0, 0, 0.22);
+  --remi-input-track-bg: rgba(0, 0, 0, 0.34);
+  --remi-input-track-border: rgba(255, 255, 255, 0.06);
   --remi-input-text: #eefcff;
-  --remi-input-placeholder: #9dc7cf;
-  --remi-input-muted: #9dc7cf;
+  --remi-input-placeholder: rgba(157, 199, 207, 0.72);
+  --remi-input-muted: #8eb8c2;
   --remi-account-trigger-bg: rgba(8, 22, 30, 0.56);
   --remi-account-trigger-hover: rgba(8, 22, 30, 0.72);
   --remi-account-trigger-border: rgba(210, 241, 246, 0.08);
@@ -96,12 +98,28 @@ html {
   --remi-glass-edge: rgba(255, 255, 255, 0.12);
   --remi-hero-panel-kicker: #9fd1db;
   --remi-hero-panel-text: #eefcff;
-  --remi-mic-button-bg: rgba(255, 255, 255, 0.06);
-  --remi-mic-button-hover: rgba(255, 255, 255, 0.11);
-  --remi-mic-button-border: rgba(255, 255, 255, 0.12);
-  --remi-send-button-bg: linear-gradient(180deg, #b9eff8, #68bfd2);
-  --remi-send-button-fg: #083846;
-  --remi-send-button-shadow: 0 10px 24px rgba(80, 196, 220, 0.25);
+  --remi-mic-button-bg: rgba(255, 255, 255, 0.07);
+  --remi-mic-button-hover: rgba(255, 255, 255, 0.14);
+  --remi-mic-button-border: rgba(255, 255, 255, 0.1);
+  --remi-send-button-bg: linear-gradient(135deg, #1a3d5c 0%, #2a6f8f 52%, #3d9ab8 100%);
+  --remi-send-button-bg-active: linear-gradient(135deg, #224f75 0%, #3589ad 52%, #4eb5d4 100%);
+  --remi-send-button-fg: #f0fbff;
+  --remi-send-button-shadow: 0 10px 26px rgba(42, 130, 168, 0.32);
+  --remi-composer-addon-bg: rgba(6, 14, 22, 0.5);
+  --remi-composer-addon-border: rgba(148, 210, 228, 0.14);
+  --remi-composer-ground-bg: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(6, 14, 22, 0.48) 42%,
+    rgba(6, 14, 22, 0.78) 100%
+  );
+  --remi-composer-tertiary-bg: rgba(255, 255, 255, 0.06);
+  --remi-composer-tertiary-border: rgba(148, 210, 228, 0.12);
+  --remi-composer-attachment-bg: rgba(0, 0, 0, 0.22);
+  --remi-composer-send-idle-bg: rgba(255, 255, 255, 0.08);
+  --remi-composer-send-idle-fg: rgba(157, 199, 207, 0.45);
+  --remi-composer-radius: 1.75rem;
+  --remi-composer-radius-inner: 1rem;
 }
 
 :root[data-theme="light"] {
@@ -147,13 +165,15 @@ html {
   --remi-chat-card-shadow: 0 18px 50px rgba(26, 50, 57, 0.08);
   --remi-hero-panel-bg: rgba(255, 255, 255, 0.5);
   --remi-hero-panel-border: rgba(8, 96, 120, 0.12);
-  --remi-input-shell-bg: rgba(255, 255, 255, 0.42);
-  --remi-input-shell-border: rgba(8, 96, 120, 0.12);
-  --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 12px 28px rgba(26, 50, 57, 0.08);
+  --remi-input-shell-bg: rgba(255, 255, 255, 0.58);
+  --remi-input-shell-border: rgba(8, 96, 120, 0.14);
+  --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 14px 32px rgba(26, 50, 57, 0.1);
+  --remi-input-track-bg: rgba(8, 96, 120, 0.06);
+  --remi-input-track-border: rgba(8, 96, 120, 0.08);
   --remi-input-text: #15414b;
-  --remi-input-placeholder: #5d7d85;
-  --remi-input-muted: #517079;
+  --remi-input-placeholder: rgba(93, 125, 133, 0.72);
+  --remi-input-muted: #5a8089;
   --remi-account-trigger-bg: rgba(255, 255, 255, 0.72);
   --remi-account-trigger-hover: rgba(255, 255, 255, 0.86);
   --remi-account-trigger-border: rgba(8, 96, 120, 0.12);
@@ -180,12 +200,26 @@ html {
   --remi-glass-edge: rgba(8, 96, 120, 0.12);
   --remi-hero-panel-kicker: #3b7380;
   --remi-hero-panel-text: #133f48;
-  --remi-mic-button-bg: rgba(255, 255, 255, 0.58);
-  --remi-mic-button-hover: rgba(255, 255, 255, 0.72);
-  --remi-mic-button-border: rgba(8, 96, 120, 0.16);
-  --remi-send-button-bg: linear-gradient(180deg, #b6eef6, #6ec6d8);
-  --remi-send-button-fg: #0f4250;
-  --remi-send-button-shadow: 0 10px 24px rgba(67, 161, 180, 0.18);
+  --remi-mic-button-bg: rgba(255, 255, 255, 0.62);
+  --remi-mic-button-hover: rgba(255, 255, 255, 0.78);
+  --remi-mic-button-border: rgba(8, 96, 120, 0.14);
+  --remi-send-button-bg: linear-gradient(135deg, #1f6f88 0%, #2f9ab5 52%, #4eb8d4 100%);
+  --remi-send-button-bg-active: linear-gradient(135deg, #26829e 0%, #3aacca 52%, #5ec8e2 100%);
+  --remi-send-button-fg: #ffffff;
+  --remi-send-button-shadow: 0 10px 24px rgba(47, 154, 181, 0.22);
+  --remi-composer-addon-bg: rgba(255, 255, 255, 0.52);
+  --remi-composer-addon-border: rgba(8, 96, 120, 0.12);
+  --remi-composer-ground-bg: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(232, 244, 244, 0.72) 42%,
+    rgba(227, 239, 237, 0.92) 100%
+  );
+  --remi-composer-tertiary-bg: rgba(255, 255, 255, 0.58);
+  --remi-composer-tertiary-border: rgba(8, 96, 120, 0.12);
+  --remi-composer-attachment-bg: rgba(8, 96, 120, 0.05);
+  --remi-composer-send-idle-bg: rgba(8, 96, 120, 0.06);
+  --remi-composer-send-idle-fg: rgba(93, 125, 133, 0.45);
   color-scheme: light;
 }
 
@@ -233,13 +267,15 @@ html {
     --remi-chat-card-shadow: 0 18px 50px rgba(26, 50, 57, 0.08);
     --remi-hero-panel-bg: rgba(255, 255, 255, 0.5);
     --remi-hero-panel-border: rgba(8, 96, 120, 0.12);
-    --remi-input-shell-bg: rgba(255, 255, 255, 0.42);
-    --remi-input-shell-border: rgba(8, 96, 120, 0.12);
-    --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24),
-      0 12px 28px rgba(26, 50, 57, 0.08);
+    --remi-input-shell-bg: rgba(255, 255, 255, 0.58);
+    --remi-input-shell-border: rgba(8, 96, 120, 0.14);
+    --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      0 14px 32px rgba(26, 50, 57, 0.1);
+    --remi-input-track-bg: rgba(8, 96, 120, 0.06);
+    --remi-input-track-border: rgba(8, 96, 120, 0.08);
     --remi-input-text: #15414b;
-    --remi-input-placeholder: #5d7d85;
-    --remi-input-muted: #517079;
+    --remi-input-placeholder: rgba(93, 125, 133, 0.72);
+    --remi-input-muted: #5a8089;
     --remi-account-trigger-bg: rgba(255, 255, 255, 0.72);
     --remi-account-trigger-hover: rgba(255, 255, 255, 0.86);
     --remi-account-trigger-border: rgba(8, 96, 120, 0.12);
@@ -266,12 +302,26 @@ html {
     --remi-glass-edge: rgba(8, 96, 120, 0.12);
     --remi-hero-panel-kicker: #3b7380;
     --remi-hero-panel-text: #133f48;
-    --remi-mic-button-bg: rgba(255, 255, 255, 0.58);
-    --remi-mic-button-hover: rgba(255, 255, 255, 0.72);
-    --remi-mic-button-border: rgba(8, 96, 120, 0.16);
-    --remi-send-button-bg: linear-gradient(180deg, #b6eef6, #6ec6d8);
-    --remi-send-button-fg: #0f4250;
-    --remi-send-button-shadow: 0 10px 24px rgba(67, 161, 180, 0.18);
+    --remi-mic-button-bg: rgba(255, 255, 255, 0.62);
+    --remi-mic-button-hover: rgba(255, 255, 255, 0.78);
+    --remi-mic-button-border: rgba(8, 96, 120, 0.14);
+    --remi-send-button-bg: linear-gradient(135deg, #1f6f88 0%, #2f9ab5 52%, #4eb8d4 100%);
+    --remi-send-button-bg-active: linear-gradient(135deg, #26829e 0%, #3aacca 52%, #5ec8e2 100%);
+    --remi-send-button-fg: #ffffff;
+    --remi-send-button-shadow: 0 10px 24px rgba(47, 154, 181, 0.22);
+    --remi-composer-addon-bg: rgba(255, 255, 255, 0.52);
+    --remi-composer-addon-border: rgba(8, 96, 120, 0.12);
+    --remi-composer-ground-bg: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(232, 244, 244, 0.72) 42%,
+      rgba(227, 239, 237, 0.92) 100%
+    );
+    --remi-composer-tertiary-bg: rgba(255, 255, 255, 0.58);
+    --remi-composer-tertiary-border: rgba(8, 96, 120, 0.12);
+    --remi-composer-attachment-bg: rgba(8, 96, 120, 0.05);
+    --remi-composer-send-idle-bg: rgba(8, 96, 120, 0.06);
+    --remi-composer-send-idle-fg: rgba(93, 125, 133, 0.45);
     color-scheme: light;
   }
 }
@@ -564,6 +614,233 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 
 .remi-mic-pulse {
   animation: remMicPulse 1s ease-in-out infinite;
+}
+
+.remi-input-composer {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.remi-input-composer:focus-within {
+  border-color: rgba(125, 211, 252, 0.28);
+  box-shadow:
+    var(--remi-input-shell-shadow),
+    0 0 0 1px rgba(125, 211, 252, 0.12);
+}
+
+.remi-input-send {
+  background: var(--remi-send-button-bg);
+}
+
+.remi-input-send[data-ready="true"] {
+  background: var(--remi-send-button-bg-active);
+}
+
+@media (max-width: 767px) {
+  .remi-composer-ground {
+    padding-top: 0.75rem;
+    background: var(--remi-composer-ground-bg);
+  }
+}
+
+.remi-composer-tertiary-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--remi-composer-tertiary-border);
+  background: var(--remi-composer-tertiary-bg);
+  color: var(--remi-input-muted);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.remi-composer-tertiary-btn:hover:not(:disabled) {
+  color: var(--remi-input-text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.remi-composer-tertiary-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.remi-composer-attachment {
+  background: var(--remi-composer-attachment-bg);
+}
+
+.remi-input-composer--unified[data-composer-rows="stacked"] > .remi-composer-attachment {
+  border-top-left-radius: calc(var(--remi-composer-radius) - 1px);
+  border-top-right-radius: calc(var(--remi-composer-radius) - 1px);
+}
+
+.remi-composer-attachment-thumb {
+  border-radius: var(--remi-composer-radius-inner);
+}
+
+.remi-input-composer--unified {
+  border-radius: var(--remi-composer-radius);
+  background: var(--remi-input-shell-bg);
+  border-color: var(--remi-input-shell-border);
+  box-shadow: var(--remi-input-shell-shadow);
+}
+
+.remi-input-composer--unified:focus-within {
+  border-color: rgba(125, 211, 252, 0.28);
+  box-shadow:
+    var(--remi-input-shell-shadow),
+    0 0 0 1px rgba(45, 212, 191, 0.14);
+}
+
+.remi-input-composer--unified .remi-composer-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  color: var(--remi-input-muted);
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.remi-input-composer--unified .remi-composer-icon-btn:hover:not(:disabled) {
+  color: var(--remi-input-text);
+  background: var(--remi-mic-button-hover);
+}
+
+.remi-input-composer--unified .remi-composer-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.25rem 0.375rem;
+  border-radius: var(--remi-composer-radius-inner);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--remi-input-muted);
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.remi-input-composer--unified .remi-composer-menu-btn:hover,
+.remi-input-composer--unified .remi-composer-menu-btn[aria-pressed="true"] {
+  color: var(--remi-input-text);
+  background: rgba(45, 212, 191, 0.1);
+}
+
+.remi-input-composer--unified .remi-composer-icon-btn,
+.remi-input-composer--unified .remi-input-send {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.remi-input-composer--unified .remi-composer-menu-btn {
+  align-self: center;
+}
+
+.remi-input-composer--unified .remi-input-send {
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+}
+
+.remi-input-composer--unified .remi-input-send[data-ready="true"] {
+  background: var(--remi-send-button-bg-active);
+  color: var(--remi-send-button-fg);
+  box-shadow: var(--remi-send-button-shadow);
+}
+
+.remi-input-composer--unified .remi-input-send[data-ready="false"] {
+  background: var(--remi-composer-send-idle-bg);
+  color: var(--remi-composer-send-idle-fg);
+  box-shadow: none;
+}
+
+.remi-voice-style-picker {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--remi-composer-radius);
+  border-color: var(--remi-account-menu-border);
+  background: var(--remi-account-menu-bg);
+  box-shadow: var(--remi-chat-card-shadow);
+}
+
+.remi-voice-style-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.remi-voice-style-tuning {
+  width: 100%;
+  min-width: 0;
+}
+
+.remi-voice-style-picker-close {
+  color: var(--remi-input-muted);
+}
+
+.remi-voice-style-picker-close:hover {
+  color: var(--remi-input-text);
+  background: var(--remi-mic-button-hover);
+}
+
+.remi-voice-style-pill,
+.remi-voice-style-option {
+  border: 1px solid transparent;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.remi-voice-style-pill {
+  border-radius: 9999px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--remi-input-muted);
+  background: var(--remi-composer-tertiary-bg);
+}
+
+.remi-voice-style-pill:hover {
+  color: var(--remi-input-text);
+  background: var(--remi-mic-button-hover);
+}
+
+.remi-voice-style-pill--active {
+  color: var(--remi-input-text);
+  background: rgba(45, 212, 191, 0.16);
+  border-color: rgba(45, 212, 191, 0.28);
+}
+
+.remi-voice-style-option {
+  min-width: 0;
+  border-radius: var(--remi-composer-radius-inner);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--remi-input-muted);
+  background: var(--remi-composer-tertiary-bg);
+}
+
+.remi-voice-style-option:hover {
+  color: var(--remi-input-text);
+  background: var(--remi-mic-button-hover);
+}
+
+.remi-voice-style-option--active {
+  color: var(--remi-input-text);
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.22);
 }
 
 @keyframes remPortraitFloat {
