@@ -41,7 +41,7 @@
     "migrate:down": "node-pg-migrate down --database-url-var DATABASE_URL --migrations-dir migrations",
     "migrate:create": "node-pg-migrate create --migrations-dir migrations",
     "build": "npm run build --prefix web && tsc",
-    "test": "mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
+    "test": "NODE_OPTIONS=\"--no-experimental-strip-types\" mocha --require ts-node/register/transpile-only \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "start": "NODE_ENV=production node dist/server/server.js",
     "web:build": "npm run build --prefix web",

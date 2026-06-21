@@ -14,7 +14,8 @@
 | 远程开发 / Tunnel | [ops/REMOTE_DEV.md](ops/REMOTE_DEV.md) |
 | 改模块边界、分层 | [design/ARCHITECTURE.md](design/ARCHITECTURE.md) |
 | 改实时链路、延迟 | [design/PIPELINE.md](design/PIPELINE.md) |
-| 改记忆系统 | [design/MEMORY_V2_DESIGN.md](design/MEMORY_V2_DESIGN.md) |
+| 改记忆系统（现状） | [design/MEMORY_V2_DESIGN.md](design/MEMORY_V2_DESIGN.md) |
+| 记忆 / 时间感 / 主动打招呼（路线图） | [design/MEMORY_V3_DESIGN.md](design/MEMORY_V3_DESIGN.md) |
 | 改语音链路 | [design/VOICE_ROADMAP.md](design/VOICE_ROADMAP.md) |
 | 世界线 / RemiWorld 终局 | [design/REMIWORLD_NORTH_STAR.md](design/REMIWORLD_NORTH_STAR.md) |
 | 写插件 | [guides/PLUGIN_GUIDE.md](guides/PLUGIN_GUIDE.md) |
@@ -75,7 +76,8 @@ docs/
 |------|------|
 | [ARCHITECTURE.md](design/ARCHITECTURE.md) | 模块分层与目录地图 |
 | [PIPELINE.md](design/PIPELINE.md) | 实时对话管道 |
-| [MEMORY_V2_DESIGN.md](design/MEMORY_V2_DESIGN.md) | 记忆 V2 |
+| [MEMORY_V2_DESIGN.md](design/MEMORY_V2_DESIGN.md) | 记忆 V2（已交付现状） |
+| [MEMORY_V3_DESIGN.md](design/MEMORY_V3_DESIGN.md) | 记忆 V3（提案）：分层缓存 + bi-temporal 时间感 + 主动发起引擎 |
 | [VOICE_ROADMAP.md](design/VOICE_ROADMAP.md) | 语音路线图 |
 | [REMIWORLD_NORTH_STAR.md](design/REMIWORLD_NORTH_STAR.md) | 世界线北极星 |
 | [DESKTOP_MULTI_DEVICE_CLERK.md](design/DESKTOP_MULTI_DEVICE_CLERK.md) | 桌面多端 Clerk |

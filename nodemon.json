@@ -6,6 +6,7 @@
     "avatar",
     "brain",
     "brains",
+    "capabilities",
     "voice",
     "memory",
     "emotion",
@@ -14,5 +15,5 @@
     "utils"
   ],
   "ext": "ts,json",
-  "exec": "ts-node server/server.ts"
+  "exec": "ts-node --transpile-only server/server.ts"
 }

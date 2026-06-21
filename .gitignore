@@ -46,3 +46,4 @@ test-websocket.js
 whisper-server-*.wav
 whisper-server-*.wav_temp.wav
 xcuserdata/
+ios/RemiChatLite/build/
