@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import {
+  readStoredVoiceSpeed,
+  readStoredVoicePitch,
+  writeStoredVoiceSpeed,
+  writeStoredVoicePitch,
+} from "@/hooks/useRemiChatHelpers";
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Voice style picker — small floating panel near the input bar.
@@ -29,13 +35,13 @@ export function voiceStyleLabelForId(id: string): string {
   );
 }
 
-const SPEED_LEVELS = [
+export const SPEED_LEVELS = [
   { value: null, label: "正常" },
   { value: "，语速偏慢", label: "慢" },
   { value: "，语速偏快", label: "快" },
 ] as const;
 
-const PITCH_LEVELS = [
+export const PITCH_LEVELS = [
   { value: null, label: "正常" },
   { value: "，语调偏低沉", label: "低沉" },
   { value: "，语调偏高", label: "偏高" },
@@ -67,8 +73,8 @@ export function VoiceStylePicker({
 }: VoiceStylePickerProps) {
   const [activePresetInternal, setActivePresetInternal] = useState("default");
   const activePreset = activePresetIdProp ?? activePresetInternal;
-  const [speedIdx, setSpeedIdx] = useState(0);
-  const [pitchIdx, setPitchIdx] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState(() => readStoredVoiceSpeed());
+  const [pitchIdx, setPitchIdx] = useState(() => readStoredVoicePitch());
 
   const selectPreset = useCallback(
     (id: string) => {
@@ -84,6 +90,7 @@ export function VoiceStylePicker({
   const selectSpeed = useCallback(
     (idx: number) => {
       setSpeedIdx(idx);
+      writeStoredVoiceSpeed(idx);
       setVoiceStyle({ speedModifier: SPEED_LEVELS[idx].value });
     },
     [setVoiceStyle],
@@ -92,6 +99,7 @@ export function VoiceStylePicker({
   const selectPitch = useCallback(
     (idx: number) => {
       setPitchIdx(idx);
+      writeStoredVoicePitch(idx);
       setVoiceStyle({ pitchModifier: PITCH_LEVELS[idx].value });
     },
     [setVoiceStyle],

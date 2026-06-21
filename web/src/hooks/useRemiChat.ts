@@ -12,11 +12,15 @@ import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import {
   mergeChatMessageLists,
   readStoredTtsEnabled,
+  readStoredVoiceStyle,
+  readStoredVoiceSpeed,
+  readStoredVoicePitch,
   resolveMessageStorageKey,
   uid,
   writeStoredTtsEnabled,
 } from "./useRemiChatHelpers";
 import { stripEmotionTags } from "@/lib/chat/stripEmotionTags";
+import { SPEED_LEVELS, PITCH_LEVELS } from "@/components/VoiceStylePicker";
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
 import { useRemiConnection } from "./useRemiConnection";
 import { useRemiMessages } from "./useRemiMessages";
@@ -165,6 +169,22 @@ export function useRemiChat() {
     },
     [],
   );
+
+  const syncStoredVoiceStyleToServer = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const styleId = readStoredVoiceStyle();
+    const speedIdx = readStoredVoiceSpeed();
+    const pitchIdx = readStoredVoicePitch();
+    const isDefault =
+      styleId === "default" && speedIdx === 0 && pitchIdx === 0;
+    if (isDefault) return; // nothing to restore
+    const payload: Record<string, unknown> = { type: "set_voice_style" };
+    if (styleId !== "default") payload.voiceStyleId = styleId;
+    if (speedIdx !== 0) payload.speedModifier = SPEED_LEVELS[speedIdx]?.value ?? null;
+    if (pitchIdx !== 0) payload.pitchModifier = PITCH_LEVELS[pitchIdx]?.value ?? null;
+    ws.send(JSON.stringify(payload));
+  }, []);
 
   const setTtsEnabled = useCallback(
     (enabled: boolean) => {
@@ -352,6 +372,7 @@ export function useRemiChat() {
   const conn = useRemiConnection({
     onOpenExtras: () => {
       syncTtsEnabledToServer(ttsEnabledRef.current);
+      syncStoredVoiceStyleToServer();
     },
     onCloseExtras: () => {},
     onErrorExtras: () => {},

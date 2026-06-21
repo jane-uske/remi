@@ -73,6 +73,62 @@ export function writeStoredTtsEnabled(enabled: boolean): void {
   }
 }
 
+// ── Voice style persistence ──────────────────────────────────────────
+
+export const REMI_VOICE_STYLE_STORAGE_KEY = "remi_voice_style_preset";
+export const REMI_VOICE_SPEED_STORAGE_KEY = "remi_voice_speed";
+export const REMI_VOICE_PITCH_STORAGE_KEY = "remi_voice_pitch";
+
+export function readStoredVoiceStyle(): string {
+  if (typeof window === "undefined") return "default";
+  try {
+    return window.localStorage.getItem(REMI_VOICE_STYLE_STORAGE_KEY) || "default";
+  } catch {
+    return "default";
+  }
+}
+
+export function writeStoredVoiceStyle(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMI_VOICE_STYLE_STORAGE_KEY, id);
+  } catch { /* noop */ }
+}
+
+export function readStoredVoiceSpeed(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const v = window.localStorage.getItem(REMI_VOICE_SPEED_STORAGE_KEY);
+    return v != null ? parseInt(v, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeStoredVoiceSpeed(idx: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMI_VOICE_SPEED_STORAGE_KEY, String(idx));
+  } catch { /* noop */ }
+}
+
+export function readStoredVoicePitch(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const v = window.localStorage.getItem(REMI_VOICE_PITCH_STORAGE_KEY);
+    return v != null ? parseInt(v, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeStoredVoicePitch(idx: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMI_VOICE_PITCH_STORAGE_KEY, String(idx));
+  } catch { /* noop */ }
+}
+
 export function buildClientContextPayload(): {
   type: "client_context";
   timeZone?: string;

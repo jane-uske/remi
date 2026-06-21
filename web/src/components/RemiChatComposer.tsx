@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { InputBar, type InputBarProps } from "@/components/InputBar";
 import {
   VoiceStylePicker,
   voiceStyleLabelForId,
   type VoiceStylePickerProps,
 } from "@/components/VoiceStylePicker";
+import {
+  readStoredVoiceStyle,
+  writeStoredVoiceStyle,
+} from "@/hooks/useRemiChatHelpers";
 
 export type RemiChatComposerProps = {
   onSend: InputBarProps["onSend"];
@@ -37,7 +41,12 @@ export function RemiChatComposer({
   onVoiceStyleToggle,
   onVoiceStyleClose,
 }: RemiChatComposerProps) {
-  const [activePresetId, setActivePresetId] = useState("default");
+  const [activePresetId, setActivePresetId] = useState(() => readStoredVoiceStyle());
+
+  const handlePresetChange = useCallback((id: string) => {
+    setActivePresetId(id);
+    writeStoredVoiceStyle(id);
+  }, []);
 
   return (
     <div className="remi-composer-ground relative w-full min-w-0">
@@ -46,7 +55,7 @@ export function RemiChatComposer({
           open={voiceStyleOpen}
           onClose={onVoiceStyleClose}
           activePresetId={activePresetId}
-          onPresetChange={setActivePresetId}
+          onPresetChange={handlePresetChange}
           setVoiceStyle={setVoiceStyle}
           ttsEnabled={ttsEnabled}
           onTtsEnabledChange={onTtsEnabledChange}
