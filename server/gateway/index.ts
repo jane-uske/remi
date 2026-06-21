@@ -1,5 +1,6 @@
 import http from "http";
 import path from "path";
+import fs from "node:fs";
 import { parse } from "node:url";
 import crypto from "node:crypto";
 import type { NextUrlWithParsedQuery } from "next/dist/server/request-meta";
@@ -25,6 +26,7 @@ import { handleSseChatApi } from "./sse_chat";
 import { handleDesktopExchangeToken } from "./desktop_auth";
 import { handleSettingsApi, handleServiceHealth } from "./settings_api";
 import { textSessionPool } from "../session/pool";
+import { listVideoRuns } from "../../capabilities/video_generation/video_bridge";
 
 const logger = createLogger("gateway");
 const ACCESS_COOKIE_NAME = "rem_access";
@@ -115,6 +117,125 @@ async function handleComfyuiProxy(
   } catch {
     res.statusCode = 502;
     res.end("ComfyUI unreachable");
+  }
+}
+
+// runName comes from the query string and is used to build a filesystem path,
+// so it must be restricted to a safe charset to prevent path traversal.
+const SAFE_RUN_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Serve a generated storyboard run's final mp4 (Range-enabled, for <video>
+ * seeking) or its reference image. The run name is validated; the actual file
+ * paths are read from the run's own manifest.json (written by our runner).
+ */
+async function handleVideoProxy(
+  req: IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string,
+): Promise<void> {
+  const outputDir = getConfig().COMFYUI_SHARED_OUTPUT_DIR;
+  const run = parseRequestUrl(req).query.run;
+  const runName = typeof run === "string" ? run : "";
+  if (!SAFE_RUN_NAME_RE.test(runName)) {
+    res.statusCode = 400;
+    res.end("Invalid run name");
+    return;
+  }
+
+  const manifestPath = path.join(outputDir, runName, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    res.statusCode = 404;
+    res.end("Run not found");
+    return;
+  }
+
+  let manifest: { final_video?: string; reference?: { output?: string } };
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+  } catch {
+    res.statusCode = 500;
+    res.end("Malformed manifest");
+    return;
+  }
+
+  const isReference = pathname === "/api/comfyui/video/reference";
+  const filePath = isReference ? manifest.reference?.output : manifest.final_video;
+  if (!filePath || !fs.existsSync(filePath)) {
+    res.statusCode = 404;
+    res.end(isReference ? "No reference image" : "No final video");
+    return;
+  }
+
+  // Defense in depth: the manifest is trusted (our runner writes it), but make
+  // sure the file still resolves inside the shared ComfyUI root.
+  const sharedRoot = path.resolve(path.dirname(outputDir));
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(sharedRoot + path.sep)) {
+    res.statusCode = 403;
+    res.end("Forbidden");
+    return;
+  }
+
+  const stat = fs.statSync(resolved);
+
+  if (isReference) {
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+      "Content-Length": stat.size,
+    });
+    fs.createReadStream(resolved).pipe(res);
+    return;
+  }
+
+  // mp4 with Range support so the browser <video> element can seek.
+  const range = req.headers.range;
+  if (range) {
+    const m = /bytes=(\d*)-(\d*)/.exec(range);
+    const start = m && m[1] ? parseInt(m[1], 10) : 0;
+    const end = m && m[2] ? parseInt(m[2], 10) : stat.size - 1;
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= stat.size) {
+      res.writeHead(416, { "Content-Range": `bytes */${stat.size}` });
+      res.end();
+      return;
+    }
+    const clampedEnd = Math.min(end, stat.size - 1);
+    res.writeHead(206, {
+      "Content-Type": "video/mp4",
+      "Content-Range": `bytes ${start}-${clampedEnd}/${stat.size}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": clampedEnd - start + 1,
+      "Cache-Control": "public, max-age=86400",
+    });
+    fs.createReadStream(resolved, { start, end: clampedEnd }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      "Content-Type": "video/mp4",
+      "Content-Length": stat.size,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=86400",
+    });
+    fs.createReadStream(resolved).pipe(res);
+  }
+}
+
+/** List past storyboard runs (for the Settings reference-image picker). */
+async function handleVideoRuns(
+  _req: IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  try {
+    const runs = listVideoRuns();
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(JSON.stringify({ runs }));
+  } catch (err) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: (err as Error).message }));
   }
 }
 
@@ -536,6 +657,20 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       // server so the frontend can display generated images without CORS issues.
       if (pathname === "/api/comfyui/view") {
         await handleComfyuiProxy(req, res);
+        return;
+      }
+
+      // Storyboard video proxy — serve a run's final mp4 (Range-enabled) or its
+      // reference image straight off disk, plus a listing of past runs.
+      if (
+        pathname === "/api/comfyui/video" ||
+        pathname === "/api/comfyui/video/reference"
+      ) {
+        await handleVideoProxy(req, res, pathname);
+        return;
+      }
+      if (pathname === "/api/comfyui/video/runs") {
+        await handleVideoRuns(req, res);
         return;
       }
 

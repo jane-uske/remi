@@ -269,6 +269,69 @@ export function RemiSettingsPanel({
               onChange={(v) => setField("COMFYUI_NSFW_NEGATIVE", v)}
             />
           </Section>
+
+          <Section title="🎬 视频生成（Storyboard Runner · Z-Image + LTX）">
+            <Toggle
+              label="启用视频生成"
+              checked={form.COMFYUI_VIDEO_ENABLED === "1"}
+              onChange={(v) => setField("COMFYUI_VIDEO_ENABLED", v ? "1" : "0")}
+            />
+            <p className="text-[11px] leading-5 text-[var(--remi-dim)]">
+              在对话中说「帮我生成一个xxx的视频」即可触发。生成约需 20-30 分钟，好了会告诉你。
+            </p>
+            <Text
+              label="固定角色（锁定每个镜头的人物身份）"
+              value={form.VIDEO_CHARACTER ?? ""}
+              placeholder="如：银发紫眸动漫少女, same face, same outfit"
+              onChange={(v) => setField("VIDEO_CHARACTER", v)}
+            />
+            <Text
+              label="场景偏好（留空由模型自由发挥）"
+              value={form.VIDEO_SCENE ?? ""}
+              placeholder="如：neon city street at night"
+              onChange={(v) => setField("VIDEO_SCENE", v)}
+            />
+            <Text
+              label="画风标签（留空用默认 photorealistic cinematic）"
+              value={form.VIDEO_STYLE ?? ""}
+              placeholder="如：anime, vibrant colors, studio lighting"
+              onChange={(v) => setField("VIDEO_STYLE", v)}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Text
+                label="宽"
+                value={form.VIDEO_WIDTH ?? ""}
+                placeholder="512"
+                onChange={(v) => setField("VIDEO_WIDTH", v)}
+              />
+              <Text
+                label="高"
+                value={form.VIDEO_HEIGHT ?? ""}
+                placeholder="768"
+                onChange={(v) => setField("VIDEO_HEIGHT", v)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Text
+                label="镜头数"
+                value={form.VIDEO_SHOTS ?? ""}
+                placeholder="8"
+                onChange={(v) => setField("VIDEO_SHOTS", v)}
+              />
+              <Text
+                label="帧率"
+                value={form.VIDEO_FPS ?? ""}
+                placeholder="8"
+                onChange={(v) => setField("VIDEO_FPS", v)}
+              />
+            </div>
+            <Text
+              label="复用参考图（已有 run 名称，用于角色一致性）"
+              value={form.VIDEO_REFERENCE_RUN ?? ""}
+              placeholder="如：full512_33s"
+              onChange={(v) => setField("VIDEO_REFERENCE_RUN", v)}
+            />
+          </Section>
         </div>
 
         {/* Footer */}

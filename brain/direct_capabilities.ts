@@ -7,6 +7,7 @@ import { familyMemoryDraftsCapability } from "../capabilities/family_memory_draf
 import { familyMemoryCaptureCapability } from "../capabilities/family_memory_capture_capability";
 import { familyMemoryCapability } from "../capabilities/family_memory_capability";
 import { imageGenerationCapability } from "../capabilities/image_generation/image_generation_capability";
+import { videoGenerationCapability } from "../capabilities/video_generation/video_generation_capability";
 import { modeControlCapability } from "../capabilities/mode_control/mode_control_capability";
 import { voiceStyleCapability } from "../capabilities/voice_style/voice_style_capability";
 import { timeCapability } from "./time_capability";
@@ -54,6 +55,7 @@ const REGISTERED_DIRECT_CAPABILITIES: readonly DirectCapability[] = [
   // as a command and never leaks to the drawing/LLM paths.
   modeControlCapability,
   imageGenerationCapability,
+  videoGenerationCapability,
 ];
 
 export async function tryHandleDirectCapabilities(
