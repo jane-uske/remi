@@ -6,9 +6,6 @@ import { dateRecapCapability } from "../capabilities/date_recap_capability";
 import { familyMemoryDraftsCapability } from "../capabilities/family_memory_drafts_capability";
 import { familyMemoryCaptureCapability } from "../capabilities/family_memory_capture_capability";
 import { familyMemoryCapability } from "../capabilities/family_memory_capability";
-import { imageGenerationCapability } from "../capabilities/image_generation/image_generation_capability";
-import { videoGenerationCapability } from "../capabilities/video_generation/video_generation_capability";
-import { modeControlCapability } from "../capabilities/mode_control/mode_control_capability";
 import { voiceStyleCapability } from "../capabilities/voice_style/voice_style_capability";
 import { timeCapability } from "./time_capability";
 
@@ -43,19 +40,17 @@ export interface DirectCapability {
 }
 
 const REGISTERED_DIRECT_CAPABILITIES: readonly DirectCapability[] = [
+  // Deterministic zero-latency capabilities — fast-path regex, no LLM needed.
   timeCapability,
   dateRecapCapability,
   familyMemoryDraftsCapability,
   familyMemoryCaptureCapability,
   familyMemoryCapability,
-  // Voice style must run before mode control and image generation — its regex
-  // pattern ("用御姐音") doesn't overlap with either, but it's lightweight.
   voiceStyleCapability,
-  // Mode control must run before image generation so "开启成人模式" is caught
-  // as a command and never leaks to the drawing/LLM paths.
-  modeControlCapability,
-  imageGenerationCapability,
-  videoGenerationCapability,
+  // Image generation, video generation, and mode control are now handled by
+  // LLM tool-use (function calling) in context_orchestrator.ts. They were
+  // removed from this chain to let the LLM drive intent detection for
+  // ambiguous inputs (e.g. "不穿衣服呢？" implying image generation).
 ];
 
 export async function tryHandleDirectCapabilities(

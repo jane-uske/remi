@@ -4,8 +4,13 @@ import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import { visionEnabled, describeImage, USER_IMAGE_PROMPT } from "../llm/vision_client";
 import { fetchImageAsBase64, extractFirstImageUrl } from "../utils/image_fetch";
-import { completeWithOptions } from "../llm/qwen_client";
+import { completeWithOptions, type StreamToolCall } from "../llm/qwen_client";
 import { getFastBrainModel } from "./fast_brain_model";
+import {
+  buildToolsParam,
+  executeTool,
+  type ToolExecutionContext,
+} from "../brain/tool_registry";
 import {
   retrievePromptMemory,
 } from "../memory/memory_agent";
@@ -44,7 +49,9 @@ import {
 } from "../memory/relationship_state";
 import { reviewReplyTone } from "../brain/tone_policy";
 import { tryHandleDirectCapabilities } from "../brain/direct_capabilities";
-import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
+// resolveImageIntent is no longer called here — LLM tool-use drives image
+// generation intent detection. The import is retained as a comment for reference.
+// import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
 import {
   getSessionLastImage,
   sessionHasImage,
@@ -541,19 +548,6 @@ export async function* routeMessage(
     effectiveUserMessage = `${userMessage}\n[用户发了一张图片，但我暂时看不到图片内容]`;
   }
 
-  const imageIntent = await resolveImageIntent({
-    userMessage,
-    recentHistory: ctx.history.slice(-4),
-    hasPreviousImage: sessionHasImage(ctx.connId),
-    lastImage: getSessionLastImage(ctx.connId),
-    signal,
-  });
-  const config = getConfig();
-  if (imageIntent.kind !== "none" && config.COMFYUI_ENABLED) {
-    const intro = await generateImageProgressIntro(ctx, userMessage, signal);
-    yield intro;
-  }
-
   const directCapabilityResult = await tryHandleDirectCapabilities({
     userMessage,
     emotion,
@@ -561,7 +555,6 @@ export async function* routeMessage(
     signal,
     systemTriggered: Boolean(opts?.systemTriggered),
     inputSource,
-    imageIntent,
   });
   if (directCapabilityResult.handled) {
     const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
@@ -856,6 +849,12 @@ export async function* routeMessage(
     if (latencyTracer && traceId) {
       latencyTracer.mark("llm_request_start", traceId);
     }
+
+    // Build tools param for function calling (gated per-tool by config).
+    const toolsParam = opts?.systemTriggered
+      ? []
+      : buildToolsParam({ ctx });
+
     for await (const token of fastBrainStream({
       userMessage: effectiveUserMessage,
       emotion,
@@ -873,7 +872,129 @@ export async function* routeMessage(
       persona: ctx.persona,
       connId: ctx.connId,
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
+      coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
+      ...(toolsParam.length > 0 ? { tools: toolsParam } : {}),
     })) {
+      // ── Tool call sentinel detection ───────────────────────────────
+      if (token.startsWith("__TOOL_CALLS__")) {
+        const toolCallsJson = token.slice("__TOOL_CALLS__".length);
+        let toolCalls: StreamToolCall[];
+        try {
+          toolCalls = JSON.parse(toolCallsJson);
+        } catch {
+          logger.warn("failed to parse tool_calls sentinel", { connId: ctx.connId });
+          fullReply += "啊…刚刚脑子卡了一下，你再说一次好不好？";
+          yield "啊…刚刚脑子卡了一下，你再说一次好不好？";
+          break;
+        }
+
+        logger.info("LLM requested tool calls", {
+          connId: ctx.connId,
+          tools: toolCalls.map((tc) => tc.name),
+        });
+
+        // Execute all tool calls.
+        const toolExecCtx: ToolExecutionContext = {
+          ctx,
+          emotion,
+          userMessage,
+          signal,
+        };
+        let directReplyFromTool: string | undefined;
+        let skipTtsFromTool = false;
+        let capabilityIdFromTool: string | undefined;
+        const toolResultMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
+
+        for (const tc of toolCalls) {
+          let args: Record<string, unknown> = {};
+          try {
+            args = tc.arguments ? JSON.parse(tc.arguments) : {};
+          } catch {
+            logger.warn("failed to parse tool arguments", { name: tc.name, raw: tc.arguments });
+          }
+          const result = await executeTool(tc.name, args, toolExecCtx);
+          toolResultMessages.push({
+            role: "tool",
+            content: result.output,
+            tool_call_id: tc.id,
+          });
+          if (result.directReply) directReplyFromTool = result.directReply;
+          if (result.skipTts) skipTtsFromTool = true;
+          if (result.capabilityId) capabilityIdFromTool = result.capabilityId;
+        }
+
+        if (skipTtsFromTool) ctx.skipTtsThisTurn = true;
+
+        // If a tool provided a direct reply, yield it and skip the follow-up LLM call.
+        if (directReplyFromTool) {
+          fullReply += directReplyFromTool;
+          yield directReplyFromTool;
+
+          // Vision sidecar for generated images (same logic as DirectCapability path)
+          if (capabilityIdFromTool === "image_generation" && visionEnabled()) {
+            const imgUrl = extractFirstImageUrl(directReplyFromTool);
+            if (imgUrl) {
+              fetchImageAsBase64(imgUrl)
+                .then((base64) => (base64 ? describeImage(base64) : ""))
+                .then((description) => {
+                  if (!description) return;
+                  const lastEntry = ctx.history[ctx.history.length - 1];
+                  if (lastEntry?.role === "assistant") {
+                    lastEntry.content = stripImageMarkdownForHistory(
+                      directReplyFromTool!,
+                      description,
+                    );
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+          break;
+        }
+
+        // Otherwise, inject tool results and call LLM again for a natural reply.
+        // Build messages: original history + user message + assistant tool_calls + tool results
+        const followUpMessages: Array<{ role: string; content: string; tool_calls?: unknown; tool_call_id?: string }> = [
+          ...historyForPrompt.map((m) => ({ role: m.role, content: m.content })),
+          { role: "user", content: effectiveUserMessage },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: tc.arguments },
+            })),
+          },
+          ...toolResultMessages,
+        ];
+
+        try {
+          const followUpReply = await completeWithOptions(
+            followUpMessages as any,
+            {
+              maxTokens: 512,
+              temperature: 0.7,
+              signal,
+            },
+          );
+          if (followUpReply) {
+            fullReply += followUpReply;
+            yield followUpReply;
+          }
+        } catch (err) {
+          logger.warn("follow-up LLM call after tool failed", {
+            connId: ctx.connId,
+            error: (err as Error).message,
+          });
+          // Yield tool output as-is
+          const fallback = toolResultMessages.map((m) => m.content).join("\n");
+          fullReply += fallback;
+          yield fallback;
+        }
+        break;
+      }
+
       fullReply += token;
       yield token;
     }
@@ -950,6 +1071,7 @@ export async function* routeMessage(
         ctx.persistentRelationshipRepo ??
         ctx.memory.getPersistentBackend() ??
         ctx.memory,
+      temporalFactsRepo: ctx.temporalFactsRepo ?? undefined,
       signal: slowBrainSignal,
     }).catch((err) =>
       logger.warn("后台分析失败", { error: (err as Error).message }),

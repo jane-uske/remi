@@ -7,8 +7,14 @@ import { createProxyFetch } from "./proxy_fetch";
 const logger = createLogger("qwen_client");
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export interface CompletionOptions {
@@ -30,12 +36,21 @@ export interface StreamTokensOptions {
   reasoningEffort?: string;
   model?: string;
   maxTokens?: number;
+  /** OpenAI-compatible tools array. When provided, the LLM may return
+   *  tool_calls instead of (or alongside) text content. */
+  tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
 }
 
 export interface StreamTokenStats {
   contentChars: number;
   reasoningChars: number;
   visibleChars: number;
+}
+
+export interface StreamToolCall {
+  id: string;
+  name: string;
+  arguments: string;
 }
 
 type ApiReasoningEffort = "none" | "low" | "medium" | "high";
@@ -270,9 +285,9 @@ export async function completeWithOptions(
 
   const resolved = resolveReasoningRequest(messages, options.reasoningEffort);
 
-  const res = await withRetry(
+  const res = (await withRetry(
     () =>
-      openai.chat.completions.create({
+      (openai.chat.completions.create as Function)({
         model,
         messages: resolved.messages,
         temperature: options.temperature ?? 0.3,
@@ -284,7 +299,7 @@ export async function completeWithOptions(
         ...(options.signal ? { signal: options.signal } : {}),
       }),
     { retries: 1, label: "complete" },
-  );
+  )) as { choices?: { message?: { content?: string | null; reasoning_content?: string | null } }[] };
 
   const message = res.choices?.[0]?.message ?? {};
   const { visible, reasoningChars, salvagedFromReasoning } = extractVisibleMessageContent(
@@ -392,7 +407,7 @@ export async function collectStreamTokens(
   signal?: AbortSignal,
   callbacks?: StreamTokensCallbacks,
   options?: StreamTokensOptions,
-): Promise<StreamTokenStats & { tokens: string[] }> {
+): Promise<StreamTokenStats & { tokens: string[]; toolCalls: StreamToolCall[] }> {
   const openai = getClient();
   const model = options?.model ?? getConfig().REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
@@ -417,6 +432,7 @@ export async function collectStreamTokens(
         max_tokens: maxTokens,
         ...buildCompletionExtras(resolved.apiReasoningEffort, suppressThinking),
         stream: true,
+        ...(options?.tools?.length ? { tools: options.tools } : {}),
         ...(signal ? { signal } : {}),
       }),
     { retries: 1, label: "streamTokens" },
@@ -426,7 +442,14 @@ export async function collectStreamTokens(
         content?: string;
         reasoning_content?: string;
         role?: string;
+        tool_calls?: Array<{
+          index: number;
+          id?: string;
+          type?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
       };
+      finish_reason?: string | null;
     }[];
   }>;
 
@@ -437,6 +460,8 @@ export async function collectStreamTokens(
   let reasoningChars = 0;
   let visibleChars = 0;
   let earlySalvageEmitted = false;
+  // Tool calls accumulation (streamed as chunked deltas keyed by index).
+  const toolCallAccum = new Map<number, { id: string; name: string; args: string }>();
   const tokens: string[] = [];
 
   for await (const chunk of stream) {
@@ -446,6 +471,22 @@ export async function collectStreamTokens(
       onFirstChunk?.();
     }
     if (signal?.aborted) break;
+
+    // ── Accumulate tool_calls deltas ────────────────────────────────
+    const deltaToolCalls = chunk.choices?.[0]?.delta?.tool_calls;
+    if (deltaToolCalls) {
+      for (const tc of deltaToolCalls) {
+        const idx = tc.index;
+        let entry = toolCallAccum.get(idx);
+        if (!entry) {
+          entry = { id: tc.id ?? "", name: "", args: "" };
+          toolCallAccum.set(idx, entry);
+        }
+        if (tc.id) entry.id = tc.id;
+        if (tc.function?.name) entry.name += tc.function.name;
+        if (tc.function?.arguments) entry.args += tc.function.arguments;
+      }
+    }
 
     const reasoningText = chunk.choices?.[0]?.delta?.reasoning_content;
     if (reasoningText) {
@@ -566,5 +607,13 @@ export async function collectStreamTokens(
     }
   }
 
-  return { tokens, contentChars, reasoningChars, visibleChars };
+  // Build final toolCalls array from accumulated deltas.
+  const toolCalls: StreamToolCall[] = [];
+  for (const [, entry] of [...toolCallAccum.entries()].sort((a, b) => a[0] - b[0])) {
+    if (entry.name) {
+      toolCalls.push({ id: entry.id, name: entry.name, arguments: entry.args });
+    }
+  }
+
+  return { tokens, toolCalls, contentChars, reasoningChars, visibleChars };
 }

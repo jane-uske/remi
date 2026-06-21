@@ -3,6 +3,7 @@ import {
   hasLlmConfig,
   localLlmEnabled,
   recoverVisibleReply,
+  type StreamToolCall,
 } from "../llm/qwen_client";
 import { buildPrompt, type PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
@@ -101,6 +102,13 @@ export interface FastBrainInput {
   connId?: string;
   /** M3-P0 时间感：透传给 buildPrompt，注入 prompt 动态尾部。 */
   timeContext?: string;
+  /** M3-P1 Core Memory Tier1 块：透传给 buildPrompt，放在 system 之后 history 之前。 */
+  coreMemoryBlock?: string;
+  /** M3-P2 Tier4 时序事实：透传给 buildPrompt，放在动态尾部。 */
+  timelineFacts?: string;
+  /** Tool definitions for function calling. When provided, LLM may return
+   *  tool_calls instead of text. */
+  tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
 }
 
 /**
@@ -131,6 +139,8 @@ export async function* fastBrainStream(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    coreMemoryBlock: input.coreMemoryBlock,
+    timelineFacts: input.timelineFacts,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
@@ -191,8 +201,17 @@ export async function* fastBrainStream(
       {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(model ? { model } : {}),
+        ...(input.tools?.length ? { tools: input.tools } : {}),
       },
     );
+
+    // If the LLM returned tool calls instead of text, return them to the
+    // caller via a special yielded JSON sentinel. The caller (routeMessage)
+    // detects this sentinel, executes the tools, and re-runs the LLM.
+    if (streamResult.toolCalls.length > 0 && streamResult.visibleChars === 0) {
+      yield `__TOOL_CALLS__${JSON.stringify(streamResult.toolCalls)}`;
+      return;
+    }
     for (const token of streamResult.tokens) {
       hasContent = true;
       yield token;
@@ -262,6 +281,8 @@ export async function fastBrainPredictOnly(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    coreMemoryBlock: input.coreMemoryBlock,
+    timelineFacts: input.timelineFacts,
   });
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
