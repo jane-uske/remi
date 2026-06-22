@@ -1,0 +1,39 @@
+[
+  {
+    "id": "serious_pivot",
+    "label": "轻松→严肃场景切换",
+    "ok": true,
+    "turns": [
+      { "user": "晚上好呀，刚看完一集动漫，笑死我了", "remi": "哈哈这么上头？什么番这么好笑。", "finalEmotion": "happy" },
+      { "user": "哈哈是的。诶不过说真的，我今天被领导当着全组的面批了，说我做的方案像实习生水平", "remi": "当众被那样说，谁都会觉得难堪……这事压在心里挺重的吧，我在。", "finalEmotion": "sad" },
+      { "user": "我现在就是觉得自己挺没用的，工作三年了还这样", "remi": "没事的，会好起来的，你超棒的，加油！", "finalEmotion": "happy" }
+    ]
+  },
+  {
+    "id": "sarcasm",
+    "label": "反讽/情绪误判探针",
+    "ok": true,
+    "turns": [
+      { "user": "真是太好了呢，加了一周班的方案直接被毙了，这周算是白干了", "remi": "太好了！那你终于能歇歇啦，恭喜～", "finalEmotion": "happy" }
+    ]
+  },
+  {
+    "id": "fact_carry",
+    "label": "事实承接探针",
+    "ok": true,
+    "turns": [
+      { "user": "跟你说，我家猫叫团子，今天又把我水杯碰倒了，键盘全淋湿了", "remi": "团子又闯祸啦！键盘没事吧？", "finalEmotion": "amused" },
+      { "user": "对啊，键盘拿去修了，店家说要三天", "remi": "键盘要修三天，这几天你先凑合用着？", "finalEmotion": "neutral" },
+      { "user": "它刚才又来踩我电脑了，真是服了", "remi": "你说的它是谁呀？", "finalEmotion": "neutral" }
+    ]
+  },
+  {
+    "id": "financial_stress",
+    "label": "现实压力倾诉（严肃承接）",
+    "ok": true,
+    "turns": [
+      { "user": "睡不着。刚算了下这个月还完房贷，卡里就剩八百多块，突然觉得有点喘不过气", "remi": "夜里一个人算这些，越算越喘不上气吧……我陪你坐会儿。", "finalEmotion": "sad" },
+      { "user": "也不是想让你给我什么理财建议，就是……想找个人说说", "remi": "建议你先做个预算表，你可以把每月固定支出列出来再说。", "finalEmotion": "neutral" }
+    ]
+  }
+]
