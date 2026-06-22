@@ -42,7 +42,7 @@
 | ID | Task | Status | Exit Criteria | Next |
 |---|---|---|---|---|
 | `W-PRES-01` | 默认人格稳定 | `in_progress` | 轻松聊 / 睡前聊 / 日常碎聊时，口气、边界、追问强度明显更稳定 | `W-PRES-02` |
-| `W-PRES-02` | 严肃场景承接修正 | `todo` | 现实压力 / 财务压力 / 自责 / 委屈类 bad case 明显减少轻浮、失焦和错位 | `W-PRES-03` |
+| `W-PRES-02` | 严肃场景承接修正 | `in_progress` | 现实压力 / 财务压力 / 自责 / 委屈类 bad case 明显减少轻浮、失焦和错位 | `W-PRES-03` |
 | `W-PRES-03` | Web 在场感统一 | `in_progress` | 说话态 / 停顿态 / 被打断态 / 口型与音频播放时间线不再互相打架 | `W-PRES-04` |
 | `W-PRES-04` | 10 分钟体验压测 | `todo` | 睡前陪聊 / 日常碎聊 / 压力倾诉三个场景中，10 分钟体验明显不再像普通聊天框 | `observe` |
 
@@ -69,6 +69,13 @@
     - 严肃时刻轻浮
     - 交付物请求必须直接在当前聊天输出正文，不能编造附件、压缩包、收件框或“已发送”
   - 当前边界：优先通过 `TurnInterpretation -> ResponsePolicy`、`tone contract`、默认人格提示和坏样本回归收口
+  - 6.23 第一刀（漏检修复，落点 `brain/tone_policy.ts` + `brain/turn_interpreter.ts`，与另一条会话 `brains/` 零冲突）：
+    - 根因：`shouldAnalyzeTurn` 门控过窄，**自责/无价值感、反讽、夜间财务倾诉、被批评否定**四类严肃输入整条绕过回合解释层 → 退化轻聊（=严肃时刻轻浮）。这正是 `scripts/live_chat_probe.mjs` 的 serious_pivot / sarcasm / financial_stress 场景
+    - 新增 `emotional_distress` 场景类：区别于 `practical_judgment`（要判断），它是"稳稳陪着、不硬塞建议"（bans: `no_jokes`/`no_topic_pivot`/`no_shallow_reassurance`，questionBudget=0，shouldGiveJudgment=false）
+    - 新增 5 个宽类别检测器（自责/反讽/求陪伴非建议/被批评否定/重情绪倾诉）+ 组合器 `detectEmotionalDistressSignal`；`detectPracticalDistressSignal` 补 `房贷/车贷`；修 `detectDeliverableRequest` 对"做的/写的方案"过去式描述的误判
+    - 坏样本进 eval：`test/brain/serious_scene_carry.test.ts`（15 单测全绿，含回归保护）；tsc 零错误；既有 3 个 turn_interpreter 失败为**改动前既存**（与本刀无关）
+    - 待跟进（在另一条会话 owner 的文件里，1 行加法）：`context_orchestrator.ts` 的 `text_deliberate` 预算应纳入 `emotional_distress`（让情绪承接走更深推理）；`background_analysis_store.ts` 可加情绪承接的 working-memory 线程标签做多轮承接连续性
+    - 未做：尚未 `prod:local:rebuild` 上线实测（避免把另一条会话的在途代码一并部署，需协调）
   - 验收标准：用户从轻松聊切到现实压力、财务压力、自责、委屈时，Remi 明显更稳，不再轻飘飘错位
 
 - [ ] **W-PRES-03** Web 在场感统一
@@ -120,7 +127,9 @@
   - ✅ `RW-P1-4b` 世界事件进记忆（2026-06-13）：`world_event` WS 消息 → `server/session/world_event.ts`（纯函数 `buildWorldEventMoment` 映射 种花/点灯/回访 → `MomentInput`）→ `episodeStore.ingest()`（复用慢脑同一 episode store，语义合并去重，异步 fire-and-forget，无 DB 优雅降级）。message_router 加 `world_event` case，index.ts 加 `handleWorldEvent`（即发即忘）。客户端 `useRemiChat.sendWorldEvent` + RemiWorld 连接前缓冲补发。验证：4 服务端单测、前后端 tsc/build 绿、brains 71/9（+6 新测，失败数不变）pipeline 11/1 → 0 回归
   - **Phase 1 全部完成**（RW-P1-1~4b）。用户已验收 P1，当前已直接进入 Phase 2。
   - ✅ `RW-P2-1/2` 时间与日常第一刀（2026-06-14）：`web/src/lib/world/worldTime.ts` 定义清晨/午后/黄昏/深夜；`scheduledBehaviorAt()` 按时间段行为池调度；HUD / prompt 情境不再固定黄昏；`WorldSave.lastSeenAt` + `buildOfflineReturnOpener()` 让离线回来后的首轮真实对话带入"你不在的时候…"。24 个 world 单测、web lint/build 绿。
-  - 下一步：`RW-P2-3` 天气 v0（本地视觉 + prompt 情境，不阻塞 fast path）或 `RW-P2-4` 主动开场白（复用 `proactive_planner` 的关系阶段/退避/冷却门控）
+  - ✅ `RW-P2-3` 天气 v0（2026-06-23）：`web/src/lib/world/weather.ts` 确定性天气（clear/cloudy/rain/snow，6 小时 hash slot）；`behavior.ts` 天气感知行为池过滤（雨雪→室内）；`script.ts:buildSituationalContext` 天气情境注入 + `buildWorldOpener` 组合开场白；5 天气单测 + 24 world 单测零回归
+  - ✅ `RW-P2-4` 主动开场白（2026-06-23）：`buildWorldOpener()` 组合时间+天气+离线时长为进入世界时的自动问候文本
+  - **Phase 2 全部完成**。
   - 验收：四项活人感基准（隔天回来/打断恢复/十分钟观察/记忆回指）+ 2 分钟连续体验录屏
 
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
@@ -202,8 +211,9 @@
 - [ ] **M3- Memory V3**（设计：[MEMORY_V3_DESIGN.md](../design/MEMORY_V3_DESIGN.md)；代码在工作区，未提交）
   - `M3-P0` 立刻不笨 + 时间感入门 — `done`：递归摘要喂回累积 + `clipSummary` 封顶 + `now`/gap 注入动态尾部 + 窗口放大可配 + 缓存断点接口；单测绿
   - `M3-P1` Core Memory 差分编辑块 — `done`：`brains/core_memory.ts`（差分 apply / 有界淘汰 / 稳定 render）；慢脑 `core_memory_edits → applyCoreMemoryEdits`；读路径 `coreMemory.render() → context_orchestrator.ts:875 → prompt Tier1`；NSFW 跳过；**读写闭环**，单测绿
-  - `M3-P2` bi-temporal 时序层 — `in_progress`（代码 + DB 已闭环，待部署）：写入 + 召回读路径均接通（`brains/timeline_facts.ts:recallTimelineFacts` → `context_orchestrator` → prompt 动态尾部，硬超时降级）；`temporal_facts` 表已在 local-prod 建好；单测 38 项绿。**剩 `npm run prod:local:rebuild` 部署后端到端生效**（当前 local-prod 跑旧镜像，不含读路径改动）
-  - `M3-P3a/b/c` 主动发起引擎 / 调度循环 / 离线推送 — `todo`：无代码；`arbitration_gate` / `proactive_engine` / `time_injection` 测试未建
+  - `M3-P2` bi-temporal 时序层 — `done`（2026-06-23 部署）：写入 + 召回读路径均接通，已部署 local-prod 并经端到端日志验证；38 单测绿
+  - `M3-P3a` 主动搭话仲裁门控 — `done`（2026-06-23）：`brains/arbitration_gate.ts`（6 级门控：候选数/亲密度/退避/冷却/安静时段/会话后冷却）；3 个 env 配置变量；13 单测绿
+  - `M3-P3b/c` 调度循环 / 离线推送 — `todo`：需 `prospective_intents` 表 + 用户级调度器 + APNs/Web Push 基建
 
 - [ ] **DL- 数字生命**（契约：[DIGITAL_LIFE_NORTH_STAR.md](../design/DIGITAL_LIFE_NORTH_STAR.md)）
   - `DL-P0-1` 北极星契约文档 — `done`
@@ -218,8 +228,8 @@
 
 - [ ] **CIO- 上下文意图编排器**（设计：[CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md](../design/CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md)；上位契约 DL）
   - `CIO-P0` 设计文档 — `done`
-  - `CIO-P1` shadow-mode 意图分类器 + 日志（`brains/contextual_intent/`，行为零变化）— `todo`（模块未建；无前提、不碰热点、可独立开工）
-  - `CIO-P2` ImageRegistry + 指代消解 — `todo`，前提 P1
+  - `CIO-P1` shadow-mode 意图分类器 + 日志（`brains/contextual_intent/`，行为零变化）— `done`（2026-06-23）：`classifier.ts`（纯 regex/heuristic，<1ms）+ `types.ts`（ShadowContextualIntent schema）+ `index.ts`；`context_orchestrator.ts` fire-and-forget hook（`REMI_CIO_SHADOW_ENABLED` flag 默认开）；32 单测绿；tsc 零错误
+  - `CIO-P2` ImageRegistry + 指代消解 — `done`（2026-06-23）：`image_registry.ts`（有序多图栈 + 4 规则指代消解纯函数）；types.ts 扩展 `ImageRegistryEntry` + `ShadowImageAxis.reference`；classifier.ts 接入指代消解；`image_generation_capability.ts` 生成图入栈 + `context_orchestrator.ts` 上传图入栈 + registry 传分类器；15 单测绿；仍 shadow-only
   - `CIO-P3` 接生图 + 看图消歧（flag）— `todo`，前提 P2
   - `CIO-P4` Performance Envelope（flag，单 owner）— `todo`，前提 P3 + DL-P1a + W-PRES-01
   - `CIO-P5` session voice override（flag）— `todo`，前提 P4
