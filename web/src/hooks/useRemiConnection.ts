@@ -15,8 +15,9 @@ import {
 import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
 import { getRemWsUrl } from "@/lib/wsUrl";
 
-/** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」） */
-const WS_CONNECT_TIMEOUT_MS = 12_000;
+/** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」）。
+ *  Cloudflare Tunnel 空闲后首次连接可能需 10-15s 冷启动，给足 15s。 */
+const WS_CONNECT_TIMEOUT_MS = 15_000;
 
 export type UseRemiConnectionParams = {
   /** Called after ws.onopen state updates, before duplex resume */
@@ -111,6 +112,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
   const suppressDisconnectSysMsgRef = useRef(false);
   const hasAnnouncedConnectedRef = useRef(false);
   const connectRef = useRef<() => void>(() => {});
+  const connectingRef = useRef(false);
 
   const remiAuth = useRemiWebAuth();
 
@@ -138,7 +140,9 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
     if (remiAuth.clerkEnabled && (!remiAuth.ready || !remiAuth.signedIn)) {
       return;
     }
-    void (async () => {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
+    (async () => {
       const sessionToken = await remiAuth.getSessionToken();
       if (reconnectRef.current) {
         clearTimeout(reconnectRef.current);
@@ -159,6 +163,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
           role: "error",
           text: "WebSocket 地址为空（仅应在浏览器环境连接）",
         });
+        connectingRef.current = false;
         return;
       }
 
@@ -189,12 +194,16 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
               role: "sys",
               text: "网络不太稳定，正在重新连接…",
             });
+          } else {
+            // First or second attempt timed out on hosted: silent, immediate retry
+            // in onclose below (no delay for attempt 0, 1s for attempt 1).
           }
           ws.close();
         }
       }, WS_CONNECT_TIMEOUT_MS);
 
       ws.onopen = () => {
+        connectingRef.current = false;
         window.clearTimeout(connectTimer);
         reconnectAttemptRef.current = 0;
         setConnected(true);
@@ -221,6 +230,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
       ws.onmessage = params.onMessage;
 
       ws.onclose = () => {
+        connectingRef.current = false;
         window.clearTimeout(connectTimer);
         if (!mountedRef.current) return;
         if (params.pendingDevCommandRef.current) {
@@ -233,13 +243,18 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         const shouldResumeDuplex = params.recordingRef.current || params.duplexRef.current;
         params.stopVoiceSession({ preserveAutoResume: shouldResumeDuplex });
 
-        const reconnectDelay = computeReconnectDelay(reconnectAttemptRef.current);
-        reconnectAttemptRef.current += 1;
+        // First-connect timeout (attempt 0): retry immediately — Cloudflare Tunnel
+        // cold-start is already penalised by the 15s connect timeout, so don't add
+        // an extra 3s+ backoff on top. After that, use standard exponential backoff.
+        const attempt = reconnectAttemptRef.current;
+        const reconnectDelay =
+          attempt === 0 ? 0 : computeReconnectDelay(attempt);
+        reconnectAttemptRef.current = attempt + 1;
 
         setConnected(false);
         setConnectionPhase("closed");
-        setReconnectDeadline(Date.now() + reconnectDelay);
-        setConnLabel("已断开");
+        setReconnectDeadline(reconnectDelay > 0 ? Date.now() + reconnectDelay : null);
+        setConnLabel(reconnectDelay > 0 ? "已断开" : "连接中…");
         params.setHistoryLoadingMoreState(false);
         params.setWaitingState(false);
         params.clearGenerationState();
@@ -260,7 +275,7 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
           reconnectInMs: reconnectDelay,
           attempt: reconnectAttemptRef.current,
         });
-        if (!quiet) {
+        if (!quiet && reconnectDelay > 0) {
           params.markHistoryMutation("append");
           params.setLiveMessages((m) => {
             const last = m[m.length - 1];
