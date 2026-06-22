@@ -151,7 +151,10 @@ export function RemiChatApp() {
     [performanceModel, runtimeState],
   );
 
-  const inputDisabled = !connected || runtimeState.user.recording;
+  // Text chat rides SSE (HTTP POST /api/chat), which doesn't need WS.
+  // Only voice (mic) and recording state gate the input; the WS connection
+  // state is irrelevant for text — users can chat immediately on page load.
+  const inputDisabled = runtimeState.user.recording;
   const micDisabled = !connected || !hasMic;
   const connectionStatusLabel = remiConnectionStatusText(connectionPhase, reconnectInSec);
   const connectionCompactLabel = remiConnectionCompactText(
@@ -177,7 +180,7 @@ export function RemiChatApp() {
       data-remi-nsfw={nsfwEnabled ? "1" : "0"}
     >
       <header className={layout.headerShell}>
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 bg-[linear-gradient(180deg,rgba(33,160,191,0.16),rgba(33,160,191,0.08)_44%,transparent)] blur-2xl sm:h-24" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 bg-[linear-gradient(180deg,rgba(168,85,247,0.16),rgba(168,85,247,0.08)_44%,transparent)] blur-2xl sm:h-24" />
         <div className={layout.headerInner}>
           <div className="flex min-w-0 items-center gap-3">
             <RemiAccountMenu

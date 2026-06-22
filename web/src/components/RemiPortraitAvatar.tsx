@@ -221,7 +221,7 @@ export function RemiPortraitAvatar({
           <span className="sr-only">{emotionLabel}</span>
           <span className="sr-only">{presenceLabel}</span>
           <img
-            src="/avatar/assets/remi-selected-portrait.png"
+            src="/assets/remi/posters/remi-popout-social-poster.png"
             alt="Remi avatar"
             className="remi-portrait-figure h-full w-full select-none object-contain drop-shadow-[0_34px_42px_rgba(5,10,20,0.28)]"
             draggable={false}

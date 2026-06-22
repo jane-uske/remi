@@ -518,27 +518,27 @@ export function AvatarDevtoolsPanel({
             </pre>
           </details>
 
-          <details className="rounded-xl border border-cyan-200/15 bg-[linear-gradient(180deg,rgba(10,48,61,0.6),rgba(4,24,31,0.72))] p-3" open>
+          <details className="rounded-xl border border-cyan-200/15 bg-[linear-gradient(180deg,rgba(30, 12, 48,0.6),rgba(14, 6, 24,0.72))] p-3" open>
             <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
               Conversation Performance
             </summary>
             {performanceModel ? (
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(16, 8, 30,0.72)] px-3 py-2 text-[#f5edff]">
                   <div className="text-[10px] text-[#94dbe8]">Phase</div>
                   <div className="mt-1 font-medium">{performanceModel.phase}</div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(16, 8, 30,0.72)] px-3 py-2 text-[#f5edff]">
                   <div className="text-[10px] text-[#94dbe8]">Attention</div>
                   <div className="mt-1 font-medium">{performanceModel.attentionTarget}</div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(16, 8, 30,0.72)] px-3 py-2 text-[#f5edff]">
                   <div className="text-[10px] text-[#94dbe8]">Energy</div>
                   <div className="mt-1 font-medium">
                     {performanceModel.energyLevel.toFixed(2)}
                   </div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
+                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(16, 8, 30,0.72)] px-3 py-2 text-[#f5edff]">
                   <div className="text-[10px] text-[#94dbe8]">Beat</div>
                   <div className="mt-1 font-medium">
                     {performanceModel.languageBeat.channel} /{" "}
@@ -557,7 +557,7 @@ export function AvatarDevtoolsPanel({
           {presenceFixture && onPresenceFixtureChange ? (
             <div className="rounded-xl border border-cyan-200/18 bg-[linear-gradient(180deg,rgba(12,76,92,0.42),rgba(8,34,42,0.88))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
               <div className="mb-3 flex items-center justify-between">
-                <div className="text-xs font-semibold tracking-[0.08em] text-[#eefcff]">
+                <div className="text-xs font-semibold tracking-[0.08em] text-[#f5edff]">
                   Presence Fixtures
                 </div>
                 <label className="flex items-center gap-2 text-[11px] text-[#dff9ff]">

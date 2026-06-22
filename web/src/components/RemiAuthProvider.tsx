@@ -118,7 +118,25 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 }
 
 export function RemiAuthProvider({ children }: { children: ReactNode }) {
-  const [runtimePolicy, setRuntimePolicy] = useState<{ clerkEnabled: boolean } | null>(null);
+  // resolveClerkRuntimePolicy is a pure sync function. Compute it synchronously
+  // on the first render (lazy initializer) so the chat subtree mounts on frame
+  // 1 and the WebSocket connects immediately on page load — instead of being
+  // deferred by a useEffect → setState cycle that left the whole app
+  // unmounted (`return null`) for one render and made "first refresh"
+  // connections miss.
+  //
+  // On the server, `window` is absent; resolveClerkRuntimePolicy only touches
+  // `window.location.hostname` when clerk is enabled, which is gated on a
+  // build-time env var — so SSR is safe. After mount, re-resolve with the real
+  // client hostname in case Clerk was promoted/demoted by a loopback rule
+  // (live key on localhost).
+  const [runtimePolicy, setRuntimePolicy] = useState(() =>
+    resolveClerkRuntimePolicy({
+      hostname: typeof window !== "undefined" ? window.location.hostname : null,
+      mode: getRemiWebAuthMode(),
+      publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
+    }),
+  );
 
   useEffect(() => {
     setRuntimePolicy(
@@ -129,10 +147,6 @@ export function RemiAuthProvider({ children }: { children: ReactNode }) {
       }),
     );
   }, []);
-
-  if (!runtimePolicy) {
-    return null;
-  }
 
   if (!runtimePolicy.clerkEnabled) {
     return <LegacyAuthBridge>{children}</LegacyAuthBridge>;

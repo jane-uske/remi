@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   readStoredVoiceSpeed,
   readStoredVoicePitch,
@@ -73,8 +73,14 @@ export function VoiceStylePicker({
 }: VoiceStylePickerProps) {
   const [activePresetInternal, setActivePresetInternal] = useState("default");
   const activePreset = activePresetIdProp ?? activePresetInternal;
-  const [speedIdx, setSpeedIdx] = useState(() => readStoredVoiceSpeed());
-  const [pitchIdx, setPitchIdx] = useState(() => readStoredVoicePitch());
+  // SSR-safe: start from 0 (matches server) and hydrate the persisted value
+  // after mount to avoid a hydration mismatch.
+  const [speedIdx, setSpeedIdx] = useState(0);
+  const [pitchIdx, setPitchIdx] = useState(0);
+  useEffect(() => {
+    setSpeedIdx(readStoredVoiceSpeed());
+    setPitchIdx(readStoredVoicePitch());
+  }, []);
 
   const selectPreset = useCallback(
     (id: string) => {

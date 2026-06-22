@@ -1,9 +1,9 @@
 // Bump this on shell-strategy changes so the activate handler purges old caches.
-const CACHE_NAME = "remi-shell-v2";
+const CACHE_NAME = "remi-shell-v3";
 const SHELL_ASSETS = [
-  "/icon.png",
-  "/apple-icon.png",
-  "/favicon.ico",
+  "/assets/remi/brand/remi-favicon-32.png",
+  "/assets/remi/brand/remi-icon-192.png",
+  "/assets/remi/brand/remi-apple-icon-180.png",
 ];
 
 self.addEventListener("install", (event) => {

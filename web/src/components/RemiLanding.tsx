@@ -14,7 +14,7 @@ interface RemiLandingProps {
 const EMOTIONS = [
   { id: "neutral", zh: "中性", en: "NEUTRAL", c: "#9fb8c4", desc: "默认从容，稳定在场" },
   { id: "happy", zh: "开心", en: "HAPPY", c: "#ffce5c", desc: "轻快上扬，乐于回应" },
-  { id: "curious", zh: "好奇", en: "CURIOUS", c: "#2dd4bf", desc: "追问探索，眼里有光" },
+  { id: "curious", zh: "好奇", en: "CURIOUS", c: "#a855f7", desc: "追问探索，眼里有光" },
   { id: "shy", zh: "害羞", en: "SHY", c: "#ff9ec4", desc: "微微迟疑，语气放软" },
   { id: "sad", zh: "难过", en: "SAD", c: "#6aa6ff", desc: "低落安静，想要陪伴" },
 ] as const;
@@ -57,7 +57,7 @@ export function RemiLanding({ onEnter }: RemiLandingProps) {
       {/* content above the canvas */}
       <div className="relative z-[2]">
         {/* nav */}
-        <nav className="flex items-center justify-between px-6 py-5 md:px-10">
+        <nav className="flex items-center justify-between px-6 py-5 md:px-10" style={{ paddingTop: "max(1.25rem, calc(env(safe-area-inset-top) + 0.75rem))" }}>
           <div className="flex items-center gap-3 text-lg font-semibold tracking-wide">
             <span
               className="remi-portal-pulse h-2.5 w-2.5 rounded-full"
@@ -199,7 +199,7 @@ export function RemiLanding({ onEnter }: RemiLandingProps) {
         </Section>
 
         {/* enter */}
-        <section id="enter" className="mx-auto max-w-5xl px-6 pb-24 pt-12 md:px-10">
+        <section id="enter" className="mx-auto max-w-5xl px-6 pt-12 md:px-10" style={{ paddingBottom: "max(6rem, calc(env(safe-area-inset-bottom) + 1.5rem))" }}>
           <Card className="px-8 py-16 text-center md:px-12">
             <h2 className="mx-auto max-w-2xl text-3xl font-semibold leading-tight tracking-tight md:text-5xl">
               让 Remi 陪你说说话
