@@ -26,6 +26,7 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
 import { isNsfwEnabled } from "./nsfw_mode";
+import type { TemporalFactsRepository } from "../storage/repositories/temporal_facts_repository";
 
 const logger = createLogger("background_analysis");
 
@@ -53,6 +54,8 @@ export interface SlowBrainInput {
   slowBrain: SlowBrainStore;
   memoryRepo: MemoryRepository;
   relationshipRepo?: MemoryRepository | null;
+  /** M3-P2: bi-temporal 事实仓库（可选，无 DB 时为 InMemory 实现或 undefined） */
+  temporalFactsRepo?: TemporalFactsRepository;
   signal?: AbortSignal;
 }
 
@@ -82,6 +85,8 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
         memoryRepo,
         input.signal,
         input.connId,
+        input.temporalFactsRepo,
+        input.userId,
       );
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -206,6 +211,10 @@ interface LLMAnalysis {
   conversation_summary?: string;
   proactive_topics?: string[];
   relationship_signal?: "warming" | "stable" | "cooling";
+  /** M3-P1: Core Memory 差分编辑。慢脑产出 add/update/remove 操作。 */
+  core_memory_edits?: { op: string; section: string; key: string; value?: string }[];
+  /** M3-P2: bi-temporal 事实。会变的事实（工作状态、城市、关系状态等），用于时序记忆。 */
+  temporal_facts?: { subject: string; predicate: string; object: string }[];
 }
 
 const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者。
@@ -219,7 +228,9 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
   "emotional_undertone": "用户在这段对话中的深层情绪（一两个词）",
   "conversation_summary": "在【已有摘要】基础上增量更新后的整段对话摘要（一到三句，覆盖整段关系，而不是只概括最近几轮）",
   "proactive_topics": ["Remi 下次可以主动提起的话题"],
-  "relationship_signal": "warming 或 stable 或 cooling"
+  "relationship_signal": "warming 或 stable 或 cooling",
+  "core_memory_edits": [{"op": "add|update|remove", "section": "aboutYou|aboutUs|rightNow", "key": "...", "value": "..."}],
+  "temporal_facts": [{"subject": "用户的工作", "predicate": "状态", "object": "在还债"}]
 }
 
 注意：
@@ -228,7 +239,9 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
 - user_facts source 标注事实来源："user" 表示用户直接陈述，"assistant" 表示助手推断
 - interests 只提取用户表现出兴趣的事物
 - conversation_summary 必须在【已有摘要】基础上做增量更新：融入【最新一轮】的新进展，保留仍然重要的旧信息不要丢弃；若本轮无实质进展，就在旧摘要上做最小改动或原样保留。它要累积覆盖整段关系，而不是只概括最近几轮
-- proactive_topics 是未来可以自然聊到的话题，基于用户兴趣`;
+- proactive_topics 是未来可以自然聊到的话题，基于用户兴趣
+- core_memory_edits 用于维护用户的核心记忆块。aboutYou 记关于用户的事实/偏好（如名字、城市、工作状态），aboutUs 记关系相关（如关系阶段变化），rightNow 记当前上下文（如活跃线程、待解决的事）。op=add 新增，update 更新已有 key 的值，remove 删除不再成立的条目。只在有变化时才输出，没变化可以不写这个字段
+- temporal_facts 提取会随时间变化的事实（如工作状态、居住城市、感情状况），subject 是实体，predicate 是关系，object 是当前值。只在发现新的或变化的事实时才输出，没有则不写`;
 
 /**
  * 构造慢脑摘要分析消息。导出供测试：验证"喂回上一版摘要 + 增量累积"，而不是
@@ -269,6 +282,8 @@ async function llmAnalysis(
   memoryRepo: MemoryRepository,
   signal?: AbortSignal,
   connId?: string,
+  temporalFactsRepo?: TemporalFactsRepository,
+  userId?: string,
 ): Promise<void> {
   const observationDate = new Date().toISOString().slice(0, 10);
   const messages = buildAnalysisMessages({
@@ -357,6 +372,40 @@ async function llmAnalysis(
           ? -0.03
           : 0.01;
     store.bumpRelationship({ emotionalBondDelta: delta });
+  }
+
+  // M3-P1: Core Memory 差分编辑
+  if (analysis.core_memory_edits?.length && !nsfwActive) {
+    const validOps = new Set(["add", "update", "remove"]);
+    const validSections = new Set(["aboutYou", "aboutUs", "rightNow"]);
+    const edits = analysis.core_memory_edits
+      .filter((e) =>
+        validOps.has(e.op) &&
+        validSections.has(e.section) &&
+        typeof e.key === "string" && e.key.trim(),
+      )
+      .map((e) => ({
+        op: e.op as "add" | "update" | "remove",
+        section: e.section as "aboutYou" | "aboutUs" | "rightNow",
+        key: e.key.trim(),
+        ...(e.op !== "remove" && e.value ? { value: e.value.trim() } : {}),
+      }));
+    if (edits.length > 0) {
+      store.applyCoreMemoryEdits(edits as import("./core_memory").CoreMemoryEdit[]);
+      logger.debug("Core Memory edits applied", { count: edits.length });
+    }
+  }
+
+  // M3-P2: bi-temporal 事实写入（fire-and-forget，不阻塞）
+  if (analysis.temporal_facts?.length && !nsfwActive && temporalFactsRepo && userId) {
+    for (const tf of analysis.temporal_facts) {
+      if (!tf.subject?.trim() || !tf.predicate?.trim() || !tf.object?.trim()) continue;
+      void temporalFactsRepo.ingest(userId, {
+        subject: tf.subject.trim(),
+        predicate: tf.predicate.trim(),
+        object: tf.object.trim(),
+      }).catch((err) => logger.warn("temporal fact ingest failed", { error: (err as Error).message }));
+    }
   }
 
   logger.debug("LLM 分析结果", {

@@ -4,7 +4,16 @@
 >
 > 前置状态：Memory V2 已交付热层+温层主链路 —— 语义 episode 聚类（pgvector）、`memory_agent` 分层召回、`brains/proactive_planner.ts` 会话内主动开口、`server/session/continuity.ts` 沉默搭话。详见 [MEMORY_V2_DESIGN.md](MEMORY_V2_DESIGN.md)。
 >
-> **当前状态说明（2026-06-21）**：本文档是**设计提案（proposal）**，尚未实现。它不替换 V2，而是在 V2 之上补四块短板。落地前不改变现有行为；每个阶段保留 fallback（与 V2 同约束）。
+> **当前状态说明（2026-06-22）**：
+>
+> | 阶段 | 状态 | 内容 |
+> |------|------|------|
+> | **M3-P0** | ✅ 已落地 | 递归摘要修复（喂回旧摘要 + 500 字封顶）+ 时间注入（带时区 now + 距上次间隔，放缓存断点后）+ 窗口放大可配（10→16 / 1000→1600）+ 缓存断点接口（interface-only，不假定 prefill 收益） |
+> | **M3-P1** | ✅ 已落地 | Core Memory 差分编辑块（`brains/core_memory.ts`）—— `fromSlowBrainSnapshot` / `apply` / `render` / 有界淘汰；慢脑产出 `core_memory_edits`（add/update/remove）；Tier1 块插在 system 之后、history 之前 |
+> | **M3-P2** | ✅ 已闭环（代码 + DB），待部署验证 | bi-temporal 时序事实层 —— `temporal_facts` 表 + `TemporalFactsRepository`（PG + 内存）；双时间轴（t_valid / t_invalid），过期失效不删除；慢脑抽取 `temporal_facts` 写入；**召回读路径已接** —— `context_orchestrator` → `brains/timeline_facts.ts:recallTimelineFacts`（硬超时降级 + 空结果退回 Tier0–3）→ prompt 动态尾部；`temporal_facts` 表已在 local-prod 库建好。单测 38 项绿（含 `timeline_facts` 格式化 + 早返回降级）|
+> | **M3-P3a/b/c** | ⏳ 未做 | 主动发起引擎（有理由开场白 + 仲裁闸）→ 调度循环 → 离线推送（APNs/Web Push） |
+>
+> **待办（2026-06-22 收尾后更新）**：① ✅ Tier4 召回读路径已接（`brains/timeline_facts.ts:recallTimelineFacts`，硬超时 `REMI_TEMPORAL_RECALL_TIMEOUT_MS` 降级 + 空退回 Tier0–3，进 prompt 动态尾部）；② ✅ `temporal_facts` 表已在 local-prod 库建好 —— 该库**无 `pgmigrations` 记账、用 schema 初始化**，故手动执行 003 等效 DDL（`CREATE TABLE/INDEX IF NOT EXISTS`，仅新建全新表、不碰现有数据）而非全量 `npm run migrate:up`（后者会从 001 重跑、撞已存在的表而失败）；③ **代码改动需 `npm run prod:local:rebuild` 才在 local-prod（ai.remi.run）生效** —— 当前跑旧镜像，不含读路径召回；④ 缓存断点（§13）仍 interface-only；⑤ prompt cache 是否真复用尚未实测。**①② 完成后 M3-P2 在代码与 DB 层已闭环；端到端真机验证待 ③ 部署。** 它不替换 V2，而是在 V2 之上补四块短板；每个阶段保留 fallback（与 V2 同约束）。
 >
 > **落地约束**：
 > - 不在 fast path（出话热路径）塞任何阻塞工作 —— 这是 V3 的硬约束，也是它能"既实时又有记忆"的前提。
@@ -461,6 +470,8 @@ const messages = [
 | `test/brains/arbitration_gate.test.ts` | 关系门槛 / 指数退避 / 安静时段 / 刚聊完冷却 / 每窗口选 1 |
 | `test/brains/time_injection.test.ts` | `now` 落在动态尾部（不污染缓存前缀）；gap 计算正确 |
 | `test/brains/proactive_engine.test.ts` | 触发源汇聚 → 仲裁 → 投递路由（online/push） |
+
+> **实际现状（2026-06-22）**：已建并通过的为 `recursive_summary.test.ts`（含 `clipSummary` 用例）、`core_memory.test.ts`（文档原写 `core_memory_store`，实际命名 `core_memory`）、`temporal_facts.test.ts`（in-memory）共 33 项绿。`arbitration_gate` / `time_injection` / `proactive_engine` 三项**未建**（对应 M3-P3，未做）。
 
 ### 14.3 验收（接 V2 eval/replay 思路，样例进 `docs/evals/`）
 | 维度 | 通过标准 |
