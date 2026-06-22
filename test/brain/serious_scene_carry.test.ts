@@ -13,6 +13,7 @@ const {
   detectCriticizedDistressSignal,
   detectHeavyDistressShareSignal,
   detectEmotionalDistressSignal,
+  detectWithdrawalSignal,
   detectPracticalDistressSignal,
 } = require("../../brain/tone_policy");
 
@@ -138,6 +139,42 @@ describe("tone policy · emotional distress signals", () => {
     assert.equal(detectEmotionalDistressSignal("今天中午吃了面"), false);
   });
 
+  // ── 第二刀漏检变体 ──
+
+  it("sarcasm catches project-canceled variant", () => {
+    assert.equal(detectSarcasmSignal("太棒了，项目被砍了，大家都轻松了呢"), true);
+  });
+
+  it("criticized catches peer/roommate denial variants", () => {
+    assert.equal(detectCriticizedDistressSignal("室友说我这辈子就这样了"), true);
+    assert.equal(detectCriticizedDistressSignal("被同事当面说能力不行"), true);
+    assert.equal(detectCriticizedDistressSignal("对象嫌我没出息"), true);
+  });
+
+  it("heavy distress catches rumination-type insomnia", () => {
+    assert.equal(detectHeavyDistressShareSignal("脑子里全是那件事"), true);
+    assert.equal(detectHeavyDistressShareSignal("满脑子都是欠的钱"), true);
+    assert.equal(detectHeavyDistressShareSignal("我真的好累，感觉全世界都在压我"), true);
+  });
+
+  it("detects withdrawal / giving-up signals", () => {
+    assert.equal(detectWithdrawalSignal("算了，不说了"), true);
+    assert.equal(detectWithdrawalSignal("随便吧，都无所谓了"), true);
+    assert.equal(detectWithdrawalSignal("我无所谓了，怎样都行"), true);
+    assert.equal(detectWithdrawalSignal("说了也没用"), true);
+    assert.equal(detectWithdrawalSignal("反正都一样"), true);
+    // 正常场景不误触
+    assert.equal(detectWithdrawalSignal("今天中午吃了面"), false);
+    assert.equal(detectWithdrawalSignal("算了不吃外卖了，自己做"), false);
+    // 长句叙事不误触
+    assert.equal(detectWithdrawalSignal("算了这事情我就不跟你说了但我要跟你说另一件事情最近工作上有个机会"), false);
+  });
+
+  it("combiner now also catches withdrawal", () => {
+    assert.equal(detectEmotionalDistressSignal("算了，不说了"), true);
+    assert.equal(detectEmotionalDistressSignal("随便吧"), true);
+  });
+
   it("now treats 房贷/车贷 + judgment-ask as practical distress", () => {
     assert.equal(detectPracticalDistressSignal("还完房贷手里就剩八百，这日子该怎么办"), true);
     assert.equal(detectPracticalDistressSignal("今天工资到账了"), false);
@@ -231,5 +268,30 @@ describe("turn interpreter · serious-scene carry (W-PRES-02)", () => {
       }),
       false,
     );
+  });
+
+  // ── 第二刀端到端 ──
+
+  it("catches project-canceled sarcasm variant", async () => {
+    const result = await analyzeHeuristic("太棒了，项目被砍了，大家都轻松了呢");
+    assert.equal(result.interpretation.sceneType, "emotional_distress");
+    assert.equal(result.interpretation.emotionalState.valence, "negative");
+  });
+
+  it("catches roommate denial as emotional_distress", async () => {
+    const result = await analyzeHeuristic("室友说我这辈子就这样了");
+    assert.equal(result.interpretation.sceneType, "emotional_distress");
+  });
+
+  it("catches withdrawal signals (算了不说了)", async () => {
+    const result = await analyzeHeuristic("算了，不说了");
+    assert.equal(result.interpretation.sceneType, "emotional_distress");
+    assert.equal(result.policy.questionBudget, 0);
+  });
+
+  it("catches rumination-insomnia as emotional_distress", async () => {
+    const result = await analyzeHeuristic("凌晨三点了还睡不着，脑子里全是那件事");
+    assert.equal(result.interpretation.sceneType, "emotional_distress");
+    assert.equal(result.interpretation.emotionalState.valence, "negative");
   });
 });
