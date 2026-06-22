@@ -48,6 +48,14 @@ const MOAN_CHAR_RE = /[嗯啊哈嘶呜噢哦呀]/;
 const MOAN_SYLLABLE_COMMA_RE = /([嗯啊哈嘶呜噢哦呀])[，,](?=[嗯啊哈嘶呜噢哦呀])/g;
 const ROLE_PREFIX_RE = /^(?:Remi|remi)\s*[,，:：]\s*/i;
 const ROLE_LABEL_SPLIT_RE = /(?:Remi|remi)\s*[:：]\s*/i;
+/** Characters considered non-speakable punctuation/whitespace for TTS guard. */
+const PUNCT_ONLY_RE = /[，,。！？!?、；;：:\s~～…\-.—–\n*_#]/g;
+
+/** Return null if the text contains no speakable content after stripping punctuation. */
+function guardPunctOnly(text: string | null | undefined): string | null {
+  if (!text) return null;
+  return text.replace(PUNCT_ONLY_RE, "").length > 0 ? text : null;
+}
 
 /**
  * MLX/Qwen3-TTS often emits long silence after ellipsis-heavy tokens.
@@ -59,8 +67,14 @@ export function normalizeSpeakablePunctuation(text: string): string {
     .replace(/……+/g, "，")
     .replace(/…+/g, "，")
     .replace(/[～~]+/g, "")
+    .replace(/-{3,}/g, "")         // markdown HR "---" or longer → strip
+    .replace(/-{2}/g, "，")         // "--" (informal em-dash) → comma
+    .replace(/[—–]+/g, "，")        // em-dash U+2014 / en-dash U+2013 → comma
+    .replace(/\s*，\s*/g, "，")     // collapse spaces around Chinese commas
     .replace(/，{2,}/g, "，")
     .replace(/,{2,}/g, ",")
+    .replace(/\s{2,}/g, " ")       // collapse multiple spaces
+    .replace(/^[，,\s]+|[，,\s]+$/g, "") // strip leading/trailing commas & space
     .trim();
 }
 
@@ -251,7 +265,7 @@ export function resolveTtsQueueText(
   let trimmed = stripImageMarkdownForTts(text).trim();
   if (!trimmed) return null;
 
-  if (!options?.nsfw) return trimmed;
+  if (!options?.nsfw) return guardPunctOnly(trimmed);
 
   // Strip parenthetical stage directions before any other processing —
   // e.g. （双腿发软地跪在地板上，膝盖磨出红印）are visual narration, not speech.
@@ -261,7 +275,7 @@ export function resolveTtsQueueText(
   const vocal = extractNsfwVocalLine(trimmed);
   if (vocal) {
     const prepared = prepareNsfwVocalForTts(vocal, options.speakablePunct);
-    return prepared || null;
+    return guardPunctOnly(prepared);
   }
   if (isNsfwNarrationSegment(trimmed)) return null;
 
@@ -272,7 +286,7 @@ export function resolveTtsQueueText(
   }
 
   const prepared = prepareNsfwVocalForTts(working, options.speakablePunct);
-  return prepared || null;
+  return guardPunctOnly(prepared);
 }
 
 /**
@@ -285,8 +299,14 @@ function normalizeSpeakablePunctForChunking(text: string): string {
     .replace(/……+/g, "，")
     .replace(/…+/g, "，")
     .replace(/[～~]+/g, "")
+    .replace(/-{3,}/g, "")         // markdown HR "---" or longer → strip
+    .replace(/-{2}/g, "，")         // "--" (informal em-dash) → comma
+    .replace(/[—–]+/g, "，")        // em-dash U+2014 / en-dash U+2013 → comma
+    .replace(/\s*，\s*/g, "，")     // collapse spaces around Chinese commas
     .replace(/，{2,}/g, "，")
-    .replace(/,{2,}/g, ",");
+    .replace(/,{2,}/g, ",")
+    .replace(/\s{2,}/g, " ")       // collapse multiple spaces
+    .replace(/[，,]+$/g, "");       // strip trailing commas (no leading — chunker accumulates)
   // No .trim() — keep \n for chunker hard boundary detection.
 }
 

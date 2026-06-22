@@ -7,6 +7,7 @@ const {
   filterMixedNsfwVocalForTts,
   foldMoaningInterjections,
   isNsfwNarrationSegment,
+  normalizeSpeakablePunctuation,
   normalizeTtsTextWithConfig,
   resolveTtsQueueText,
   sanitizePastedChatContent,
@@ -199,7 +200,7 @@ describe("tts helpers", () => {
       speakablePunct: true,
     });
 
-    assert.equal(queued0, "嗯哈啊，好深，顶到喉咙了，唔");
+    assert.equal(queued0, "嗯，哈啊，好深，顶到喉咙了，唔");
     assert.equal(queued1, "舔干净你的每一寸，嘶");
     assert.doesNotMatch(queued0, /津液/);
     assert.doesNotMatch(queued1, /发酸/);
@@ -230,5 +231,47 @@ describe("tts helpers", () => {
       "画好啦～",
     );
     assert.equal(containsImageMarkdown("今天天气不错"), false);
+  });
+
+  describe("dash and decorative punctuation stripping", () => {
+    it("strips markdown HR (---) from speakable text", () => {
+      assert.equal(normalizeSpeakablePunctuation("哈啊… 哈... ---"), "哈啊，哈");
+    });
+
+    it("converts -- (double dash) to comma", () => {
+      assert.equal(normalizeSpeakablePunctuation("好深--不行了"), "好深，不行了");
+    });
+
+    it("converts em-dash (——) to comma", () => {
+      assert.equal(normalizeSpeakablePunctuation("嗯——啊——哈"), "嗯，啊，哈");
+    });
+
+    it("converts en-dash (–) to comma", () => {
+      assert.equal(normalizeSpeakablePunctuation("等等–你"), "等等，你");
+    });
+
+    it("strips long dashes (----+)", () => {
+      assert.equal(normalizeSpeakablePunctuation("嗯啊 ------"), "嗯啊");
+    });
+
+    it("does not leave trailing commas", () => {
+      const result = normalizeSpeakablePunctuation("---嗯---");
+      assert.doesNotMatch(result, /^[，,]/);
+      assert.doesNotMatch(result, /[，,]$/);
+    });
+
+    it("resolves pure dash/punctuation segments to null in TTS queue", () => {
+      assert.equal(resolveTtsQueueText("---", { nsfw: true, speakablePunct: true }), null);
+      assert.equal(resolveTtsQueueText("——", { nsfw: true, speakablePunct: true }), null);
+      assert.equal(resolveTtsQueueText("...", { nsfw: true, speakablePunct: true }), null);
+      assert.equal(resolveTtsQueueText("，，，", { nsfw: true, speakablePunct: true }), null);
+    });
+
+    it("handles mixed moaning + dashes correctly", () => {
+      const result = resolveTtsQueueText("哈啊… 哈... ---", { nsfw: true, speakablePunct: true });
+      assert.ok(result);
+      assert.doesNotMatch(result, /-/);
+      assert.match(result, /哈/);
+    });
   });
 });
