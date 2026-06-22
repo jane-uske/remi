@@ -419,9 +419,14 @@ export async function collectStreamTokens(
   let hasNotifiedFirstReasoningChunk = false;
   let hasNotifiedFirstVisibleContent = false;
 
-  const resolved = resolveReasoningRequest(messages, options?.reasoningEffort);
+  // When tools are provided, skip the "直接回复正文" directive — it conflicts
+  // with tool calling by telling the model to output text instead of tool_calls.
+  const hasTools = Boolean(options?.tools?.length);
+  const resolved = hasTools
+    ? { messages, mode: "provider_default" as string, apiReasoningEffort: undefined as ApiReasoningEffort | undefined }
+    : resolveReasoningRequest(messages, options?.reasoningEffort);
   const maxTokens = resolveFastBrainMaxTokens(options?.maxTokens);
-  const suppressThinking = shouldSuppressThinking(resolved.mode);
+  const suppressThinking = hasTools ? false : shouldSuppressThinking(resolved.mode);
 
   const stream = (await withRetry(
     () =>

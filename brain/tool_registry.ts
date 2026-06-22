@@ -12,7 +12,11 @@
 
 import type { RemiSessionContext } from "../brains/remi_session_context";
 import type { Emotion } from "../emotion/emotion_state";
+import { getConfig } from "../server/config";
 import { createLogger } from "../infra/logger";
+import {
+  getSessionLastImage,
+} from "../capabilities/image_generation/image_generation_capability";
 
 const logger = createLogger("tool_registry");
 
@@ -83,9 +87,8 @@ const generateImageTool: ToolDefinition = {
       required: ["subject"],
     },
   },
-  gate: (gateCtx) => {
+  gate: () => {
     try {
-      const { getConfig } = require("../server/config");
       return Boolean(getConfig().COMFYUI_ENABLED);
     } catch {
       return false;
@@ -110,13 +113,6 @@ const generateImageTool: ToolDefinition = {
         "../capabilities/image_generation/comfyui_bridge"
       );
       const { isNsfwEnabled } = await import("../brains/nsfw_mode");
-      const { getConfig } = await import("../server/config");
-      const {
-        sessionHasImage,
-        getSessionLastImage,
-      } = await import(
-        "../capabilities/image_generation/image_generation_capability"
-      );
 
       const connId = execCtx.ctx.connId;
       const last = getSessionLastImage(connId);
@@ -212,9 +208,8 @@ const generateVideoTool: ToolDefinition = {
       required: ["description"],
     },
   },
-  gate: (gateCtx) => {
+  gate: () => {
     try {
-      const { getConfig } = require("../server/config");
       return Boolean(getConfig().COMFYUI_VIDEO_ENABLED);
     } catch {
       return false;
@@ -267,9 +262,8 @@ const toggleAdultModeTool: ToolDefinition = {
       required: ["enable"],
     },
   },
-  gate: (gateCtx) => {
+  gate: () => {
     try {
-      const { getConfig } = require("../server/config");
       return Boolean(getConfig().REMI_NSFW_ENABLED);
     } catch {
       return false;
