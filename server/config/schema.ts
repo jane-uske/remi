@@ -209,6 +209,10 @@ export const envSchema = z.object({
   // ── Adult / NSFW mode (off by default; toggled per-session via chat) ───────
   // Master switch — when off, the "开启成人模式" chat command is a no-op.
   REMI_NSFW_ENABLED: booleanString("0"),
+  // Opt-in: pass function-calling tools to the LLM. Off by default — the
+  // current local uncensored model doesn't reliably call tools under the
+  // Remi persona prompt. Enable when a tool-compliant model is configured.
+  REMI_TOOL_USE_ENABLED: booleanString("0"),
   // Optional ComfyUI overrides used only while a session is in NSFW mode.
   // Empty → fall back to the regular COMFYUI_CHECKPOINT / COMFYUI_DEFAULT_NEGATIVE.
   COMFYUI_NSFW_CHECKPOINT: z.string().default(""),
@@ -329,6 +333,11 @@ export const envSchema = z.object({
   // M3-P0: 时间感开关（注入 now + 距上次间隔）。默认开；内容只进 prompt 动态
   // 尾部、缓存断点之后，绝不污染可缓存前缀。
   REMI_TIME_CONTEXT_ENABLED: booleanString("1"),
+
+  // M3-P2: bi-temporal 长期事实层。默认开；无 DATABASE_URL 时自动降级为内存模式。
+  REMI_TEMPORAL_FACTS_ENABLED: booleanString("1"),
+  // M3-P2: Tier4 时序召回硬超时（ms）。超时退回 Tier0–3，不卡出话。
+  REMI_TEMPORAL_RECALL_TIMEOUT_MS: z.coerce.number().int().positive().default(200),
 
   // ── Memory ──────────────────────────────────────────────────────────────
   MAX_PROMPT_MEMORY_ENTRIES: z.coerce.number().int().positive().default(5),

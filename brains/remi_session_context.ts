@@ -184,6 +184,8 @@ export class RemiSessionContext {
   readonly history: PromptMessage[] = [];
   readonly persona: PersonaState;
   persistentRelationshipRepo: MemoryRepository | null = null;
+  /** M3-P2: bi-temporal 事实仓库。bootstrap 时初始化。 */
+  temporalFactsRepo: import("../storage/repositories/temporal_facts_repository").TemporalFactsRepository | null = null;
   private clientTimeZone: string | null = null;
   private clientLocale: string | null = null;
   /** 会话创建时刻，用于"距上次对话"的一次性计算。 */
@@ -319,7 +321,16 @@ export class RemiSessionContext {
         if (m.role !== "assistant") return false;
         return !isFallbackAssistantReply(m.content);
       })
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        // Remove image markdown entirely from DB-loaded history. Any trace
+        // (URL or placeholder) makes the LLM either fabricate fake URLs or
+        // echo the placeholder instead of calling generate_image.
+        content:
+          m.role === "assistant"
+            ? m.content.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\n{3,}/g, "\n\n").trim()
+            : m.content,
+      }));
 
     const trimmed = trimHistoryToTokenBudget(rawHistory);
     this.history.splice(0, this.history.length, ...trimmed);

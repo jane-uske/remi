@@ -1,4 +1,5 @@
 import { fastBrainStream } from "./reply_stream";
+import { recallTimelineFacts } from "./timeline_facts";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
@@ -39,7 +40,12 @@ function stripImageMarkdownForHistory(
       .replace(/!\[[^\]]*\]\([^)]+\)/g, `[我画了一张图：${imageContext}]`)
       .trim();
   }
-  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
+  // Remove image markdown entirely from history. If we leave any trace
+  // (URL or placeholder), the LLM either fabricates fake URLs by mimicking
+  // the pattern, or echoes the placeholder instead of calling the
+  // generate_image tool. With no trace, the LLM has no choice but to
+  // call the tool when the user asks for an image.
+  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 import { getConfig } from "../server/config";
 import { getLatencyTracer } from "../infra/latency_tracer";
@@ -49,9 +55,7 @@ import {
 } from "../memory/relationship_state";
 import { reviewReplyTone } from "../brain/tone_policy";
 import { tryHandleDirectCapabilities } from "../brain/direct_capabilities";
-// resolveImageIntent is no longer called here — LLM tool-use drives image
-// generation intent detection. The import is retained as a comment for reference.
-// import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
+import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
 import {
   getSessionLastImage,
   sessionHasImage,
@@ -69,6 +73,7 @@ function maxHistoryEntries(): number {
   return getConfig().REMI_MAX_HISTORY;
 }
 const logger = createLogger("context_orchestrator");
+
 const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
 const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
 const GREETING_LIKE_TURN_PATTERN =
@@ -548,6 +553,19 @@ export async function* routeMessage(
     effectiveUserMessage = `${userMessage}\n[用户发了一张图片，但我暂时看不到图片内容]`;
   }
 
+  const imageIntent = await resolveImageIntent({
+    userMessage,
+    recentHistory: ctx.history.slice(-4),
+    hasPreviousImage: sessionHasImage(ctx.connId),
+    lastImage: getSessionLastImage(ctx.connId),
+    signal,
+  });
+  const config = getConfig();
+  if (imageIntent.kind !== "none" && config.COMFYUI_ENABLED) {
+    const intro = await generateImageProgressIntro(ctx, userMessage, signal);
+    yield intro;
+  }
+
   const directCapabilityResult = await tryHandleDirectCapabilities({
     userMessage,
     emotion,
@@ -555,6 +573,7 @@ export async function* routeMessage(
     signal,
     systemTriggered: Boolean(opts?.systemTriggered),
     inputSource,
+    imageIntent,
   });
   if (directCapabilityResult.handled) {
     const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
@@ -851,9 +870,19 @@ export async function* routeMessage(
     }
 
     // Build tools param for function calling (gated per-tool by config).
-    const toolsParam = opts?.systemTriggered
-      ? []
-      : buildToolsParam({ ctx });
+    // Tool-use is opt-in via REMI_TOOL_USE_ENABLED — the current local
+    // uncensored model doesn't reliably call tools under the Remi persona
+    // prompt (fabricates fake image URLs instead). Fast-path regex handles
+    // explicit requests reliably. Enable this when a tool-compliant model
+    // is configured to handle ambiguous intents.
+    const toolsParam =
+      opts?.systemTriggered || !getConfig().REMI_TOOL_USE_ENABLED
+        ? []
+        : buildToolsParam({ ctx });
+
+    // M3-P2: Tier4 时序事实召回（带硬超时降级）。热路径唯一动态项，
+    // 进 prompt 动态尾部（缓存断点之后），不污染可缓存前缀。
+    const timelineFacts = await recallTimelineFacts(ctx);
 
     for await (const token of fastBrainStream({
       userMessage: effectiveUserMessage,
@@ -873,6 +902,7 @@ export async function* routeMessage(
       connId: ctx.connId,
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
       coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
+      timelineFacts,
       ...(toolsParam.length > 0 ? { tools: toolsParam } : {}),
     })) {
       // ── Tool call sentinel detection ───────────────────────────────

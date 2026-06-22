@@ -81,6 +81,10 @@ interface BuildPromptInput {
   connId?: string;
   /** M3-P0 时间感：注入 prompt 动态尾部（缓存断点之后），不进可缓存前缀。 */
   timeContext?: string;
+  /** M3-P1 Core Memory Tier1 块：稳定排序的结构化记忆，放在 system prompt 之后、history 之前。 */
+  coreMemoryBlock?: string;
+  /** M3-P2 Tier4 时序事实：bi-temporal 召回结果，放在动态尾部（时间块之前）。 */
+  timelineFacts?: string;
 }
 
 type PrioritySlots = {
@@ -331,15 +335,60 @@ export function buildPrompt({
   persona,
   connId,
   timeContext,
+  coreMemoryBlock,
+  timelineFacts,
 }: BuildPromptInput): PromptMessage[] {
-  const messages: PromptMessage[] = [
-    { role: "system", content: buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona, connId) },
-    ...history,
+  // Collect all system content parts — Qwen3's tools-aware chat template
+  // (used when tools are passed) rejects multiple system messages followed
+  // by an assistant turn with "No user query found". So we always emit a
+  // single system message, concatenating the main prompt + core memory.
+  const systemParts: string[] = [
+    buildSystemPrompt(memory, emotion, userMessage, currentContext, priorityContext, persona, connId),
   ];
-  // M3-P0: 时间上下文放在 history 之后、user 之前 —— 动态尾部，绝不进可缓存前缀。
-  if (timeContext?.trim()) {
-    messages.push({ role: "system", content: timeContext.trim() });
+  if (coreMemoryBlock?.trim()) {
+    systemParts.push(coreMemoryBlock.trim());
   }
-  messages.push({ role: "user", content: userMessage });
+  const messages: PromptMessage[] = [
+    { role: "system", content: systemParts.filter((s) => s.trim()).join("\n\n") },
+  ];
+  // Qwen3's tools-aware chat template requires the first non-system message
+  // to be a user turn — a leading assistant message triggers
+  // "No user query found". Drop leading assistant turns from history.
+  let historyStream = history;
+  while (historyStream.length > 0 && historyStream[0].role === "assistant") {
+    historyStream = historyStream.slice(1);
+  }
+  // Normalize history: merge consecutive same-role messages into one.
+  // Qwen3's tools-aware chat template rejects consecutive same-role
+  // messages. Track the last role we pushed from the history stream
+  // (not the system block above) so we only coalesce within history.
+  let lastHistoryRole: string | null = null;
+  const historyMessages: PromptMessage[] = [];
+  for (const msg of historyStream) {
+    if (lastHistoryRole === msg.role && historyMessages.length > 0) {
+      historyMessages[historyMessages.length - 1].content += `\n${msg.content}`;
+    } else {
+      historyMessages.push({ ...msg });
+      lastHistoryRole = msg.role;
+    }
+  }
+  messages.push(...historyMessages);
+  // M3-P0/P2: 时间上下文 + 时序事实是动态尾部，绝不进可缓存前缀。
+  // 合并进 user message 而非独立 system message —— Qwen3 的 tools-aware
+  // chat template 不允许 system role 出现在对话中间，拼到 user 前缀既保留
+  // 语义又不破坏 template。
+  const dynamicTailParts = [timelineFacts?.trim(), timeContext?.trim()].filter(
+    (s): s is string => Boolean(s?.trim()),
+  );
+  const finalUserContent = dynamicTailParts.length > 0
+    ? `${dynamicTailParts.join("\n\n")}\n\n${userMessage}`
+    : userMessage;
+  // Merge with the last history message if it's also user-role.
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg && lastMsg.role === "user") {
+    lastMsg.content += `\n${finalUserContent}`;
+  } else {
+    messages.push({ role: "user", content: finalUserContent });
+  }
   return messages;
 }

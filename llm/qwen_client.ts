@@ -428,18 +428,19 @@ export async function collectStreamTokens(
   const maxTokens = resolveFastBrainMaxTokens(options?.maxTokens);
   const suppressThinking = hasTools ? false : shouldSuppressThinking(resolved.mode);
 
+  const requestParams = {
+    model,
+    messages: resolved.messages,
+    temperature: 0.7,
+    max_tokens: maxTokens,
+    ...buildCompletionExtras(resolved.apiReasoningEffort, suppressThinking),
+    stream: true,
+    ...(options?.tools?.length ? { tools: options.tools } : {}),
+    ...(signal ? { signal } : {}),
+  };
   const stream = (await withRetry(
     () =>
-      (openai.chat.completions.create as Function)({
-        model,
-        messages: resolved.messages,
-        temperature: 0.7,
-        max_tokens: maxTokens,
-        ...buildCompletionExtras(resolved.apiReasoningEffort, suppressThinking),
-        stream: true,
-        ...(options?.tools?.length ? { tools: options.tools } : {}),
-        ...(signal ? { signal } : {}),
-      }),
+      (openai.chat.completions.create as Function)(requestParams),
     { retries: 1, label: "streamTokens" },
   )) as AsyncIterable<{
     choices?: {
