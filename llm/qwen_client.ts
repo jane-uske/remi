@@ -623,3 +623,62 @@ export async function collectStreamTokens(
 
   return { tokens, toolCalls, contentChars, reasoningChars, visibleChars };
 }
+
+/**
+ * Clean, non-streaming tool-routing call. Used by the semi-agent tool router
+ * (brains/tool_router.ts) to decide whether the user's message should dispatch
+ * a capability tool — WITHOUT the full Remi persona prompt or conversation
+ * history. The local uncensored model reliably emits tool_calls under this
+ * minimal request (validated), whereas it ignores tools when they're attached
+ * to the heavy in-character reply prompt.
+ *
+ * `reasoning_effort: none` keeps the decision decisive (no reasoning channel)
+ * and matches the validated request shape for the local Qwen3 model. Drop it
+ * if a non-reasoning official routing model is configured later.
+ *
+ * Returns the selected tool calls (empty when the model chose to just chat).
+ */
+export async function routeToolCalls(
+  messages: ChatMessage[],
+  tools: Array<{ type: "function"; function: Record<string, unknown> }>,
+  options: { model?: string; signal?: AbortSignal; maxTokens?: number } = {},
+): Promise<StreamToolCall[]> {
+  const openai = getClient();
+  const model = options.model ?? getConfig().REMI_LLM_MODEL;
+  if (!model) throw new Error("LLM 未配置：缺少 model");
+
+  const res = (await withRetry(
+    () =>
+      (openai.chat.completions.create as Function)({
+        model,
+        messages,
+        temperature: 0,
+        max_tokens: options.maxTokens ?? 256,
+        reasoning_effort: "none",
+        tools,
+        tool_choice: "auto",
+        ...(options.signal ? { signal: options.signal } : {}),
+      }),
+    { retries: 1, label: "routeToolCalls" },
+  )) as {
+    choices?: {
+      message?: {
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
+    }[];
+  };
+
+  const raw = res.choices?.[0]?.message?.tool_calls ?? [];
+  return raw
+    .filter((tc): tc is { id?: string; function: { name: string; arguments?: string } } =>
+      Boolean(tc?.function?.name),
+    )
+    .map((tc) => ({
+      id: tc.id ?? "",
+      name: tc.function.name,
+      arguments: tc.function.arguments ?? "",
+    }));
+}

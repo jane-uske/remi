@@ -5,13 +5,13 @@ import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import { visionEnabled, describeImage, USER_IMAGE_PROMPT } from "../llm/vision_client";
 import { fetchImageAsBase64, extractFirstImageUrl } from "../utils/image_fetch";
-import { completeWithOptions, type StreamToolCall } from "../llm/qwen_client";
+import { completeWithOptions } from "../llm/qwen_client";
 import { getFastBrainModel } from "./fast_brain_model";
 import {
-  buildToolsParam,
   executeTool,
   type ToolExecutionContext,
 } from "../brain/tool_registry";
+import { routeMessageTools, toolRouterPrefilter } from "./tool_router";
 import {
   retrievePromptMemory,
 } from "../memory/memory_agent";
@@ -637,6 +637,115 @@ export async function* routeMessage(
     return;
   }
 
+  // ── Semi-agent tool router (opt-in via REMI_TOOL_USE_ENABLED) ─────────
+  // The regex fast-path above handles explicit capability requests at zero
+  // latency. For the ambiguous phrasings it misses ("不穿衣服呢？" → image),
+  // a clean, minimal, reasoning-off LLM router decides whether to dispatch a
+  // tool. It runs ONLY when a broad keyword prefilter fires, so pure chat never
+  // pays the extra call. The main reply brain is never given tools — it stays
+  // fully in-character (see tool_router.ts).
+  if (
+    !opts?.systemTriggered &&
+    config.REMI_TOOL_USE_ENABLED &&
+    toolRouterPrefilter(userMessage)
+  ) {
+    const routedToolCalls = await routeMessageTools({ userMessage, ctx, signal });
+    if (signal?.aborted) return;
+    if (routedToolCalls.length > 0) {
+      const toolExecCtx: ToolExecutionContext = { ctx, emotion, userMessage, signal };
+      let directReplyFromTool: string | undefined;
+      let skipTtsFromTool = false;
+      let capabilityIdFromTool: string | undefined;
+      const toolOutputs: string[] = [];
+
+      // Image generation is slow (ComfyUI). Reaching here means the dedicated
+      // image gate already classified this turn as non-image (no intro shown),
+      // so a quick in-character intro before blocking is safe and non-duplicate.
+      if (
+        routedToolCalls.some((tc) => tc.name === "generate_image") &&
+        config.COMFYUI_ENABLED
+      ) {
+        const intro = await generateImageProgressIntro(ctx, userMessage, signal);
+        if (signal?.aborted) return;
+        yield intro;
+      }
+
+      for (const tc of routedToolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = tc.arguments ? JSON.parse(tc.arguments) : {};
+        } catch {
+          logger.warn("failed to parse routed tool arguments", {
+            name: tc.name,
+            raw: tc.arguments,
+          });
+        }
+        const result = await executeTool(tc.name, args, toolExecCtx);
+        toolOutputs.push(result.output);
+        if (result.directReply) directReplyFromTool = result.directReply;
+        if (result.skipTts) skipTtsFromTool = true;
+        if (result.capabilityId) capabilityIdFromTool = result.capabilityId;
+      }
+      if (skipTtsFromTool) ctx.skipTtsThisTurn = true;
+
+      // Direct reply (image / video / mode toggle): yield + finalize like the
+      // DirectCapability path, then we're done for this turn.
+      if (directReplyFromTool) {
+        const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
+          userMessage,
+          directCapabilityId: capabilityIdFromTool,
+        });
+        yield directReplyFromTool;
+        const finalizeResult = finalizeDirectReply({
+          ctx,
+          userMessage,
+          reply: directReplyFromTool,
+          emotion,
+          workingMemoryDraft: directWorkingMemoryDraft,
+          signal,
+          systemTriggered: opts?.systemTriggered,
+          inputSource,
+          capabilityId: capabilityIdFromTool,
+        });
+        if (finalizeResult === "handled" && !opts?.systemTriggered) {
+          await persistContinuityCueState(ctx);
+        }
+        // Vision sidecar: upgrade the image history entry with a real visual
+        // description (fire-and-forget) — same as the DirectCapability path.
+        if (
+          finalizeResult === "handled" &&
+          capabilityIdFromTool === "image_generation" &&
+          visionEnabled()
+        ) {
+          const imgUrl = extractFirstImageUrl(directReplyFromTool);
+          if (imgUrl) {
+            fetchImageAsBase64(imgUrl)
+              .then((base64) => (base64 ? describeImage(base64) : ""))
+              .then((description) => {
+                if (!description) return;
+                const lastEntry = ctx.history[ctx.history.length - 1];
+                if (lastEntry?.role === "assistant") {
+                  lastEntry.content = stripImageMarkdownForHistory(
+                    directReplyFromTool!,
+                    description,
+                  );
+                }
+              })
+              .catch(() => {});
+          }
+        }
+        return;
+      }
+
+      // No direct reply (e.g. get_current_time): hand the tool output to the
+      // main in-character brain as context and fall through to a normal reply,
+      // so the answer keeps Remi's voice instead of a bare tool dump.
+      if (toolOutputs.length > 0) {
+        effectiveUserMessage = `${effectiveUserMessage}\n\n[供你参考的工具结果：${toolOutputs.join("；")}]`;
+      }
+    }
+  }
+
   const fastMemoryWrites: { key: string; value: string }[] = [];
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
@@ -869,21 +978,13 @@ export async function* routeMessage(
       latencyTracer.mark("llm_request_start", traceId);
     }
 
-    // Build tools param for function calling (gated per-tool by config).
-    // Tool-use is opt-in via REMI_TOOL_USE_ENABLED — the current local
-    // uncensored model doesn't reliably call tools under the Remi persona
-    // prompt (fabricates fake image URLs instead). Fast-path regex handles
-    // explicit requests reliably. Enable this when a tool-compliant model
-    // is configured to handle ambiguous intents.
-    const toolsParam =
-      opts?.systemTriggered || !getConfig().REMI_TOOL_USE_ENABLED
-        ? []
-        : buildToolsParam({ ctx });
-
     // M3-P2: Tier4 时序事实召回（带硬超时降级）。热路径唯一动态项，
     // 进 prompt 动态尾部（缓存断点之后），不污染可缓存前缀。
     const timelineFacts = await recallTimelineFacts(ctx);
 
+    // Capability dispatch is owned by the upstream tool router; the reply brain
+    // is intentionally NOT given tools, so it stays fully in-character and never
+    // fabricates outputs (e.g. fake image URLs) under the heavy persona prompt.
     for await (const token of fastBrainStream({
       userMessage: effectiveUserMessage,
       emotion,
@@ -903,128 +1004,7 @@ export async function* routeMessage(
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
       coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
       timelineFacts,
-      ...(toolsParam.length > 0 ? { tools: toolsParam } : {}),
     })) {
-      // ── Tool call sentinel detection ───────────────────────────────
-      if (token.startsWith("__TOOL_CALLS__")) {
-        const toolCallsJson = token.slice("__TOOL_CALLS__".length);
-        let toolCalls: StreamToolCall[];
-        try {
-          toolCalls = JSON.parse(toolCallsJson);
-        } catch {
-          logger.warn("failed to parse tool_calls sentinel", { connId: ctx.connId });
-          fullReply += "啊…刚刚脑子卡了一下，你再说一次好不好？";
-          yield "啊…刚刚脑子卡了一下，你再说一次好不好？";
-          break;
-        }
-
-        logger.info("LLM requested tool calls", {
-          connId: ctx.connId,
-          tools: toolCalls.map((tc) => tc.name),
-        });
-
-        // Execute all tool calls.
-        const toolExecCtx: ToolExecutionContext = {
-          ctx,
-          emotion,
-          userMessage,
-          signal,
-        };
-        let directReplyFromTool: string | undefined;
-        let skipTtsFromTool = false;
-        let capabilityIdFromTool: string | undefined;
-        const toolResultMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
-
-        for (const tc of toolCalls) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = tc.arguments ? JSON.parse(tc.arguments) : {};
-          } catch {
-            logger.warn("failed to parse tool arguments", { name: tc.name, raw: tc.arguments });
-          }
-          const result = await executeTool(tc.name, args, toolExecCtx);
-          toolResultMessages.push({
-            role: "tool",
-            content: result.output,
-            tool_call_id: tc.id,
-          });
-          if (result.directReply) directReplyFromTool = result.directReply;
-          if (result.skipTts) skipTtsFromTool = true;
-          if (result.capabilityId) capabilityIdFromTool = result.capabilityId;
-        }
-
-        if (skipTtsFromTool) ctx.skipTtsThisTurn = true;
-
-        // If a tool provided a direct reply, yield it and skip the follow-up LLM call.
-        if (directReplyFromTool) {
-          fullReply += directReplyFromTool;
-          yield directReplyFromTool;
-
-          // Vision sidecar for generated images (same logic as DirectCapability path)
-          if (capabilityIdFromTool === "image_generation" && visionEnabled()) {
-            const imgUrl = extractFirstImageUrl(directReplyFromTool);
-            if (imgUrl) {
-              fetchImageAsBase64(imgUrl)
-                .then((base64) => (base64 ? describeImage(base64) : ""))
-                .then((description) => {
-                  if (!description) return;
-                  const lastEntry = ctx.history[ctx.history.length - 1];
-                  if (lastEntry?.role === "assistant") {
-                    lastEntry.content = stripImageMarkdownForHistory(
-                      directReplyFromTool!,
-                      description,
-                    );
-                  }
-                })
-                .catch(() => {});
-            }
-          }
-          break;
-        }
-
-        // Otherwise, inject tool results and call LLM again for a natural reply.
-        // Build messages: original history + user message + assistant tool_calls + tool results
-        const followUpMessages: Array<{ role: string; content: string; tool_calls?: unknown; tool_call_id?: string }> = [
-          ...historyForPrompt.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user", content: effectiveUserMessage },
-          {
-            role: "assistant",
-            content: "",
-            tool_calls: toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: tc.arguments },
-            })),
-          },
-          ...toolResultMessages,
-        ];
-
-        try {
-          const followUpReply = await completeWithOptions(
-            followUpMessages as any,
-            {
-              maxTokens: 512,
-              temperature: 0.7,
-              signal,
-            },
-          );
-          if (followUpReply) {
-            fullReply += followUpReply;
-            yield followUpReply;
-          }
-        } catch (err) {
-          logger.warn("follow-up LLM call after tool failed", {
-            connId: ctx.connId,
-            error: (err as Error).message,
-          });
-          // Yield tool output as-is
-          const fallback = toolResultMessages.map((m) => m.content).join("\n");
-          fullReply += fallback;
-          yield fallback;
-        }
-        break;
-      }
-
       fullReply += token;
       yield token;
     }
