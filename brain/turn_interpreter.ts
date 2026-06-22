@@ -1083,13 +1083,19 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   if (interpretation.sceneType === "relational_recall") {
     return "这是关系连续性校验。先直接回答你记得的部分；记不准就直接承认，不要靠猜，也不要把问题丢回用户或换成轻松话题。";
   }
-  if (
-    interpretation.sceneType === "practical_judgment" &&
-    policy.bans.includes("no_shallow_reassurance")
-  ) {
-    return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
-  }
   if (interpretation.sceneType === "practical_judgment") {
+    if (policy.bans.includes("no_shallow_reassurance")) {
+      return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
+    }
+    if (interpretation.userAct === "answer_now") {
+      return "这是现实判断场景。第一句直接给判断或建议；第二句补一条依据；不要反问，也别把决定权抛回去。";
+    }
+    if (interpretation.userAct === "decision_seek") {
+      return "这是决策题。第一句先给倾向判断；第二句补依据；真的必要时最后再轻问。不要绕回轻松话题。";
+    }
+    if (policy.shouldUpdateDecisionContext) {
+      return "这句在补充现实约束。先吸收新信息并更新判断，再给一条关键建议；不要重置成共情或追问。";
+    }
     return "这是现实判断场景。先针对用户的具体问题给出你的看法或拆解，不要用反问代替回答，也不要绕回轻松话题。";
   }
   if (interpretation.userAct === "answer_now") {
