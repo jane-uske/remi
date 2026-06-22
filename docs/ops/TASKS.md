@@ -195,6 +195,47 @@
   - `recoverVisibleReply`: 空流回退→重试（加 DIRECT_ANSWER_DIRECTIVE）→ 从 reasoning 中 salvage 中文正文
   - fast brain 不再单独配模型（`REMI_FAST_BRAIN_MODEL` 已废弃）
 
+### 设计支线（2026-06-22 北极星 / 架构文档成文，任务条目本日同步）
+
+> 五份设计文档于 2026-06-22 成文：[DIGITAL_LIFE_NORTH_STAR.md](../design/DIGITAL_LIFE_NORTH_STAR.md)（契约）+ [DIGITAL_LIFE_AUDIT.md](../design/DIGITAL_LIFE_AUDIT.md)（现状快照）+ [ROLEPLAY_LAYER_DESIGN.md](../design/ROLEPLAY_LAYER_DESIGN.md)（Performance 下钻）+ [CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md](../design/CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md) + [COMMERCIAL_COMPASS.md](../design/COMMERCIAL_COMPASS.md)。外加昨日落地的 [MEMORY_V3_DESIGN.md](../design/MEMORY_V3_DESIGN.md)。这些文档都要求"任务挂 TASKS.md 并行支线、不抢 W-PRES 主线、P1 不碰热点文件"。**以下状态经本日代码复核（非文档自述）。**
+
+- [ ] **M3- Memory V3**（设计：[MEMORY_V3_DESIGN.md](../design/MEMORY_V3_DESIGN.md)；代码在工作区，未提交）
+  - `M3-P0` 立刻不笨 + 时间感入门 — `done`：递归摘要喂回累积 + `clipSummary` 封顶 + `now`/gap 注入动态尾部 + 窗口放大可配 + 缓存断点接口；单测绿
+  - `M3-P1` Core Memory 差分编辑块 — `done`：`brains/core_memory.ts`（差分 apply / 有界淘汰 / 稳定 render）；慢脑 `core_memory_edits → applyCoreMemoryEdits`；读路径 `coreMemory.render() → context_orchestrator.ts:875 → prompt Tier1`；NSFW 跳过；**读写闭环**，单测绿
+  - `M3-P2` bi-temporal 时序层 — `in_progress`（代码 + DB 已闭环，待部署）：写入 + 召回读路径均接通（`brains/timeline_facts.ts:recallTimelineFacts` → `context_orchestrator` → prompt 动态尾部，硬超时降级）；`temporal_facts` 表已在 local-prod 建好；单测 38 项绿。**剩 `npm run prod:local:rebuild` 部署后端到端生效**（当前 local-prod 跑旧镜像，不含读路径改动）
+  - `M3-P3a/b/c` 主动发起引擎 / 调度循环 / 离线推送 — `todo`：无代码；`arbitration_gate` / `proactive_engine` / `time_injection` 测试未建
+
+- [ ] **DL- 数字生命**（契约：[DIGITAL_LIFE_NORTH_STAR.md](../design/DIGITAL_LIFE_NORTH_STAR.md)）
+  - `DL-P0-1` 北极星契约文档 — `done`
+  - `DL-P0-2` `RemiSelf` interface 草稿 — `done`：`server/session/types/remi_self.ts`（MoodVector / WorldPresenceState / RemiSelf，纯契约 + `// TODO: implement`，注明与现状 PersonaLiveState 的 gap）
+  - `DL-P0-3` `IdentityEnvelope` interface 草稿 — `done`：`persona/types/identity_envelope.ts`（Core[Constitution+Character] / Disposition / Performance 三层）
+  - `DL-P0-4` 本表同步 DL- 条目 — `done`（2026-06-22）
+  - `DL-P0-5` episodes 加 `scope` 列 — `done`（代码）：`migrations/004_episodes_scope.js`（ADD COLUMN IF NOT EXISTS scope DEFAULT 'core'）+ `MomentInput.scope?: EpisodeScope`；写入路径未改、无运行时变更。**migration 待执行**（同 M3-P2 攒批部署）。ROLEPLAY 线前置已就位
+  - → **DL-P0 阶段全部完成**；后续 P1a/P1b/P2 全部 `🔒` 卡 W-PRES-01 验收
+  - `DL-P1a` NSFW 替换 → 包裹（`brain/prompt_builder.ts`，单 owner）— `todo`，前提 W-PRES-01 验收
+  - `DL-P1b` RemiSelf 最小持久化（mood / energy / currentFocus 跨会话）— `todo`，前提 W-PRES-01
+  - `DL-P2` Disposition 旋钮 + 世界状态服务端化 — `todo`，前提 P1a + P1b
+
+- [ ] **CIO- 上下文意图编排器**（设计：[CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md](../design/CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md)；上位契约 DL）
+  - `CIO-P0` 设计文档 — `done`
+  - `CIO-P1` shadow-mode 意图分类器 + 日志（`brains/contextual_intent/`，行为零变化）— `todo`（模块未建；无前提、不碰热点、可独立开工）
+  - `CIO-P2` ImageRegistry + 指代消解 — `todo`，前提 P1
+  - `CIO-P3` 接生图 + 看图消歧（flag）— `todo`，前提 P2
+  - `CIO-P4` Performance Envelope（flag，单 owner）— `todo`，前提 P3 + DL-P1a + W-PRES-01
+  - `CIO-P5` session voice override（flag）— `todo`，前提 P4
+
+- [ ] **ROLEPLAY Performance 层**（设计：[ROLEPLAY_LAYER_DESIGN.md](../design/ROLEPLAY_LAYER_DESIGN.md)）
+  - 沉淀过滤器（双层判定）+ Performance 生命周期 + 关系记忆隔离 — `todo`，前置 DL-P0-5（scope 列）+ DL-P1a（包裹化）
+
+- [ ] **CC- 商业化 / 开源**（指南针：[COMMERCIAL_COMPASS.md](../design/COMMERCIAL_COMPASS.md)）—— 长线，P0 为开源前硬前置，当前不抢主线
+  - `CC-P0-1` 移除私有依赖 `@jane-uske/yepanywhere` — `todo`（仍在 `package.json:56`，in-tree 零 import）
+  - `CC-P0-2` NSFW 明文移出引擎 — `todo`（`brain/prompt_builder.ts` 仍含 `NSFW_PERSONA_BLOCK`）
+  - `CC-P0-3` 清理 Live2D Hiyori Pro 版权 — `todo`（`web/public/live2d/hiyori-pro/` 仍在）
+  - `CC-P0-4` 协议版本化 + dev 消息隔离 — `todo`
+  - `CC-P0-5` Persona Package 格式 schema（`docs/design/PERSONA_PACKAGE_SPEC.md`）— `todo`（未建）
+  - `CC-P0-6` 品牌视觉资产接入 + `BRAND_LICENSE.md` — `todo`（未建；需用户提供立绘源文件 + 定 CC 协议 W-6）
+  - `CC-P1~P3` 架构拆分 / 商业化上线 / 生态 — 长线，暂不进执行板
+
 ### 当前禁止并行修改的热点文件
 
 - `server/session/index.ts`
