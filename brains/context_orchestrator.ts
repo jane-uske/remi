@@ -20,6 +20,8 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
+import { classifyContextualIntent, registerImage, getRegistry } from "./contextual_intent";
+import type { ShadowContextualIntent } from "./contextual_intent";
 
 /**
  * Strip `![alt](url)` image markdown from a reply before storing it in
@@ -352,6 +354,12 @@ export interface RouteMessageOptions {
   traceId?: string;
   /** 用户附带的图片 (data:image/...;base64,...) — vision sidecar 会将其转为文字描述。 */
   imageBase64?: string;
+  /**
+   * 用户此刻的语音情绪/事件 (SenseVoice STT 提供)。
+   * 例如 "happy"、"sad"、"angry/laughter"。
+   * 让 Remi 接住用户的口气和情绪，而不是只看文字。
+   */
+  userVocalTone?: string;
 }
 
 async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void> {
@@ -541,6 +549,13 @@ export async function* routeMessage(
       if (description) {
         effectiveUserMessage = `${userMessage}\n[用户附带了一张图片：${description}]`;
         logger.info("vision sidecar described user image", { connId: ctx.connId, descriptionChars: description.length });
+        // CIO-P2: 上传图入栈（shadow 用，不影响 legacy 路径）
+        registerImage(ctx.connId, {
+          id: crypto.randomUUID(),
+          origin: "uploaded",
+          descriptor: description,
+          createdAt: Date.now(),
+        });
       } else {
         effectiveUserMessage = `${userMessage}\n[用户发了一张图片]`;
       }
@@ -553,7 +568,40 @@ export async function* routeMessage(
     effectiveUserMessage = `${userMessage}\n[用户发了一张图片，但我暂时看不到图片内容]`;
   }
 
-  const imageIntent = await resolveImageIntent({
+  // ── CIO-P1/P3: 意图分类（shadow 或 wired）────────────────────────
+  // P1/P2: fire-and-forget shadow，只写日志。
+  // P3: wired 模式——分类结果驱动看图/生图消歧。
+  // 注意：必须在 vision sidecar 之后跑，这样本轮上传图才在 registry 里。
+  let cioIntent: ShadowContextualIntent | null = null;
+  const cioWired = getConfig().REMI_CIO_WIRED_ENABLED;
+  if (getConfig().REMI_CIO_SHADOW_ENABLED || cioWired) {
+    try {
+      cioIntent = classifyContextualIntent({
+        userMessage,
+        hasImage: !!opts?.imageBase64,
+        hasSessionImage: sessionHasImage(ctx.connId),
+        imageRegistry: getRegistry(ctx.connId),
+      });
+      if (cioIntent.meta.signals.length > 0) {
+        logger.info("CIO shadow intent", {
+          connId: ctx.connId,
+          primary: cioIntent.primary,
+          signals: cioIntent.meta.signals,
+          wired: cioWired,
+          latencyMs: cioIntent.meta.classifierLatencyMs,
+        });
+      }
+    } catch {
+      // 分类器不得影响主路径
+    }
+  }
+
+  // ── CIO-P3 wired: 看图消歧——附了图且 vision 判定"想看图" → 跳过生图 ──
+  const cioSuppressImageGen = cioWired && cioIntent?.vision?.wantsLook === true;
+
+  const imageIntent = cioSuppressImageGen
+    ? ({ kind: "none" } as const)
+    : await resolveImageIntent({
     userMessage,
     recentHistory: ctx.history.slice(-4),
     hasPreviousImage: sessionHasImage(ctx.connId),
@@ -751,6 +799,7 @@ export async function* routeMessage(
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
   const situationalContext = opts?.situationalContext?.trim();
+  const userVocalTone = opts?.userVocalTone?.trim();
   const slowBrainSnapshot = ctx.slowBrain.getSnapshot();
   const analysisInput = {
     userMessage,
@@ -900,6 +949,10 @@ export async function* routeMessage(
   const strategyHintsForPrompt = [
     // 世界情境放最前，作为本轮对话的场景地基（RW-P1-4）
     situationalContext ? `【你此刻的处境】\n${situationalContext}` : undefined,
+    // 用户语音情绪——让她能接住对方的口气（SenseVoice STT 提供）
+    userVocalTone
+      ? `【对方此刻的语气】\n对方说话时的情绪：${userVocalTone}。请自然地回应这种语气，不要直接提及"我检测到你的情绪是…"。`
+      : undefined,
     analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
     carryForwardHint,
   ]

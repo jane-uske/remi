@@ -251,7 +251,7 @@ export default function RemiWorld() {
     // RW-P1-4：附上世界情境，让她知道自己在世界里、刚在做什么、你就在身边
     const engine = engineRef.current;
     const script = scriptRef.current;
-    const situational =
+    let situational =
       engine && script
         ? buildSituationalContext({
             activity: engine.getRemiActivity(),
@@ -259,9 +259,17 @@ export default function RemiWorld() {
             time: script.getTimeProfile(),
           })
         : undefined;
+    // RW-P2-4：把剧本开场白注入情境，让 LLM 知道 Remi 刚对用户说了什么
+    // （仅第一条消息携带，之后清掉避免重复）
+    if (chatOpener && situational) {
+      situational += `\n你刚刚对用户说了这句话："${chatOpener}"——这是你们这次对话的开场，不要再重复。`;
+    } else if (chatOpener && !situational) {
+      situational = `你刚刚对用户说了这句话："${chatOpener}"——这是你们这次对话的开场，不要再重复。`;
+    }
+    if (chatOpener) setChatOpener(null);
     chat.sendText(text, situational);
     setChatInput("");
-  }, [chatInput, chat]);
+  }, [chatInput, chat, chatOpener]);
 
   useEffect(() => {
     if (!chatOpen) return;
