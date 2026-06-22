@@ -230,7 +230,7 @@
   - `CIO-P0` 设计文档 — `done`
   - `CIO-P1` shadow-mode 意图分类器 + 日志（`brains/contextual_intent/`，行为零变化）— `done`（2026-06-23）：`classifier.ts`（纯 regex/heuristic，<1ms）+ `types.ts`（ShadowContextualIntent schema）+ `index.ts`；`context_orchestrator.ts` fire-and-forget hook（`REMI_CIO_SHADOW_ENABLED` flag 默认开）；32 单测绿；tsc 零错误
   - `CIO-P2` ImageRegistry + 指代消解 — `done`（2026-06-23）：`image_registry.ts`（有序多图栈 + 4 规则指代消解纯函数）；types.ts 扩展 `ImageRegistryEntry` + `ShadowImageAxis.reference`；classifier.ts 接入指代消解；`image_generation_capability.ts` 生成图入栈 + `context_orchestrator.ts` 上传图入栈 + registry 传分类器；15 单测绿；仍 shadow-only
-  - `CIO-P3` 接生图 + 看图消歧（flag）— `todo`，前提 P2
+  - `CIO-P3` 接生图 + 看图消歧（flag）— `done`（2026-06-23）：`ShadowVisionAxis`（wantsLook/hasAttachment/referenceOnly）+ `classifyVision()` + `REFERENCE_IMAGE_RE`；`context_orchestrator.ts` 分类移到 vision sidecar 之后（解时序依赖坑），wired 模式 `REMI_CIO_WIRED_ENABLED`（默认关）下 `vision.wantsLook=true` 跳过 `resolveImageIntent`；10 单测绿
   - `CIO-P4` Performance Envelope（flag，单 owner）— `todo`，前提 P3 + DL-P1a + W-PRES-01
   - `CIO-P5` session voice override（flag）— `todo`，前提 P4
 
