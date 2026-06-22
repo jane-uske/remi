@@ -47,6 +47,8 @@ export interface ShadowVoiceAxis {
 export interface ShadowPerformanceAxis {
   op: "enter" | "exit" | "none";
   styleDescriptor?: string;
+  /** 是否请求"像图片里那个角色"——需配合 vision→style 推导 */
+  wantsImageStyle?: boolean;
 }
 
 /** P3: 看图轴——区分"看图" vs "生图" vs "基于参考生图" */

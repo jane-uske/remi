@@ -20,7 +20,7 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
-import { classifyContextualIntent, registerImage, getRegistry } from "./contextual_intent";
+import { classifyContextualIntent, registerImage, getRegistry, deriveStyleFromImageDescription } from "./contextual_intent";
 import type { ShadowContextualIntent } from "./contextual_intent";
 
 /**
@@ -69,7 +69,7 @@ import {
   type TurnAnalysisBundle,
 } from "../brain/turn_interpreter";
 import type { RepairState, WorkingMemoryV2 } from "./background_analysis_store";
-import { resolvePersonaStyleDirective } from "../persona/style_override";
+import { resolvePersonaStyleDirective, hasPersistentKeyword } from "../persona/style_override";
 
 function maxHistoryEntries(): number {
   return getConfig().REMI_MAX_HISTORY;
@@ -906,11 +906,41 @@ export async function* routeMessage(
       maxEntries: promptMemoryMaxEntries,
     });
   }
+  // ── CIO Wired: performance 轴接线（flag 门控）─────────────────────
+  // 发图+"像她一点" → 从图片描述推导说话风格 → 写 styleOverride
+  if (cioWired && cioIntent?.performance?.op === "enter" && cioIntent.performance.wantsImageStyle) {
+    const reg = getRegistry(ctx.connId);
+    const lastUpload = [...reg].reverse().find((e) => e.origin === "uploaded");
+    if (lastUpload?.descriptor) {
+      const derived = await deriveStyleFromImageDescription(lastUpload.descriptor, signal);
+      if (derived) {
+        const persistent = hasPersistentKeyword(userMessage);
+        ctx.persona.liveState.styleOverride = {
+          humorBoost: false,
+          teasingMode: "off",
+          assistantySuppression: true,
+          familiarityBoost: false,
+          romanceBoost: false,
+          roleplayStyle: derived,
+          remainingTurns: 6,
+          persistent,
+          sourceText: userMessage,
+        };
+        logger.info("CIO wired: image→style override set", {
+          connId: ctx.connId,
+          derived,
+          persistent,
+        });
+      }
+    }
+  }
+
   const resolvedStyleDirective = opts?.systemTriggered
     ? null
     : resolvePersonaStyleDirective({
         styleIntent: analysis?.used ? analysis.interpretation.styleIntent : null,
         userMessage,
+        currentOverride: ctx.persona.liveState.styleOverride,
       });
   if (resolvedStyleDirective?.kind === "clear") {
     ctx.persona.liveState.styleOverride = null;

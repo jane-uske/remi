@@ -300,3 +300,41 @@ describe("CIO-P3: vision axis (看图/生图消歧)", () => {
     expect(r.meta.signals).to.include("look_image");
   });
 });
+
+// ── CIO Wired: 图片风格请求 + performance 图片轴 ──────────────────────
+describe("CIO Wired: 图片风格请求 (像她一点)", () => {
+  it("发图+像她一点 → performance enter + wantsImageStyle", () => {
+    const r = classify("我喜欢这种角色，你以后能不能像她一点", { hasImage: true });
+    expect(r.performance).to.not.be.null;
+    expect(r.performance!.op).to.equal("enter");
+    expect(r.performance!.wantsImageStyle).to.equal(true);
+  });
+
+  it("无图+无registry+像她一点 → 不触发", () => {
+    const r = classify("像她一点", { hasImage: false });
+    expect(r.performance).to.be.null;
+  });
+
+  it("registry 有上传图+像这个角色 → wantsImageStyle", () => {
+    const r = classify("像这个角色说话", {
+      hasImage: false,
+      imageRegistry: [
+        { id: "u1", origin: "uploaded", descriptor: "银发少女", createdAt: 1 },
+      ],
+    });
+    expect(r.performance).to.not.be.null;
+    expect(r.performance!.wantsImageStyle).to.equal(true);
+  });
+
+  it("扮演御姐（纯文字）→ wantsImageStyle=false, descriptor=御姐", () => {
+    const r = classify("扮演御姐");
+    expect(r.performance!.op).to.equal("enter");
+    expect(r.performance!.wantsImageStyle).to.not.equal(true);
+    expect(r.performance!.styleDescriptor).to.equal("御姐");
+  });
+
+  it("做回你自己 → exit", () => {
+    const r = classify("做回你自己");
+    expect(r.performance!.op).to.equal("exit");
+  });
+});

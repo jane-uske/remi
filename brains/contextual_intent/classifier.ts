@@ -62,6 +62,10 @@ const PERFORMANCE_ENTER_RE =
 const PERFORMANCE_EXIT_RE =
   /(别|不要|停止|不用)(扮演|演|装|模仿|cosplay)|正常[点些一]|(做|当)回?(你?自己|remi|原来)/iu;
 
+// ── 图片风格请求："像她一点"/"像这个角色"/"学她那种感觉"（配合 vision→style 推导）──
+const IMAGE_STYLE_REQUEST_RE =
+  /(像|学|模仿)(她|他|这个角色|这种角色|这种风格|这种|这个)[一]?[点些下]?|像她(那样|这样|一样)|学她(那样|那样说话)|像(她|他|这个角色)的?(风格|感觉|语气|样子)/u;
+
 // ── 看图 heuristic ──
 
 const LOOK_IMAGE_RE =
@@ -140,9 +144,15 @@ function classifyVoice(msg: string): ShadowVoiceAxis | null {
   return null;
 }
 
-function classifyPerformance(msg: string): ShadowPerformanceAxis | null {
+function classifyPerformance(msg: string, input: ClassifyInput): ShadowPerformanceAxis | null {
   if (PERFORMANCE_EXIT_RE.test(msg))
     return { op: "exit" };
+
+  // 图片风格请求："像她一点" → 标记 wantsImageStyle，由 wired 层走 vision→style 推导
+  if (IMAGE_STYLE_REQUEST_RE.test(msg) && (input.hasImage || (input.imageRegistry && input.imageRegistry.length > 0))) {
+    return { op: "enter", styleDescriptor: "参照图片角色", wantsImageStyle: true };
+  }
+
   const enterMatch = PERFORMANCE_ENTER_RE.exec(msg);
   if (enterMatch) {
     const descriptor = (enterMatch[4] ?? "").trim();
@@ -172,7 +182,7 @@ export function classifyContextualIntent(input: ClassifyInput): ShadowContextual
   const voice = classifyVoice(msg);
   if (voice) signals.push(`voice:${voice.op}${voice.preset ? `:${voice.preset}` : ""}`);
 
-  const perf = classifyPerformance(msg);
+  const perf = classifyPerformance(msg, input);
   if (perf && perf.op !== "none") signals.push(`performance:${perf.op}`);
 
   // 看图 vs 生图消歧（使用 vision 轴结果）
