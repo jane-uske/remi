@@ -5,6 +5,7 @@ import type { PersistentRelationshipStateV1 } from "../memory/relationship_state
 import { getConfig } from "../server/config";
 import { sanitizeMemoryEvidenceText } from "../memory/prompt_memory_support";
 import { detectAnswerNowSignal, detectDecisionSeekingSignal } from "../brain/tone_policy";
+import { CoreMemoryStore, type CoreMemoryEdit } from "./core_memory";
 import {
   buildPolicyToneContract,
   buildResponsePolicyGuidance,
@@ -359,6 +360,13 @@ export class SlowBrainStore {
     lastProactiveMode: "",
   };
   private workingMemory: WorkingMemoryV2 | null = null;
+
+  /** M3-P1 Core Memory：结构化 Tier1 块，缓存友好，差分编辑。 */
+  private _coreMemory: CoreMemoryStore = CoreMemoryStore.empty();
+
+  /** 对外暴露的 Core Memory 只读访问（render / snapshot）。 */
+  get coreMemory(): CoreMemoryStore { return this._coreMemory; }
+
   private derivedCache: {
     topicSignals: DerivedTopicSignal[];
     episodes: Episode[];
@@ -517,6 +525,27 @@ export class SlowBrainStore {
   setProactiveTopics(topics: string[]): void {
     this.proactiveTopics = topics.slice(0, 5);
     this.invalidateDerivedCache();
+  }
+
+  /**
+   * M3-P1: 应用慢脑产出的 Core Memory 差分编辑。
+   * 同时回写到底层 profile.facts / interests 等字段保持一致性。
+   */
+  applyCoreMemoryEdits(edits: CoreMemoryEdit[]): CoreMemoryEdit[] {
+    const applied = this._coreMemory.apply(edits);
+    // 回写 aboutYou 的变更到 profile（保持双写一致）
+    for (const edit of applied) {
+      if (edit.section === "aboutYou") {
+        if (edit.key.startsWith("兴趣:") || edit.key.startsWith("性格:")) continue;
+        if (edit.op === "add" || edit.op === "update") {
+          this.profile.facts.set(edit.key, edit.value);
+        } else if (edit.op === "remove") {
+          this.profile.facts.delete(edit.key);
+        }
+      }
+    }
+    if (applied.length > 0) this.invalidateDerivedCache();
+    return applied;
   }
 
   recordSharedMoment(input: {
@@ -740,6 +769,8 @@ export class SlowBrainStore {
       : null;
     this.topicBoundaryState = null;
     this.invalidateDerivedCache();
+    // M3-P1: 从刚 hydrate 的散落字段重建 Core Memory
+    this._coreMemory = CoreMemoryStore.fromSlowBrainSnapshot(this.getSnapshot());
   }
 
   getSnapshot(): SlowBrainSnapshot {
@@ -1082,6 +1113,15 @@ export class SlowBrainStore {
     const { profile, relationship } = this;
     const snapshot = this.getSnapshot();
 
+    // M3-P1: Core Memory Tier1 块（稳定排序，缓存友好）
+    const coreBlock = this._coreMemory.render();
+    if (coreBlock) {
+      sections.push(coreBlock);
+    }
+
+    // 下面的散落字段仍保留——Core Memory 覆盖的字段（facts/interests/personality）
+    // 与 render() 输出重叠，但格式略有差异；两者共存期间双写，
+    // 待 P1 稳定后可逐步删除下面的散落拼接。
     if (profile.facts.size > 0 || profile.interests.length > 0) {
       const lines: string[] = [];
       for (const [k, v] of profile.facts) lines.push(`${k}：${v}`);

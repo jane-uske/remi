@@ -3,6 +3,7 @@ import {
   hasLlmConfig,
   localLlmEnabled,
   recoverVisibleReply,
+  type StreamToolCall,
 } from "../llm/qwen_client";
 import { buildPrompt, type PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
@@ -101,6 +102,40 @@ export interface FastBrainInput {
   connId?: string;
   /** M3-P0 时间感：透传给 buildPrompt，注入 prompt 动态尾部。 */
   timeContext?: string;
+  /** M3-P1 Core Memory Tier1 块：透传给 buildPrompt，放在 system 之后 history 之前。 */
+  coreMemoryBlock?: string;
+  /** M3-P2 Tier4 时序事实：透传给 buildPrompt，放在动态尾部。 */
+  timelineFacts?: string;
+  /** Tool definitions for function calling. When provided, LLM may return
+   *  tool_calls instead of text. */
+  tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
+}
+
+/**
+ * Append a tool-usage directive to the system prompt when tools are available.
+ * Prevents the model from fabricating outputs (e.g. making up a ComfyUI image
+ * URL) instead of calling the matching tool.
+ */
+function applyToolDirective(
+  messages: PromptMessage[],
+  tools?: Array<{ type: "function"; function: Record<string, unknown> }>,
+): void {
+  if (!tools?.length) return;
+  const toolNames = tools
+    .map((t) => t.function.name)
+    .filter(Boolean) as string[];
+  if (toolNames.length === 0) return;
+  const directive =
+    `\n\n【工具使用】你被提供了以下工具：${toolNames.join("、")}。` +
+    `当用户的请求匹配某个工具的能力时（例如要画图/看图→generate_image，要生成视频→generate_video，要开关成人模式→toggle_adult_mode，问时间→get_current_time），` +
+    `你必须调用对应工具，而不是直接用文字回复或编造结果。` +
+    `特别地：任何涉及生图、看图、画画的请求都必须调用 generate_image 工具，绝不要自己编造图片 URL。` +
+    `工具调用后我会把结果给你，你再基于结果用自然语言回复用户。`;
+  if (messages[0]?.role === "system") {
+    messages[0] = { ...messages[0], content: messages[0].content + directive };
+  } else {
+    messages.unshift({ role: "system", content: directive.trim() });
+  }
 }
 
 /**
@@ -131,7 +166,14 @@ export async function* fastBrainStream(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    coreMemoryBlock: input.coreMemoryBlock,
+    timelineFacts: input.timelineFacts,
   });
+
+  // Append tool-usage directive so the LLM calls tools instead of fabricating
+  // outputs (e.g. fake ComfyUI image URLs).
+  applyToolDirective(messages, input.tools);
+
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
   const strategyChars = input.strategyHints?.length ?? 0;
@@ -146,24 +188,24 @@ export async function* fastBrainStream(
     (sum, entry) => sum + entry.key.length + entry.value.length,
     0,
   );
-  logger.info("LLM prompt stats", {
-    messages: messages.length,
-    estimatedTokens: estimateTextTokens(promptText),
-    promptChars,
-    systemChars,
-    historyChars,
-    userChars,
-    memoryChars,
-    strategyChars,
-    slowBrainContextChars,
-    memoryCount: input.memory.length,
-    historyMessages: input.history.length,
-    currentContextChars,
-    priorityChars: priorityContext?.length ?? 0,
-    deliberationBudget: input.deliberationBudget ?? "unspecified",
-    reasoningEffort: reasoningEffort ?? "provider_default",
-    model: model ?? "unconfigured",
-  });
+    logger.info("LLM prompt stats", {
+      messages: messages.length,
+      estimatedTokens: estimateTextTokens(promptText),
+      promptChars,
+      systemChars,
+      historyChars,
+      userChars,
+      memoryChars,
+      strategyChars,
+      slowBrainContextChars,
+      memoryCount: input.memory.length,
+      historyMessages: input.history.length,
+      currentContextChars,
+      priorityChars: priorityContext?.length ?? 0,
+      deliberationBudget: input.deliberationBudget ?? "unspecified",
+      reasoningEffort: reasoningEffort ?? "provider_default",
+      model: model ?? "unconfigured",
+    });
 
   const configured = hasLlmConfig(model);
 
@@ -191,8 +233,32 @@ export async function* fastBrainStream(
       {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(model ? { model } : {}),
+        ...(input.tools?.length ? { tools: input.tools } : {}),
       },
     );
+
+    // If the LLM returned tool calls, return them to the caller via a special
+    // yielded JSON sentinel. The caller (routeMessage) detects this sentinel,
+    // executes the tools, and re-runs the LLM. We prefer tool_calls over any
+    // streamed text — Qwen3 sometimes emits reasoning text alongside the
+    // tool call, but the tool call is the real intent.
+    if (streamResult.toolCalls.length > 0) {
+      logger.info("LLM stream result", {
+        connId: input.connId,
+        toolCount: input.tools?.length ?? 0,
+        toolCallsReturned: streamResult.toolCalls.length,
+        visibleChars: streamResult.visibleChars,
+        toolNames: streamResult.toolCalls.map((tc) => tc.name),
+      });
+      yield `__TOOL_CALLS__${JSON.stringify(streamResult.toolCalls)}`;
+      return;
+    }
+    logger.info("LLM stream result", {
+      connId: input.connId,
+      toolCount: input.tools?.length ?? 0,
+      toolCallsReturned: 0,
+      visibleChars: streamResult.visibleChars,
+    });
     for (const token of streamResult.tokens) {
       hasContent = true;
       yield token;
@@ -262,7 +328,14 @@ export async function fastBrainPredictOnly(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    coreMemoryBlock: input.coreMemoryBlock,
+    timelineFacts: input.timelineFacts,
   });
+
+  // Append tool-usage directive so the LLM calls tools instead of fabricating
+  // outputs (e.g. fake ComfyUI image URLs).
+  applyToolDirective(messages, input.tools);
+
   const promptText = messages.map((m) => m.content).join("\n");
   const promptChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
   const strategyChars = input.strategyHints?.length ?? 0;

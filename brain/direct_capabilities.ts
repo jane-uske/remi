@@ -43,17 +43,22 @@ export interface DirectCapability {
 }
 
 const REGISTERED_DIRECT_CAPABILITIES: readonly DirectCapability[] = [
+  // Deterministic zero-latency capabilities — fast-path regex, no LLM needed.
   timeCapability,
   dateRecapCapability,
   familyMemoryDraftsCapability,
   familyMemoryCaptureCapability,
   familyMemoryCapability,
-  // Voice style must run before mode control and image generation — its regex
-  // pattern ("用御姐音") doesn't overlap with either, but it's lightweight.
+  // Voice style must run before mode control and image generation.
   voiceStyleCapability,
-  // Mode control must run before image generation so "开启成人模式" is caught
-  // as a command and never leaks to the drawing/LLM paths.
+  // Mode control before image gen so "开启成人模式" is caught as a command.
   modeControlCapability,
+  // Image/video generation via regex fast-path. The LLM tool-use
+  // infrastructure (tool_registry.ts / collectStreamTokens tools param) is
+  // in place but the current local uncensored model doesn't reliably call
+  // tools under the Remi persona prompt — it fabricates fake image URLs
+  // instead. Fast-path regex is reliable for explicit requests. To switch
+  // to tool-use, remove these two and pass tools to fastBrainStream.
   imageGenerationCapability,
   videoGenerationCapability,
 ];

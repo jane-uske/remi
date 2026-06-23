@@ -78,6 +78,11 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   const onPlaybackEndRef = useRef(options?.onPlaybackEnd);
   const getServerTtsStreamingRef = useRef(options?.getServerTtsStreaming);
   const lastEnqueueAtMsRef = useRef(0);
+  // Deferred interrupt: when the user sends a new message while Remi is still
+  // speaking (e.g. while she's analysing an image), keep the current audio
+  // audible and only displace it once the *next* generation's first buffer is
+  // ready to play — avoids a dead-air gap. Armed by clearQueue({ deferUntilNextPlayback }).
+  const deferredDisplaceRef = useRef(false);
 
   useEffect(() => {
     onPlaybackStartRef.current = options?.onPlaybackStart;
@@ -323,6 +328,9 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         return;
       }
       playingRef.current = false;
+      // Previous-generation audio drained on its own; cancel any armed deferred
+      // interrupt so the next generation just plays normally.
+      deferredDisplaceRef.current = false;
       notifyPlaybackEnd();
       stopEnvelopeLoop();
       sync();
@@ -333,6 +341,53 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       : 40;
     idleTimerRef.current = setTimeout(runCheck, remainMs);
   }, [hasPendingPlaybackWork, notifyPlaybackEnd, stopEnvelopeLoop, sync]);
+
+  /**
+   * Stop the still-playing previous generation right as the incoming
+   * generation's first buffer is about to start (deferred interrupt). Unlike
+   * clearQueue this does NOT bump the audio generation — the caller already did
+   * when it armed the interrupt — and it resets playingRef/playbackNotifiedRef
+   * (via notifyPlaybackEnd) so the incoming generation re-arms playback-start +
+   * lip-sync from scratch.
+   */
+  const displacePreviousPlayback = useCallback(() => {
+    for (const src of activeSourcesRef.current) {
+      try {
+        src.onended = null;
+        src.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    activeSourcesRef.current.clear();
+    const fallback = fallbackAudioRef.current;
+    if (fallback) {
+      stopFallbackRef.current?.();
+      fallback.onended = null;
+      fallback.onerror = null;
+      fallback.onplaying = null;
+      fallback.pause();
+      try {
+        fallback.src = "";
+      } catch {
+        /* ignore */
+      }
+      fallbackAudioRef.current = null;
+      stopFallbackRef.current = null;
+    }
+    try {
+      fallbackSourceRef.current?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    fallbackSourceRef.current = null;
+    nextStartTimeRef.current = 0;
+    notifyPlaybackEnd();
+    activeLipTimelineRef.current = clearTtsLipSyncState(activeLipTimelineRef.current);
+    activeLipGenerationRef.current = null;
+    lipPlaybackStartAtMsRef.current = 0;
+    playingRef.current = false;
+  }, [notifyPlaybackEnd]);
 
   const scheduleAudioBuffer = useCallback(
     async (
@@ -345,6 +400,13 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
       if (generationRef.current !== generationAtCall) return;
       const analyser = analyserRef.current;
       if (!analyser) return;
+
+      // Deferred interrupt: the previous generation was kept audible until now;
+      // displace it just before the new generation's first buffer starts.
+      if (deferredDisplaceRef.current) {
+        deferredDisplaceRef.current = false;
+        displacePreviousPlayback();
+      }
 
       const now = ctx.currentTime;
       const startAt = Math.max(now + 0.01, nextStartTimeRef.current || now + 0.01);
@@ -380,6 +442,7 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
     },
     [
       activateLipTimeline,
+      displacePreviousPlayback,
       ensureAudioGraph,
       runEnvelopeLoop,
       scheduleIdleCheck,
@@ -523,6 +586,14 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
           return;
         }
 
+        // Deferred interrupt: displace the previous generation before this
+        // fallback clip takes over (fallbackAudioRef still points at the old
+        // clip here, so stopping it is safe).
+        if (deferredDisplaceRef.current) {
+          deferredDisplaceRef.current = false;
+          displacePreviousPlayback();
+        }
+
         await new Promise<void>((resolve) => {
           const audio = new Audio(url);
           audio.preload = "auto";
@@ -609,7 +680,15 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
         });
       })();
     },
-    [activateLipTimeline, runEnvelopeLoop, stopEnvelopeLoop, sync, updateLipSignal],
+    [
+      activateLipTimeline,
+      displacePreviousPlayback,
+      notifyPlaybackEnd,
+      runEnvelopeLoop,
+      stopEnvelopeLoop,
+      sync,
+      updateLipSignal,
+    ],
   );
 
   const enqueueBase64 = useCallback(
@@ -634,10 +713,30 @@ export function useAudioBase64Queue(options?: AudioQueueOptions) {
   );
 
   /** Stop current playback and discard all queued audio (used on interrupt). */
-  const clearQueue = useCallback(() => {
+  const clearQueue = useCallback((options?: { deferUntilNextPlayback?: boolean }) => {
     generationRef.current += 1;
     lastEnqueueAtMsRef.current = 0;
     clearPendingPcm();
+
+    // Deferred interrupt: keep whatever is currently audible playing and stop it
+    // only once the next generation's first buffer is ready (see
+    // scheduleAudioBuffer / playBase64Fallback). Bumping the generation above
+    // already isolated any in-flight old-gen frames; the started AudioBuffer
+    // sources keep playing. Used when the user sends while Remi is still speaking
+    // so there's no silent gap during e.g. image analysis.
+    if (options?.deferUntilNextPlayback) {
+      const hasLivePlayback =
+        playingRef.current ||
+        activeSourcesRef.current.size > 0 ||
+        fallbackAudioRef.current != null;
+      if (hasLivePlayback) {
+        deferredDisplaceRef.current = true;
+        sync();
+        return;
+      }
+      // Nothing audible to preserve — fall through to an immediate clear.
+    }
+    deferredDisplaceRef.current = false;
 
     if (idleTimerRef.current) {
       clearTimeout(idleTimerRef.current);

@@ -110,6 +110,12 @@ export type RunPipelineOptions = {
   ensureSessionId?: () => Promise<string | null>;
   /** User-attached image (data:image/...;base64,...) for vision sidecar. */
   imageBase64?: string;
+  /**
+   * 用户此刻的语气/情绪 (SenseVoice 提供)。
+   * 例如 "happy"、"sad/laughter"（同时带笑声事件）。
+   * 作为「对方此刻的语气」进 prompt，让 Remi 接住用户的口气。
+   */
+  userVocalTone?: string;
 };
 
 export async function runPipeline(
@@ -356,13 +362,14 @@ export async function runPipeline(
             : {
                 traceId,
               };
-    // 世界情境、用户图片与上述各分支正交，统一附加
+    // 世界情境、用户图片、语音情绪与上述各分支正交，统一附加
     const routeOptions: Record<string, unknown> = {
       ...baseRouteOptions,
       ...(options?.situationalContext && !options?.silenceNudge
         ? { situationalContext: options.situationalContext }
         : {}),
       ...(options?.imageBase64 ? { imageBase64: options.imageBase64 } : {}),
+      ...(options?.userVocalTone ? { userVocalTone: options.userVocalTone } : {}),
     };
 
     const emotionParser = new EmotionTagParser();

@@ -42,9 +42,9 @@
 | ID | Task | Status | Exit Criteria | Next |
 |---|---|---|---|---|
 | `W-PRES-01` | 默认人格稳定 | `in_progress` | 轻松聊 / 睡前聊 / 日常碎聊时，口气、边界、追问强度明显更稳定 | `W-PRES-02` |
-| `W-PRES-02` | 严肃场景承接修正 | `todo` | 现实压力 / 财务压力 / 自责 / 委屈类 bad case 明显减少轻浮、失焦和错位 | `W-PRES-03` |
+| `W-PRES-02` | 严肃场景承接修正 | `in_progress` | 现实压力 / 财务压力 / 自责 / 委屈类 bad case 明显减少轻浮、失焦和错位 | `W-PRES-03` |
 | `W-PRES-03` | Web 在场感统一 | `in_progress` | 说话态 / 停顿态 / 被打断态 / 口型与音频播放时间线不再互相打架 | `W-PRES-04` |
-| `W-PRES-04` | 10 分钟体验压测 | `todo` | 睡前陪聊 / 日常碎聊 / 压力倾诉三个场景中，10 分钟体验明显不再像普通聊天框 | `observe` |
+| `W-PRES-04` | 对话质量数据驱动验收 | `todo` | 各场景自动化评分通过率达标，持续无回归 | `observe` |
 
 状态枚举只允许：`todo` / `in_progress` / `blocked` / `done`。
 每次任务状态变化，先改这个表，再改下方详细说明。
@@ -69,6 +69,13 @@
     - 严肃时刻轻浮
     - 交付物请求必须直接在当前聊天输出正文，不能编造附件、压缩包、收件框或“已发送”
   - 当前边界：优先通过 `TurnInterpretation -> ResponsePolicy`、`tone contract`、默认人格提示和坏样本回归收口
+  - 6.23 第一刀（漏检修复，落点 `brain/tone_policy.ts` + `brain/turn_interpreter.ts`，与另一条会话 `brains/` 零冲突）：
+    - 根因：`shouldAnalyzeTurn` 门控过窄，**自责/无价值感、反讽、夜间财务倾诉、被批评否定**四类严肃输入整条绕过回合解释层 → 退化轻聊（=严肃时刻轻浮）。这正是 `scripts/live_chat_probe.mjs` 的 serious_pivot / sarcasm / financial_stress 场景
+    - 新增 `emotional_distress` 场景类：区别于 `practical_judgment`（要判断），它是"稳稳陪着、不硬塞建议"（bans: `no_jokes`/`no_topic_pivot`/`no_shallow_reassurance`，questionBudget=0，shouldGiveJudgment=false）
+    - 新增 5 个宽类别检测器（自责/反讽/求陪伴非建议/被批评否定/重情绪倾诉）+ 组合器 `detectEmotionalDistressSignal`；`detectPracticalDistressSignal` 补 `房贷/车贷`；修 `detectDeliverableRequest` 对"做的/写的方案"过去式描述的误判
+    - 坏样本进 eval：`test/brain/serious_scene_carry.test.ts`（15 单测全绿，含回归保护）；tsc 零错误；既有 3 个 turn_interpreter 失败为**改动前既存**（与本刀无关）
+    - 待跟进（在另一条会话 owner 的文件里，1 行加法）：`context_orchestrator.ts` 的 `text_deliberate` 预算应纳入 `emotional_distress`（让情绪承接走更深推理）；`background_analysis_store.ts` 可加情绪承接的 working-memory 线程标签做多轮承接连续性
+    - 未做：尚未 `prod:local:rebuild` 上线实测（避免把另一条会话的在途代码一并部署，需协调）
   - 验收标准：用户从轻松聊切到现实压力、财务压力、自责、委屈时，Remi 明显更稳，不再轻飘飘错位
 
 - [ ] **W-PRES-03** Web 在场感统一
@@ -89,13 +96,15 @@
   - 5.1 新增 `/vrm` 真实链路验证页与 SDK avatar projection：`runtime/selectRemiAvatarRuntimeModel()` 统一输出 emotion / avatarIntent / avatarFrame / lipSync / phase；真实浏览器已验证 LLM intent、TTS cue 与 playback 收口能进入同一个 SDK model，Web `/vrm` 与 World bridge 可共用；这仍是验证入口，不等于完整 3D 表演成熟
   - 验收标准：从视觉和听感上，角色状态已经明显比当前更像“有人在”
 
-- [ ] **W-PRES-04** 10 分钟体验压测
-  - 目标：先证明一个单端、单场景、单默认人格的高光体验
-  - 场景固定为：
-    - 睡前陪聊
-    - 日常碎聊
-    - 压力倾诉
-  - 验收标准：至少在一个默认入口里，用户和她待 10 分钟后，不再自然把她归类成普通聊天框
+- [ ] **W-PRES-04** 对话质量数据驱动验收
+  - 目标：用数据驱动替代主观感觉，持续量化和提升对话质量
+  - 方法：
+    1. **拉真实日志** — 从生产 DB 拉用户聊天记录，按场景分类（碎聊/压力倾诉/睡前/NSFW/生图/音色…）
+    2. **补盲区场景** — 上网搜陪伴 AI 典型对话场景和常见翻车 case，补到场景库
+    3. **自动化刷评** — 逐场景向 Remi 发消息，拿回复，用 LLM 评分（像不像人 / 有没有接住 / 有没有飘）
+    4. **逐类修+回归** — 针对低分场景修复，修完自动回归验证通过率
+  - 持续运行：部署后用户正常使用，定期拉日志分析 tone guard 警告率、assistanty 频率、场景覆盖率
+  - 验收标准：各场景自动化评分通过率达标，且持续无回归
 
 ### 当前明确不优先做
 
@@ -120,7 +129,9 @@
   - ✅ `RW-P1-4b` 世界事件进记忆（2026-06-13）：`world_event` WS 消息 → `server/session/world_event.ts`（纯函数 `buildWorldEventMoment` 映射 种花/点灯/回访 → `MomentInput`）→ `episodeStore.ingest()`（复用慢脑同一 episode store，语义合并去重，异步 fire-and-forget，无 DB 优雅降级）。message_router 加 `world_event` case，index.ts 加 `handleWorldEvent`（即发即忘）。客户端 `useRemiChat.sendWorldEvent` + RemiWorld 连接前缓冲补发。验证：4 服务端单测、前后端 tsc/build 绿、brains 71/9（+6 新测，失败数不变）pipeline 11/1 → 0 回归
   - **Phase 1 全部完成**（RW-P1-1~4b）。用户已验收 P1，当前已直接进入 Phase 2。
   - ✅ `RW-P2-1/2` 时间与日常第一刀（2026-06-14）：`web/src/lib/world/worldTime.ts` 定义清晨/午后/黄昏/深夜；`scheduledBehaviorAt()` 按时间段行为池调度；HUD / prompt 情境不再固定黄昏；`WorldSave.lastSeenAt` + `buildOfflineReturnOpener()` 让离线回来后的首轮真实对话带入"你不在的时候…"。24 个 world 单测、web lint/build 绿。
-  - 下一步：`RW-P2-3` 天气 v0（本地视觉 + prompt 情境，不阻塞 fast path）或 `RW-P2-4` 主动开场白（复用 `proactive_planner` 的关系阶段/退避/冷却门控）
+  - ✅ `RW-P2-3` 天气 v0（2026-06-23）：`web/src/lib/world/weather.ts` 确定性天气（clear/cloudy/rain/snow，6 小时 hash slot）；`behavior.ts` 天气感知行为池过滤（雨雪→室内）；`script.ts:buildSituationalContext` 天气情境注入 + `buildWorldOpener` 组合开场白；5 天气单测 + 24 world 单测零回归
+  - ✅ `RW-P2-4` 主动开场白（2026-06-23）：`buildWorldOpener()` 组合时间+天气+离线时长为进入世界时的自动问候文本
+  - **Phase 2 全部完成**。
   - 验收：四项活人感基准（隔天回来/打断恢复/十分钟观察/记忆回指）+ 2 分钟连续体验录屏
 
 - [ ] **Memory V2 真实质量观察（observe / blocked）**
@@ -174,6 +185,7 @@
   - 已修复根因 1-5：见 `remi-nsfw-tts-skipping-fixes.md`
   - 已修复根因 6（MLX TTS 短文本循环）：`voice/tts_mlx.ts` 新增音频时长上限截断（`MAX_AUDIO_SEC_PER_CHAR=1.5`，最低 2 秒），buffered + streaming 两条路径都做
   - 客户端 `useAudioBase64Queue` 增加 `hasPendingPlaybackWork` 统一判定 + `serverTtsStreaming` 双保险，不再在 TTS gap 期间误判播放结束
+  - 2026-06-23 新增根因 7（NSFW 脏词 TTS 静默）：`voice/tts_helpers.ts` 加 `NSFW_PHONETIC_SUBS` 音译替换表（贱屄→贱婢、骚逼→骚比、鸡吧→几把、肉便器→肉瓶器、挨操→挨草等），MLX/Qwen3-TTS 训练数据无这些词的语音样本导致输出静音；替换后平均静默率 37%→19%、严重静默 2/10→0/10。同时测试了 Qwen3-TTS bf16 全精度（无改善，问题在训练数据不在量化）、Fish S2-Pro 4B MLX 8bit（更差+慢 10 倍）、IndexTTS-2（已下载待集成）
 
 - [x] **T-044** 音色风格切换 — `done`（2026-06-20）
   - 聊天命令：`用御姐音` / `换成萝莉音` / `恢复原来的声音` 等 regex 匹配 → DirectCapability 拦截 → 设 per-session instruct override
@@ -194,6 +206,48 @@
   - `collectStreamTokens` 替代 `streamTokens`：返回 content/reasoning 统计，支持空流诊断
   - `recoverVisibleReply`: 空流回退→重试（加 DIRECT_ANSWER_DIRECTIVE）→ 从 reasoning 中 salvage 中文正文
   - fast brain 不再单独配模型（`REMI_FAST_BRAIN_MODEL` 已废弃）
+
+### 设计支线（2026-06-22 北极星 / 架构文档成文，任务条目本日同步）
+
+> 五份设计文档于 2026-06-22 成文：[DIGITAL_LIFE_NORTH_STAR.md](../design/DIGITAL_LIFE_NORTH_STAR.md)（契约）+ [DIGITAL_LIFE_AUDIT.md](../design/DIGITAL_LIFE_AUDIT.md)（现状快照）+ [ROLEPLAY_LAYER_DESIGN.md](../design/ROLEPLAY_LAYER_DESIGN.md)（Performance 下钻）+ [CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md](../design/CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md) + [COMMERCIAL_COMPASS.md](../design/COMMERCIAL_COMPASS.md)。外加昨日落地的 [MEMORY_V3_DESIGN.md](../design/MEMORY_V3_DESIGN.md)。这些文档都要求"任务挂 TASKS.md 并行支线、不抢 W-PRES 主线、P1 不碰热点文件"。**以下状态经本日代码复核（非文档自述）。**
+
+- [ ] **M3- Memory V3**（设计：[MEMORY_V3_DESIGN.md](../design/MEMORY_V3_DESIGN.md)；代码在工作区，未提交）
+  - `M3-P0` 立刻不笨 + 时间感入门 — `done`：递归摘要喂回累积 + `clipSummary` 封顶 + `now`/gap 注入动态尾部 + 窗口放大可配 + 缓存断点接口；单测绿
+  - `M3-P1` Core Memory 差分编辑块 — `done`：`brains/core_memory.ts`（差分 apply / 有界淘汰 / 稳定 render）；慢脑 `core_memory_edits → applyCoreMemoryEdits`；读路径 `coreMemory.render() → context_orchestrator.ts:875 → prompt Tier1`；NSFW 跳过；**读写闭环**，单测绿
+  - `M3-P2` bi-temporal 时序层 — `done`（2026-06-23 部署）：写入 + 召回读路径均接通，已部署 local-prod 并经端到端日志验证；38 单测绿
+  - `M3-P3a` 主动搭话仲裁门控 — `done`（2026-06-23）：`brains/arbitration_gate.ts`（6 级门控：候选数/亲密度/退避/冷却/安静时段/会话后冷却）；3 个 env 配置变量；13 单测绿
+  - `M3-P3b/c` 调度循环 / 离线推送 — `todo`：需 `prospective_intents` 表 + 用户级调度器 + APNs/Web Push 基建
+
+- [ ] **DL- 数字生命**（契约：[DIGITAL_LIFE_NORTH_STAR.md](../design/DIGITAL_LIFE_NORTH_STAR.md)）
+  - `DL-P0-1` 北极星契约文档 — `done`
+  - `DL-P0-2` `RemiSelf` interface 草稿 — `done`：`server/session/types/remi_self.ts`（MoodVector / WorldPresenceState / RemiSelf，纯契约 + `// TODO: implement`，注明与现状 PersonaLiveState 的 gap）
+  - `DL-P0-3` `IdentityEnvelope` interface 草稿 — `done`：`persona/types/identity_envelope.ts`（Core[Constitution+Character] / Disposition / Performance 三层）
+  - `DL-P0-4` 本表同步 DL- 条目 — `done`（2026-06-22）
+  - `DL-P0-5` episodes 加 `scope` 列 — `done`（代码）：`migrations/004_episodes_scope.js`（ADD COLUMN IF NOT EXISTS scope DEFAULT 'core'）+ `MomentInput.scope?: EpisodeScope`；写入路径未改、无运行时变更。**migration 待执行**（同 M3-P2 攒批部署）。ROLEPLAY 线前置已就位
+  - → **DL-P0 阶段全部完成**；后续 P1a/P1b/P2 全部 `🔒` 卡 W-PRES-01 验收
+  - `DL-P1a` NSFW 替换 → 包裹（`brain/prompt_builder.ts`，单 owner）— `todo`，前提 W-PRES-01 验收。2026-06-23 代码审计：25 生产文件涉 NSFW（2 纯 NSFW 可整文件搬、5 含 NSFW 逻辑块需切 hook、3 深度交织需新增引擎 hook 点 [PersonaOverride / MemoryWriteFilter / TtsTextResolver / TtsInstructOverride / ImageGenParams / SessionLifecycle]、8 薄引用改 plugin event）；~600 行 NSFW 专属逻辑、预估 2-3 天；现有 `plugin/registry.ts` hook 雏形不够（缺 TTS / memory 层 hook）。包裹化同时完成 `CC-P0-2`（NSFW 明文移出引擎）
+  - `DL-P1b` RemiSelf 最小持久化（mood / energy / currentFocus 跨会话）— `todo`，前提 W-PRES-01
+  - `DL-P2` Disposition 旋钮 + 世界状态服务端化 — `todo`，前提 P1a + P1b
+
+- [ ] **CIO- 上下文意图编排器**（设计：[CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md](../design/CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md)；上位契约 DL）
+  - `CIO-P0` 设计文档 — `done`
+  - `CIO-P1` shadow-mode 意图分类器 + 日志（`brains/contextual_intent/`，行为零变化）— `done`（2026-06-23）：`classifier.ts`（纯 regex/heuristic，<1ms）+ `types.ts`（ShadowContextualIntent schema）+ `index.ts`；`context_orchestrator.ts` fire-and-forget hook（`REMI_CIO_SHADOW_ENABLED` flag 默认开）；32 单测绿；tsc 零错误
+  - `CIO-P2` ImageRegistry + 指代消解 — `done`（2026-06-23）：`image_registry.ts`（有序多图栈 + 4 规则指代消解纯函数）；types.ts 扩展 `ImageRegistryEntry` + `ShadowImageAxis.reference`；classifier.ts 接入指代消解；`image_generation_capability.ts` 生成图入栈 + `context_orchestrator.ts` 上传图入栈 + registry 传分类器；15 单测绿；仍 shadow-only
+  - `CIO-P3` 接生图 + 看图消歧（flag）— `done`（2026-06-23）：`ShadowVisionAxis`（wantsLook/hasAttachment/referenceOnly）+ `classifyVision()` + `REFERENCE_IMAGE_RE`；`context_orchestrator.ts` 分类移到 vision sidecar 之后（解时序依赖坑），wired 模式 `REMI_CIO_WIRED_ENABLED`（默认关）下 `vision.wantsLook=true` 跳过 `resolveImageIntent`；10 单测绿
+  - `CIO-P4` Performance Envelope（flag，单 owner）— `todo`，前提 P3 + DL-P1a + W-PRES-01
+  - `CIO-P5` session voice override（flag）— `todo`，前提 P4
+
+- [ ] **ROLEPLAY Performance 层**（设计：[ROLEPLAY_LAYER_DESIGN.md](../design/ROLEPLAY_LAYER_DESIGN.md)）
+  - 沉淀过滤器（双层判定）+ Performance 生命周期 + 关系记忆隔离 — `todo`，前置 DL-P0-5（scope 列）+ DL-P1a（包裹化）
+
+- [ ] **CC- 商业化 / 开源**（指南针：[COMMERCIAL_COMPASS.md](../design/COMMERCIAL_COMPASS.md)）—— 长线，P0 为开源前硬前置，当前不抢主线
+  - `CC-P0-1` 移除私有依赖 `@jane-uske/yepanywhere` — `todo`（仍在 `package.json:56`，in-tree 零 import）
+  - `CC-P0-2` NSFW 明文移出引擎 — `todo`（`brain/prompt_builder.ts` 仍含 `NSFW_PERSONA_BLOCK`）
+  - `CC-P0-3` 清理 Live2D Hiyori Pro 版权 — `todo`（`web/public/live2d/hiyori-pro/` 仍在）
+  - `CC-P0-4` 协议版本化 + dev 消息隔离 — `todo`
+  - `CC-P0-5` Persona Package 格式 schema（`docs/design/PERSONA_PACKAGE_SPEC.md`）— `todo`（未建）
+  - `CC-P0-6` 品牌视觉资产接入 + `BRAND_LICENSE.md` — `todo`（未建；需用户提供立绘源文件 + 定 CC 协议 W-6）
+  - `CC-P1~P3` 架构拆分 / 商业化上线 / 生态 — 长线，暂不进执行板
 
 ### 当前禁止并行修改的热点文件
 
@@ -288,7 +342,7 @@
 - [ ] 默认人格稳定
 - [ ] 严肃场景承接修正
 - [ ] Web 在场感统一
-- [ ] 10 分钟体验压测
+- [ ] 对话质量数据驱动验收
 
 ### B. 并行但非主线程
 

@@ -421,7 +421,11 @@ export function useRemiChat() {
       if (!trimmed && !image) return;
       if (transport === "ws" && (!ws || ws.readyState !== WebSocket.OPEN)) return;
       markServerTtsStreaming(false);
-      clearQueue();
+      // Deferred interrupt: don't cut Remi off mid-sentence the instant the user
+      // sends. Keep her current audio playing and displace it only once the new
+      // reply's TTS actually starts — avoids dead air while she's e.g. analysing
+      // an image. Falls back to an immediate clear if nothing is currently audible.
+      clearQueue({ deferUntilNextPlayback: true });
       turnEngine.clearPendingChatEnd();
       void unlockPlayback();
       const interruptedGeneration = turnEngine.activeGenerationRef.current;
@@ -481,12 +485,20 @@ export function useRemiChat() {
             /* anonymous / no token */
           }
           try {
+            // Read stored voice style so SSE turn uses the right TTS voice.
+            const storedStyle = readStoredVoiceStyle();
+            const storedSpeedIdx = readStoredVoiceSpeed();
+            const storedPitchIdx = readStoredVoicePitch();
+
             const result = await getSseClient().send(content, {
               sessionToken: sseSessionTokenRef.current,
               authToken,
               signal: ac.signal,
               ...(situational?.trim() ? { situational: situational.trim() } : {}),
               ...(image ? { image } : {}),
+              ...(storedStyle !== "default" ? { voiceStyleId: storedStyle } : {}),
+              ...(storedSpeedIdx !== 0 ? { speedModifier: SPEED_LEVELS[storedSpeedIdx]?.value ?? null } : {}),
+              ...(storedPitchIdx !== 0 ? { pitchModifier: PITCH_LEVELS[storedPitchIdx]?.value ?? null } : {}),
               onEvent: (event) => {
                 if (event.type && event.type !== "session") sawReply = true;
                 onMessageRef.current({ data: JSON.stringify(event) } as MessageEvent);

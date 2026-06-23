@@ -5,6 +5,7 @@ import {
   detectAnswerNowSignal,
   detectBedtimeSignal,
   detectDecisionSeekingSignal,
+  detectEmotionalDistressSignal,
   detectHighRiskDistressSignal,
   detectPracticalDistressSignal,
   detectRelationalRecallSignal,
@@ -46,6 +47,7 @@ export type TurnSceneType =
   | "deliverable_request"
   | "relational_recall"
   | "practical_judgment"
+  | "emotional_distress"
   | "high_risk_distress"
   | "bedtime_wind_down";
 
@@ -343,7 +345,7 @@ function detectDeliverableRequest(text: string, history: PromptMessage[]): boole
   const deliverableNoun =
     /(?:codex)?(?:开发)?执行稿|方案|设计稿|文档|计划书|计划|prompt|提示词|代码|脚本|清单|总结|报告|大纲|PRD|需求文档|流程图/iu;
   const createOrShowVerb =
-    /生成|写|设计|整理|做|输出|列|给我|发我|发一下|发过来|贴出来|给我看|看看|怎么设计|来设计/iu;
+    /生成|写(?!的)|设计(?!的)|整理(?!的)|做(?!的)|输出|列|给我|发我|发一下|发过来|贴出来|给我看|看看|怎么设计|来设计/iu;
   const deliveryAsk =
     /发我|发一下|发过来|给我看|贴出来|直接(?:放|贴|发|写|输出).*(?:聊天|这里|当前)|放在聊天|聊天记录|在哪里|在哪|没看到|没发/iu;
   const fakeExternalDelivery =
@@ -448,6 +450,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
   const decision = detectDecisionSeekingSignal(trimmed);
   const highRiskDistress = detectHighRiskDistressSignal(trimmed);
   const practicalDistress = detectPracticalDistressSignal(trimmed);
+  const emotionalDistress = detectEmotionalDistressSignal(trimmed);
   const question = isQuestionLike(trimmed);
   const deliverableRequest = detectDeliverableRequest(trimmed, input.history);
   const practicalFollowup = detectPracticalFollowupContext(trimmed, input.history, input.slowBrainSnapshot);
@@ -519,6 +522,13 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     followupPermission = "none";
     posture = "serious";
     topicUpdate = { kind: "constraint_update" };
+  } else if (emotionalDistress) {
+    userAct = "emotional_share";
+    answerObligation = "answer_then_followup";
+    responseMode = "attune_then_answer";
+    followupPermission = "none";
+    posture = "warm";
+    topicUpdate = { kind: continuation ? "continuation" : "none" };
   } else if (scene) {
     userAct = "scene_continue";
     responseMode = "stay_in_scene";
@@ -557,10 +567,15 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     answerObligation,
     responseMode,
     emotionalState: {
-      valence: highRiskDistress || negative ? "negative" : hasPositiveCue(trimmed) ? "positive" : "neutral",
+      valence:
+        highRiskDistress || negative || emotionalDistress
+          ? "negative"
+          : hasPositiveCue(trimmed)
+            ? "positive"
+            : "neutral",
       intensity: highRiskDistress
         ? "high"
-        : trimmed.length > 24 || /很|特别|太|一直/u.test(trimmed)
+        : emotionalDistress || trimmed.length > 24 || /很|特别|太|一直/u.test(trimmed)
           ? "medium"
           : "low",
       feltNeeds: highRiskDistress
@@ -569,6 +584,8 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
         ? ["validation", "clarity", "practical_help"]
         : userAct === "decision_seek" || userAct === "context_update"
         ? ["clarity", "practical_help"]
+        : emotionalDistress
+        ? ["validation", "comfort"]
         : negative
           ? ["validation", "comfort"]
           : ["clarity"],
@@ -580,7 +597,7 @@ function fallbackInterpretation(input: AnalyzeTurnInput): TurnInterpretation {
     followupPermission,
     styleIntent: deriveStyleIntent(trimmed),
     confidence:
-      deliverableRequest || answerNow || decision || scene || veto || contextUpdate || practicalDistress || practicalFollowup || constraintCarry
+      deliverableRequest || answerNow || decision || scene || veto || contextUpdate || practicalDistress || practicalFollowup || constraintCarry || emotionalDistress
         ? 0.72
         : 0.46,
   };
@@ -723,6 +740,7 @@ function deriveSceneType(
   ) {
     return "practical_judgment";
   }
+  if (detectEmotionalDistressSignal(text)) return "emotional_distress";
   if (detectBedtimeSignal(text)) return "bedtime_wind_down";
   return "light_chat";
 }
@@ -757,6 +775,8 @@ function composeResponsePolicy(
     ) {
       bans.push("no_shallow_reassurance");
     }
+  } else if (interpretation.sceneType === "emotional_distress") {
+    bans.push("no_jokes", "no_topic_pivot", "no_shallow_reassurance");
   } else if (interpretation.sceneType === "bedtime_wind_down") {
     bans.push("no_topic_pivot");
   }
@@ -818,6 +838,7 @@ function composeResponsePolicy(
     interpretation.sceneType !== "high_risk_distress" &&
     interpretation.sceneType !== "relational_recall" &&
     interpretation.sceneType !== "bedtime_wind_down" &&
+    interpretation.sceneType !== "emotional_distress" &&
     interpretation.followupPermission === "one_light_question" &&
     interpretation.userAct !== "answer_now" &&
     !shouldUpdateDecisionContext &&
@@ -918,6 +939,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
   const decisionLike = detectDecisionSeekingSignal(text) || detectAnswerNowSignal(text);
   const highRiskDistressLike = detectHighRiskDistressSignal(text);
   const practicalDistressLike = detectPracticalDistressSignal(text);
+  const emotionalDistressLike = detectEmotionalDistressSignal(text);
   const deliverableRequestLike = detectDeliverableRequest(text, input.history);
   const practicalFollowupLike = detectPracticalFollowupContext(text, input.history, input.slowBrainSnapshot);
   const constraintCarryLike = detectConstraintCarryContext(text, input.history, input.slowBrainSnapshot);
@@ -935,6 +957,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
       decisionLike ||
       highRiskDistressLike ||
       practicalDistressLike ||
+      emotionalDistressLike ||
       deliverableRequestLike ||
       practicalFollowupLike ||
       constraintCarryLike ||
@@ -953,6 +976,7 @@ export function shouldAnalyzeTurn(input: AnalyzeTurnInput): boolean {
     decisionLike ||
     highRiskDistressLike ||
     practicalDistressLike ||
+    emotionalDistressLike ||
     deliverableRequestLike ||
     practicalFollowupLike ||
     constraintCarryLike ||
@@ -1047,6 +1071,9 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   if (interpretation.sceneType === "high_risk_distress") {
     return "这是高风险现实场景。第一句先确认用户此刻是不是安全的；第二句明确别让他一个人硬扛；第三句只给一个最小下一步。不要开玩笑，不要把话题拉回宠物或轻松梗，也不要立刻抛一串赚钱点子。";
   }
+  if (interpretation.sceneType === "emotional_distress") {
+    return "这是情绪承接场景（自责 / 委屈 / 难受 / 反讽下的失落）。先稳稳接住对方此刻的感受，让他知道你在；不要急着讲道理、追问或岔开话题，也不要用“没事的 / 会好起来”这类轻飘安慰。除非他开口要，否则别硬塞建议或解决方案。";
+  }
   if (interpretation.sceneType === "bedtime_wind_down") {
     return "这是睡前陪聊场景。语气放柔放慢，句子短一点；不要抛新话题或追问，像在旁边安静陪着。";
   }
@@ -1056,13 +1083,19 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
   if (interpretation.sceneType === "relational_recall") {
     return "这是关系连续性校验。先直接回答你记得的部分；记不准就直接承认，不要靠猜，也不要把问题丢回用户或换成轻松话题。";
   }
-  if (
-    interpretation.sceneType === "practical_judgment" &&
-    policy.bans.includes("no_shallow_reassurance")
-  ) {
-    return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
-  }
   if (interpretation.sceneType === "practical_judgment") {
+    if (policy.bans.includes("no_shallow_reassurance")) {
+      return "这是现实压力判断场景。先承认眼前压力确实很重，再给一个有依据的判断或拆法；不要无依据地粗算，也不要只丢轻飘安慰或赚钱点子。";
+    }
+    if (interpretation.userAct === "answer_now") {
+      return "这是现实判断场景。第一句直接给判断或建议；第二句补一条依据；不要反问，也别把决定权抛回去。";
+    }
+    if (interpretation.userAct === "decision_seek") {
+      return "这是决策题。第一句先给倾向判断；第二句补依据；真的必要时最后再轻问。不要绕回轻松话题。";
+    }
+    if (policy.shouldUpdateDecisionContext) {
+      return "这句在补充现实约束。先吸收新信息并更新判断，再给一条关键建议；不要重置成共情或追问。";
+    }
     return "这是现实判断场景。先针对用户的具体问题给出你的看法或拆解，不要用反问代替回答，也不要绕回轻松话题。";
   }
   if (interpretation.userAct === "answer_now") {
@@ -1126,6 +1159,9 @@ export function buildPolicyToneContract(
   const extra: string[] = [];
   if (interpretation.sceneType === "high_risk_distress") {
     extra.push("这是高风险现实场景：禁玩笑、禁轻飘安慰、禁把话题拉回宠物梗、禁猜测式记忆。");
+  }
+  if (interpretation.sceneType === "emotional_distress") {
+    extra.push("这是情绪承接场景：先接住自责 / 委屈 / 难受的情绪，别讲道理、别岔开、别轻飘安慰；没被要建议时不要硬给建议或分析。");
   }
   if (interpretation.sceneType === "deliverable_request") {
     extra.push("这是交付物请求：正文直接贴在当前聊天里，不要编造已发送、附件、压缩包、收件框、最后一页或其他外部交付渠道。");

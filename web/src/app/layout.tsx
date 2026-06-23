@@ -20,10 +20,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.png", type: "image/png" },
+      { url: "/assets/remi/brand/remi-favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/assets/remi/brand/remi-icon-192.png", sizes: "192x192", type: "image/png" },
     ],
-    apple: [{ url: "/apple-icon.png", type: "image/png" }],
+    apple: [{ url: "/assets/remi/brand/remi-apple-icon-180.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
@@ -41,8 +41,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const darkSafariChromeColor = "#081822";
-  const lightSafariChromeColor = "#e8f4f4";
+  const darkSafariChromeColor = "#0f0a18";
+  const lightSafariChromeColor = "#f3ecfb";
   const themeBootstrap = `
     try {
       var pref = localStorage.getItem('${THEME_PREFERENCE_STORAGE_KEY}');
@@ -79,6 +79,12 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: safariFocusZoomPatch }} />
       </head>
       <body className="min-h-dvh overflow-x-hidden antialiased">
+        {/* Safari 26+ Liquid Glass toolbar tinting sentinels.
+            Safari derives toolbar chrome color from fixed elements near
+            viewport edges; these invisible sentinels carry --remi-body-bg
+            so the status bar / bottom toolbar match our page background. */}
+        <div className="remi-safari-tint-top" aria-hidden="true" />
+        <div className="remi-safari-tint-bottom" aria-hidden="true" />
         <RemiPwaRegister />
         {children}
       </body>

@@ -11,6 +11,7 @@ import {
   worldTimeProfileAt,
   type WorldTimeProfile,
 } from "./worldTime";
+import { weatherAt, type WeatherProfile } from "./weather";
 
 const SAVE_KEY = "remiworld.v0_1.save";
 
@@ -95,13 +96,16 @@ export function buildSituationalContext(args: {
   activity: string; // 来自 engine.getRemiActivity()，如"在长椅边发呆"
   save: WorldSave;
   time?: WorldTimeProfile;
+  weather?: WeatherProfile;
 }): string {
   const { activity, save } = args;
   const time = args.time ?? worldTimeProfileAt(Date.now());
+  const weather = args.weather ?? weatherAt(Date.now());
   const day = dayNumber(save);
   const lines = [
     `你正和用户待在你自己的小世界里——一座浮空小岛，有你的房间、阳台和庭院。现在是第 ${day} 天的${time.label}。`,
     time.contextLine,
+    weather.contextLine,
     `就在用户走过来和你说话之前，你${activity}。`,
     `用户此刻就站在你身边，面对面和你说话。`,
   ];
@@ -111,6 +115,31 @@ export function buildSituationalContext(args: {
     `这些是真实发生的处境，可以自然提及，但不要生硬罗列，更不要复述这段话。`,
   );
   return lines.join("\n");
+}
+
+/**
+ * RW-P2-3 Proactive opener: compose time + weather + absence into one opener.
+ * Returns null if user was gone less than 30 minutes (no special greeting needed).
+ */
+export function buildWorldOpener(args: {
+  elapsedMs: number;
+  profile: WorldTimeProfile;
+  weather: WeatherProfile;
+  flowerPlanted: boolean;
+  lanternLit: boolean;
+}): string | null {
+  const base = buildOfflineReturnOpener({
+    elapsedMs: args.elapsedMs,
+    profile: args.profile,
+    flowerPlanted: args.flowerPlanted,
+    lanternLit: args.lanternLit,
+  });
+  if (!base) return null;
+  // For non-clear weather, append a weather remark to the return opener
+  if (args.weather.state !== "clear") {
+    return `${base}\n${args.weather.contextLine}`;
+  }
+  return base;
 }
 
 export class WorldScript {

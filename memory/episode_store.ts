@@ -26,6 +26,13 @@ const LOW_ANCHOR_COVERAGE = 0.45;
 
 export type EpisodeLifecycleStatus = "active" | "cooling" | "resolved";
 
+/**
+ * DL-P0-5: episode 记忆归属。core=本体记忆（Remi 永久记得）；
+ * performance=演出/剧情记忆（退出后保留为剧情，但不进 Core 人格基线）。
+ * 设计见 docs/design/DIGITAL_LIFE_NORTH_STAR.md §2c / ROLEPLAY_LAYER_DESIGN.md §5。
+ */
+export type EpisodeScope = "core" | "performance";
+
 export interface MomentInput {
   userId: string;
   summary: string;
@@ -35,6 +42,11 @@ export interface MomentInput {
   salience: number;
   unresolved: boolean;
   statusHint?: EpisodeLifecycleStatus;
+  /**
+   * DL-P0-5: 记忆归属，默认 core。performance=演出期写入，与本体隔离。
+   * 运行时写入路径暂未消费此字段（P0 无运行时行为变更）；待 ROLEPLAY 实现接入。
+   */
+  scope?: EpisodeScope;
 }
 
 export interface RankedEpisode {

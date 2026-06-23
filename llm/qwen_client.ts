@@ -7,8 +7,14 @@ import { createProxyFetch } from "./proxy_fetch";
 const logger = createLogger("qwen_client");
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export interface CompletionOptions {
@@ -30,12 +36,21 @@ export interface StreamTokensOptions {
   reasoningEffort?: string;
   model?: string;
   maxTokens?: number;
+  /** OpenAI-compatible tools array. When provided, the LLM may return
+   *  tool_calls instead of (or alongside) text content. */
+  tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
 }
 
 export interface StreamTokenStats {
   contentChars: number;
   reasoningChars: number;
   visibleChars: number;
+}
+
+export interface StreamToolCall {
+  id: string;
+  name: string;
+  arguments: string;
 }
 
 type ApiReasoningEffort = "none" | "low" | "medium" | "high";
@@ -270,9 +285,9 @@ export async function completeWithOptions(
 
   const resolved = resolveReasoningRequest(messages, options.reasoningEffort);
 
-  const res = await withRetry(
+  const res = (await withRetry(
     () =>
-      openai.chat.completions.create({
+      (openai.chat.completions.create as Function)({
         model,
         messages: resolved.messages,
         temperature: options.temperature ?? 0.3,
@@ -284,7 +299,7 @@ export async function completeWithOptions(
         ...(options.signal ? { signal: options.signal } : {}),
       }),
     { retries: 1, label: "complete" },
-  );
+  )) as { choices?: { message?: { content?: string | null; reasoning_content?: string | null } }[] };
 
   const message = res.choices?.[0]?.message ?? {};
   const { visible, reasoningChars, salvagedFromReasoning } = extractVisibleMessageContent(
@@ -392,7 +407,7 @@ export async function collectStreamTokens(
   signal?: AbortSignal,
   callbacks?: StreamTokensCallbacks,
   options?: StreamTokensOptions,
-): Promise<StreamTokenStats & { tokens: string[] }> {
+): Promise<StreamTokenStats & { tokens: string[]; toolCalls: StreamToolCall[] }> {
   const openai = getClient();
   const model = options?.model ?? getConfig().REMI_LLM_MODEL;
   if (!model) throw new Error("LLM 未配置：缺少 model");
@@ -404,21 +419,28 @@ export async function collectStreamTokens(
   let hasNotifiedFirstReasoningChunk = false;
   let hasNotifiedFirstVisibleContent = false;
 
-  const resolved = resolveReasoningRequest(messages, options?.reasoningEffort);
+  // When tools are provided, skip the "直接回复正文" directive — it conflicts
+  // with tool calling by telling the model to output text instead of tool_calls.
+  const hasTools = Boolean(options?.tools?.length);
+  const resolved = hasTools
+    ? { messages, mode: "provider_default" as string, apiReasoningEffort: undefined as ApiReasoningEffort | undefined }
+    : resolveReasoningRequest(messages, options?.reasoningEffort);
   const maxTokens = resolveFastBrainMaxTokens(options?.maxTokens);
-  const suppressThinking = shouldSuppressThinking(resolved.mode);
+  const suppressThinking = hasTools ? false : shouldSuppressThinking(resolved.mode);
 
+  const requestParams = {
+    model,
+    messages: resolved.messages,
+    temperature: 0.7,
+    max_tokens: maxTokens,
+    ...buildCompletionExtras(resolved.apiReasoningEffort, suppressThinking),
+    stream: true,
+    ...(options?.tools?.length ? { tools: options.tools } : {}),
+    ...(signal ? { signal } : {}),
+  };
   const stream = (await withRetry(
     () =>
-      (openai.chat.completions.create as Function)({
-        model,
-        messages: resolved.messages,
-        temperature: 0.7,
-        max_tokens: maxTokens,
-        ...buildCompletionExtras(resolved.apiReasoningEffort, suppressThinking),
-        stream: true,
-        ...(signal ? { signal } : {}),
-      }),
+      (openai.chat.completions.create as Function)(requestParams),
     { retries: 1, label: "streamTokens" },
   )) as AsyncIterable<{
     choices?: {
@@ -426,7 +448,14 @@ export async function collectStreamTokens(
         content?: string;
         reasoning_content?: string;
         role?: string;
+        tool_calls?: Array<{
+          index: number;
+          id?: string;
+          type?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
       };
+      finish_reason?: string | null;
     }[];
   }>;
 
@@ -437,6 +466,8 @@ export async function collectStreamTokens(
   let reasoningChars = 0;
   let visibleChars = 0;
   let earlySalvageEmitted = false;
+  // Tool calls accumulation (streamed as chunked deltas keyed by index).
+  const toolCallAccum = new Map<number, { id: string; name: string; args: string }>();
   const tokens: string[] = [];
 
   for await (const chunk of stream) {
@@ -446,6 +477,22 @@ export async function collectStreamTokens(
       onFirstChunk?.();
     }
     if (signal?.aborted) break;
+
+    // ── Accumulate tool_calls deltas ────────────────────────────────
+    const deltaToolCalls = chunk.choices?.[0]?.delta?.tool_calls;
+    if (deltaToolCalls) {
+      for (const tc of deltaToolCalls) {
+        const idx = tc.index;
+        let entry = toolCallAccum.get(idx);
+        if (!entry) {
+          entry = { id: tc.id ?? "", name: "", args: "" };
+          toolCallAccum.set(idx, entry);
+        }
+        if (tc.id) entry.id = tc.id;
+        if (tc.function?.name) entry.name += tc.function.name;
+        if (tc.function?.arguments) entry.args += tc.function.arguments;
+      }
+    }
 
     const reasoningText = chunk.choices?.[0]?.delta?.reasoning_content;
     if (reasoningText) {
@@ -566,5 +613,72 @@ export async function collectStreamTokens(
     }
   }
 
-  return { tokens, contentChars, reasoningChars, visibleChars };
+  // Build final toolCalls array from accumulated deltas.
+  const toolCalls: StreamToolCall[] = [];
+  for (const [, entry] of [...toolCallAccum.entries()].sort((a, b) => a[0] - b[0])) {
+    if (entry.name) {
+      toolCalls.push({ id: entry.id, name: entry.name, arguments: entry.args });
+    }
+  }
+
+  return { tokens, toolCalls, contentChars, reasoningChars, visibleChars };
+}
+
+/**
+ * Clean, non-streaming tool-routing call. Used by the semi-agent tool router
+ * (brains/tool_router.ts) to decide whether the user's message should dispatch
+ * a capability tool — WITHOUT the full Remi persona prompt or conversation
+ * history. The local uncensored model reliably emits tool_calls under this
+ * minimal request (validated), whereas it ignores tools when they're attached
+ * to the heavy in-character reply prompt.
+ *
+ * `reasoning_effort: none` keeps the decision decisive (no reasoning channel)
+ * and matches the validated request shape for the local Qwen3 model. Drop it
+ * if a non-reasoning official routing model is configured later.
+ *
+ * Returns the selected tool calls (empty when the model chose to just chat).
+ */
+export async function routeToolCalls(
+  messages: ChatMessage[],
+  tools: Array<{ type: "function"; function: Record<string, unknown> }>,
+  options: { model?: string; signal?: AbortSignal; maxTokens?: number } = {},
+): Promise<StreamToolCall[]> {
+  const openai = getClient();
+  const model = options.model ?? getConfig().REMI_LLM_MODEL;
+  if (!model) throw new Error("LLM 未配置：缺少 model");
+
+  const res = (await withRetry(
+    () =>
+      (openai.chat.completions.create as Function)({
+        model,
+        messages,
+        temperature: 0,
+        max_tokens: options.maxTokens ?? 256,
+        reasoning_effort: "none",
+        tools,
+        tool_choice: "auto",
+        ...(options.signal ? { signal: options.signal } : {}),
+      }),
+    { retries: 1, label: "routeToolCalls" },
+  )) as {
+    choices?: {
+      message?: {
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
+    }[];
+  };
+
+  const raw = res.choices?.[0]?.message?.tool_calls ?? [];
+  return raw
+    .filter((tc): tc is { id?: string; function: { name: string; arguments?: string } } =>
+      Boolean(tc?.function?.name),
+    )
+    .map((tc) => ({
+      id: tc.id ?? "",
+      name: tc.function.name,
+      arguments: tc.function.arguments ?? "",
+    }));
 }

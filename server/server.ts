@@ -53,7 +53,7 @@ import { ensureStorageSchema } from "../storage/schema_manager";
 import { initRedis, closeRedis } from "../storage/redis";
 import { ensureDevUser } from "../storage/repositories/dev_identity";
 import { getPgMemoryRepository } from "../storage/repositories/pg_memory_repository";
-import { shutdownWhisperServer, warmWhisperServer } from "../voice/stt_stream";
+import { shutdownWhisperServer, warmWhisperServer, warmSenseVoice } from "../voice/stt_stream";
 import { warmupEdgeTtsConnections } from "../voice/tts";
 import { createGateway, startServer, PORT } from "./gateway";
 import { createSession } from "./session";
@@ -291,6 +291,12 @@ async function bootstrap() {
 
   await warmWhisperServer().catch((err) => {
     logger.warn("[STT] whisper-server warmup skipped", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  await warmSenseVoice().catch((err) => {
+    logger.warn("[STT] SenseVoice warmup skipped", {
       error: err instanceof Error ? err.message : String(err),
     });
   });

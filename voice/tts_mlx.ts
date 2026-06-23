@@ -17,6 +17,11 @@ const MIN_MAX_AUDIO_SEC = 2.0;
 const MLX_SAMPLE_RATE = 24000;
 const MLX_BYTES_PER_SAMPLE = 2; // 16-bit mono
 
+/** Count only speakable characters (strip punctuation/whitespace) for duration budget. */
+function speakableCharCount(text: string): number {
+  return text.replace(/[，,。！？!?、；;：:\s~～…\-.—–\n]/g, "").length;
+}
+
 function maxAudioBytes(textLength: number): number {
   const maxSec = Math.max(MIN_MAX_AUDIO_SEC, textLength * MAX_AUDIO_SEC_PER_CHAR);
   return Math.ceil(maxSec * MLX_SAMPLE_RATE * MLX_BYTES_PER_SAMPLE);
@@ -144,7 +149,7 @@ export async function speakWithMlx(
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  const audio = truncateWavIfNeeded(Buffer.from(arrayBuffer), text.length);
+  const audio = truncateWavIfNeeded(Buffer.from(arrayBuffer), speakableCharCount(text));
   logger.info("mlx 合成完成", { duration: Date.now() - t0, bytes: audio.length });
   return audio;
 }
@@ -186,7 +191,7 @@ export async function streamMlxPcm(
   let headerSkipped = false;
   let buffer = Buffer.alloc(0);
   let totalPcmBytes = 0;
-  const pcmByteCap = maxAudioBytes(text.length);
+  const pcmByteCap = maxAudioBytes(speakableCharCount(text));
   let capReached = false;
 
   try {

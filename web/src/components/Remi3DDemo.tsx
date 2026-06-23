@@ -270,7 +270,7 @@ export function Remi3DDemo() {
     emotion === "happy"
       ? "from-emerald-400/40 via-teal-400/18 to-transparent"
       : emotion === "curious"
-        ? "from-sky-400/38 via-cyan-400/18 to-transparent"
+        ? "from-violet-400/38 via-purple-400/18 to-transparent"
         : emotion === "shy"
           ? "from-amber-300/28 via-rose-300/12 to-transparent"
           : emotion === "sad"
@@ -279,11 +279,11 @@ export function Remi3DDemo() {
 
   const outerRing =
     remiState === "speaking" && demoSpeaking
-      ? "ring-[var(--remi-accent)]/55 shadow-[0_0_0_1px_rgba(45,212,191,0.2),0_24px_80px_rgba(45,212,191,0.18)]"
+      ? "ring-[var(--remi-accent)]/55 shadow-[0_0_0_1px_rgba(168, 85, 247,0.2),0_24px_80px_rgba(168, 85, 247,0.18)]"
       : emotion === "happy"
         ? "ring-emerald-300/40 shadow-[0_24px_70px_rgba(16,185,129,0.12)]"
         : emotion === "sad"
-          ? "ring-sky-300/25 shadow-[0_24px_60px_rgba(59,130,246,0.1)]"
+          ? "ring-sky-300/25 shadow-[0_24px_60px_rgba(139, 92, 246,0.1)]"
           : "ring-white/10 shadow-[0_24px_60px_rgba(255,255,255,0.06)]";
 
   const stateNote =
@@ -312,7 +312,7 @@ export function Remi3DDemo() {
   };
 
   return (
-    <main className="relative isolate min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.14),_transparent_28%),linear-gradient(180deg,_#07111d_0%,_#04070c_100%)] px-4 py-4 text-[var(--foreground)] sm:px-6 sm:py-6">
+    <main className="relative isolate min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(168, 85, 247,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(139, 92, 246,0.14),_transparent_28%),linear-gradient(180deg,_#120822_0%,_#08040f_100%)] px-4 py-4 text-[var(--foreground)] sm:px-6 sm:py-6">
       <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:42px_42px]" />
 
       <div className="relative mx-auto grid w-full max-w-7xl gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
@@ -452,7 +452,7 @@ export function Remi3DDemo() {
                       aria-pressed={active}
                       className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
                         active
-                          ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)] shadow-[0_0_0_1px_rgba(45,212,191,0.24)]"
+                          ? "border-[var(--remi-accent)] bg-[var(--remi-accent)]/15 text-[var(--foreground)] shadow-[0_0_0_1px_rgba(168, 85, 247,0.24)]"
                           : "border-white/10 bg-white/[0.03] text-[var(--remi-dim)] hover:border-white/20 hover:bg-white/[0.06]"
                       }`}
                     >

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { AuroraField } from "@/lib/aurora/auroraField";
 
 interface AuroraBackgroundProps {
-  /** Emotion tint as a hex color, e.g. "#2dd4bf". Animates smoothly on change. */
+  /** Emotion tint as a hex color, e.g. "#a855f7". Animates smoothly on change. */
   tint?: string;
   className?: string;
 }
@@ -15,7 +15,7 @@ interface AuroraBackgroundProps {
  * WebGL is unavailable. Pauses automatically when the tab is hidden
  * (requestAnimationFrame is throttled by the browser).
  */
-export function AuroraBackground({ tint = "#2dd4bf", className }: AuroraBackgroundProps) {
+export function AuroraBackground({ tint = "#a855f7", className }: AuroraBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fieldRef = useRef<AuroraField | null>(null);
 
@@ -55,8 +55,12 @@ export function AuroraBackground({ tint = "#2dd4bf", className }: AuroraBackgrou
         display: "block",
         width: "100%",
         height: "100%",
+        // Explicit backgroundColor for iOS Safari 26+ Liquid Glass tinting —
+        // Safari samples background-color from fixed elements; without this
+        // the toolbar falls back to white/black instead of our page color.
+        backgroundColor: "var(--remi-body-bg)",
         // static fallback if WebGL never initializes
-        background:
+        backgroundImage:
           "radial-gradient(120% 100% at 50% 120%, #0d2b33 0%, #050a10 60%)",
       }}
     />

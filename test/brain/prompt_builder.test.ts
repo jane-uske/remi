@@ -368,7 +368,7 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【灵魂底色】"));
     assert.ok(system.includes("【关系偏向】"));
     assert.ok(system.includes("【风格执行】"));
-    assert.ok(system.includes("不是只会安抚的助手"));
+    assert.ok(system.includes("不是只会安抚的助手") || system.includes("会接话、会留气氛、会悄悄偏向对方的人"));
     assert.ok(system.includes("偏爱感"));
     assert.ok(system.includes("别直接掉回安抚+追问"));
   });

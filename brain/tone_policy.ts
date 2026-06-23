@@ -114,7 +114,7 @@ export function detectPracticalDistressSignal(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   const debtOrConstraint =
-    /(?:欠(?:了)?(?:七八万|十几万|[\d一二三四五六七八九十百千万]+)|负债|花呗|贷款|网贷|赔了十几万|赔了[\d一二三四五六七八九十百千万]+|月(?:收入|薪)|每个月挣|工资只有|手里只有|还到啥时候|还到什么时候|扛不住|撑不住|压得我喘不过气|被裁|裁员|辞退了|失业|没工作了|被开了|确诊|手术|住院|查出来.{0,4}(?:癌|肿瘤|重症)|被骗|诈骗|钱没了|转错钱|被坑了)/u;
+    /(?:欠(?:了)?(?:七八万|十几万|[\d一二三四五六七八九十百千万]+)|负债|花呗|贷款|房贷|车贷|网贷|赔了十几万|赔了[\d一二三四五六七八九十百千万]+|月(?:收入|薪)|每个月挣|工资只有|手里只有|还到啥时候|还到什么时候|扛不住|撑不住|压得我喘不过气|被裁|裁员|辞退了|失业|没工作了|被开了|确诊|手术|住院|查出来.{0,4}(?:癌|肿瘤|重症)|被骗|诈骗|钱没了|转错钱|被坑了)/u;
   const judgmentAsk =
     /(?:怎么办|咋办|怎么还|还到啥时候|还到什么时候|你帮我算算|该怎么办|是不是该|要不要|该不该|得还到)/u;
   const debtPlusDistress =
@@ -136,6 +136,87 @@ export function detectBedtimeSignal(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   return /(?:睡不着|失眠|睡前|晚安|困了|要睡了|准备睡|上床了|躺下了|关灯了|熄灯了|夜里睡不着|半夜醒了)/u.test(trimmed);
+}
+
+// 自责 / 无价值感：自我指向的负面评价。W-PRES-02 "自责" 验收项。
+export function detectSelfBlameSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const selfDirected =
+    /(?:自己|我)(?:真|真的|就|就是|特别|好|太|很|挺|是个?|是不是)?.{0,2}(?:没用|废物|窝囊|没出息|一无是处|一事无成|很失败|失败者|不中用|没价值|不配|是累赘|是拖累|太差劲|很差劲|很差)/u;
+  const generic =
+    /(?:做什么都做不好|什么都做不好|干啥都不行|什么都干不好|我太没用|我好没用|我真没用|都怪我|都是我的错|全怪我|我太差劲|我好失败|我真失败|讨厌(?:我)?自己|恨自己|活该我|是不是我太差)/u;
+  return selfDirected.test(trimmed) || generic.test(trimmed);
+}
+
+// 反讽：正面表层 + 负面实质同现，避免被关键词情绪引擎误判成 positive。
+export function detectSarcasmSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const positiveSurface =
+    /(?:真是?太好了|太好了(?:呢|啊|哦|喔|，|。|！|!)|真好啊?|可真行|好极了|太棒了|太妙了|真不错呢|真有你的|真厉害呢|可喜可贺|恭喜我|开心死了|美滋滋|完美)/u;
+  const negativeOutcome =
+    /(?:白干|被毙|被否|被拒|泡汤|黄了|凉了|搞砸|完蛋|又出问题|加班|被批|被骂|被裁|扣钱|被坑|出错|失败|崩了|没了|赔|亏|被砍|废了|取消|打水漂|竹篮打水)/u;
+  return positiveSurface.test(trimmed) && negativeOutcome.test(trimmed);
+}
+
+// 求陪伴非求建议：用户明确要的是在场，不是方案。别硬塞判断。
+export function detectComfortSeekingVentSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(?:就想?找个?人说说|想找人说说话?|找个人说说|就想说说|只是想说说|想倾诉|发泄一?下|吐槽一?下|陪陪我|陪我(?:待|坐|聊|一会)|不(?:用|要|想|需要)(?:你)?(?:给我)?(?:什么)?(?:建议|意见|办法|分析|方案|道理)|不是(?:想)?(?:让你)?.{0,12}(?:建议|意见)|别(?:给我)?讲道理|不用安慰)/u.test(
+    trimmed,
+  );
+}
+
+// 被批评 / 被否定：现实关系里被打压的失落，需严肃承接而非轻聊。
+export function detectCriticizedDistressSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const criticized =
+    /(?:被(?:领导|老板|老师|同事|全组|主管|经理|客户|同学|大家|室友|朋友|家人|爸妈|父母|对象|男友|女友|老公|老婆|亲戚|长辈|当众|当面|公开)?.{0,6}(?:批|骂|说了|否|怼|训|教育|数落|指责|嫌弃|看不起|瞧不起)|挨(?:批|骂|训)|被批评|被骂(?:了|惨)?|被否定|被全盘否定|被怼|被数落|被指责|被嫌弃|被看不起|被瞧不起|被.{0,6}(?:当面|当众).{0,4}(?:说|批|骂|否|怼|指责|嘲).{0,8}(?:不行|没用|差|废|垃圾|能力不行))/u;
+  const demeaned =
+    /(?:说我.{0,10}(?:不行|不够|很差|太差|像实习生|水平差|没用|不专业|不合格|这么差|这点都做不好|就这样了|废了|完了|废物|没出息)|(?:室友|朋友|同事|同学|家人|爸妈|对象).{0,8}(?:说我|嫌我|觉得我).{0,10}(?:不行|没用|差|废|完了|就这样|没出息|能力不行))/u;
+  return criticized.test(trimmed) || demeaned.test(trimmed);
+}
+
+// 重情绪倾诉：高强度负面情绪 affect（含失眠级别的喘不过气），区别于"有点累"。
+export function detectHeavyDistressShareSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /(?:崩溃|快崩了|要崩溃|想哭|好想哭|忍不住哭|快撑不住|撑不住了|扛不住了|快扛不住|喘不过气|透不过气|压得喘不过气|压得慌|压力好大|压力太大|心里(?:堵|空)得慌|堵得慌|难受死了|太难受了|好委屈|太委屈|特别委屈|憋屈|快不行了|熬不住|撑不下去|快疯了|要疯了|绝望|脑子里全是|满脑子都是|一直在想|总想着|放不下|忘不掉|全世界都在压|全世界都跟我作对)/u.test(
+    trimmed,
+  );
+}
+
+// 退缩 / 放弃：表面无情绪词但语义很重的 withdrawal，需轻轻接住不能忽视。
+export function detectWithdrawalSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // 短句+放弃感（过长则更可能是在叙事）
+  if (trimmed.length > 40) return false;
+  // "算了不吃外卖了，自己做" 这类有具体后续行动的不是退缩
+  if (/^算了.{0,4}(?:不吃|不去|不买|不看|不玩|自己)/u.test(trimmed)) return false;
+  // 包含话题转向词 → 在转换话题，不是退缩
+  if (/(?:但是|但我|不过|其实|另外|还有|对了|诶)/u.test(trimmed)) return false;
+  return /(?:算了|不说了|不聊了|不想说了|不想聊了|随便吧|无所谓了?|怎样都行|都行吧|随你吧|爱咋咋|管他呢|反正也没用|说了也没用|说了也白说|反正都一样|有什么好说的|说了有什么用|跟谁说都一样|不说也罢)/u.test(
+    trimmed,
+  );
+}
+
+// 情绪承接场景统一入口：自责 / 反讽 / 求陪伴 / 被否定 / 重情绪 / 退缩放弃。
+// 用于在回合解释层把这些坏样本从轻聊里捞出来，给到"稳稳陪着"的策略。
+export function detectEmotionalDistressSignal(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return (
+    detectSelfBlameSignal(trimmed) ||
+    detectSarcasmSignal(trimmed) ||
+    detectComfortSeekingVentSignal(trimmed) ||
+    detectCriticizedDistressSignal(trimmed) ||
+    detectHeavyDistressShareSignal(trimmed) ||
+    detectWithdrawalSignal(trimmed)
+  );
 }
 
 export function buildToneContract(input: ToneContractInput): string {

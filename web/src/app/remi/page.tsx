@@ -4,34 +4,54 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Remi — Real-time AI Companion",
   description:
-    "A real-time AI companion system with personality continuity, long-term memory, full-duplex voice, and plugin architecture.",
+    "A real-time AI companion system with personality continuity, long-term memory, full-duplex voice, generative imagery, and a spatial world where she lives.",
 };
 
 const capabilities = [
   {
     title: "Real-time Conversation",
-    desc: "Full-duplex WebSocket pipeline with VAD-based turn detection, streaming LLM responses, and natural interrupt handling.",
+    desc: "Full-duplex WebSocket pipeline with VAD-based turn detection, streaming LLM responses, and natural interrupt handling. Text chat now runs over SSE with WebSocket fallback.",
     tag: "WebSocket / SSE",
   },
   {
-    title: "Voice Interaction",
-    desc: "PCM streaming STT, multi-backend TTS (Volcengine / Edge / MLX), emotion-driven prosody, and sub-second first-audio latency.",
+    title: "Voice & Emotion",
+    desc: "PCM streaming STT, multi-backend TTS (MLX / Volcengine / Edge / OpenAI / Piper), emotion-driven prosody, runtime voice-style switching, and sub-second first-audio latency.",
     tag: "STT / TTS / VAD",
   },
   {
     title: "Long-term Memory",
-    desc: "Episode-based memory store with semantic recall, relationship state tracking, temporal decay, and cross-session continuity.",
+    desc: "Episode-based memory store with semantic recall, relationship-state tracking, temporal decay, NSFW isolation, and cross-session continuity that survives reconnects.",
     tag: "PostgreSQL / Embedding",
   },
   {
-    title: "Plugin Architecture",
-    desc: "Capability extension layer decoupled from core conversation loop. Supports time, weather, and custom skill registration.",
+    title: "Generative Imagery",
+    desc: "Natural-language image generation via ComfyUI: generate, refine, redraw, restyle. Image-intent agent resolves references like 'the last one' or 'her style' across a session image registry.",
+    tag: "ComfyUI / Vision",
+  },
+  {
+    title: "Video Generation",
+    desc: "Capability-driven video generation hooked into the same conversation loop — triggered by intent, not menus.",
+    tag: "Capability",
+  },
+  {
+    title: "RemiWorld",
+    desc: "A spatial voxel home where she lives: wall-clock-driven daily behavior, attention system, time-of-day lighting, offline-return openers, and world events that flow back into memory.",
+    tag: "Spatial Presence",
+  },
+  {
+    title: "Performance Layer",
+    desc: "Roleplay / cosplay as temporary envelopes that wrap (never replace) her core identity. A sediment filter decides what leaks back into the core vs. stays as scoped episode memory.",
+    tag: "Identity Envelope",
+  },
+  {
+    title: "Plugin & Capability",
+    desc: "Capability extension layer decoupled from the core loop: date recap, family memory, image/video gen, mode control, voice style — registered as typed hooks.",
     tag: "Adapter Pattern",
   },
   {
-    title: "AI Coding Workflow",
-    desc: "Entire system built with AI-assisted development — architecture design, implementation, testing, and iteration via Claude Code.",
-    tag: "Claude Code / Devix",
+    title: "Cross-Device",
+    desc: "Same WebSocket protocol across Web, iOS, watchOS, and a Tauri desktop dual-window companion. One personality, one memory, four surfaces.",
+    tag: "4-Client",
   },
 ];
 
@@ -39,15 +59,18 @@ const techStack = [
   "Next.js 15",
   "React 19",
   "TypeScript",
-  "Node.js",
-  "WebSocket",
-  "PostgreSQL",
-  "Redis",
-  "Qwen 2.5",
-  "Volcengine TTS",
-  "MLX",
+  "Node.js 20",
+  "WebSocket / SSE",
+  "PostgreSQL 16",
+  "pgvector",
+  "Redis 7",
+  "Qwen 3",
+  "ComfyUI",
+  "MLX / Volcengine TTS",
   "Live2D / VRM",
-  "Tailwind CSS",
+  "Tauri",
+  "SwiftUI",
+  "Tailwind v4",
 ];
 
 const links = [
@@ -98,14 +121,20 @@ function LinkIcon({ type }: { type: string }) {
 
 export default function RemiPortalPage() {
   return (
-    <main className="mx-auto min-h-dvh max-w-5xl px-6 py-12 md:py-20">
+    <main className="mx-auto min-h-dvh max-w-5xl px-6 pt-[max(3rem,calc(env(safe-area-inset-top)+1.5rem))] md:pt-20" style={{ paddingBottom: "max(3rem, calc(env(safe-area-inset-bottom) + 1.5rem))" }}>
       {/* Hero */}
-      <header className="mb-16 text-center">
+      <header className="mb-16 flex flex-col items-center text-center">
+        <img
+          src="/assets/remi/brand/remi-logo.png"
+          alt="Remi brand logo"
+          className="mb-6 h-auto w-32 select-none drop-shadow-[0_18px_36px_rgba(168,85,247,0.28)] md:w-40"
+          draggable={false}
+        />
         <p
           className="mb-3 text-xs font-medium uppercase tracking-[0.25em]"
           style={{ color: "var(--remi-accent)" }}
         >
-          Portfolio Project
+          Real-time AI Companion
         </p>
         <h1
           className="mb-4 text-3xl font-semibold tracking-tight md:text-5xl"
@@ -117,10 +146,22 @@ export default function RemiPortalPage() {
           className="mx-auto max-w-2xl text-base leading-relaxed md:text-lg"
           style={{ color: "var(--remi-dim)" }}
         >
-          A real-time AI companion with personality continuity &amp; long-term
-          memory. She remembers who you are, speaks with emotion, and stays
-          consistent across sessions.
+          A persistent digital life — not a chatbot that boots from zero each
+          session. She remembers who you are, speaks with emotion, generates
+          images from a sentence, lives in a world of her own, and stays
+          consistent across sessions and devices.
         </p>
+
+        {/* Hero visual — social concept art */}
+        <div className="group relative mt-10 overflow-hidden rounded-2xl border border-[var(--remi-border)] shadow-[0_32px_80px_rgba(168,85,247,0.22)]">
+          <img
+            src="/assets/remi/posters/remi-social-hero.png"
+            alt="Remi — virtual idol social concept"
+            className="h-auto w-full max-w-lg select-none object-cover transition duration-700 group-hover:scale-[1.02]"
+            draggable={false}
+          />
+          <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10" />
+        </div>
       </header>
 
       {/* Links */}
@@ -208,7 +249,7 @@ npm run dev             # open http://localhost:3001`}</code>
                 <span
                   className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
                   style={{
-                    background: "rgba(45,212,191,0.12)",
+                    background: "rgba(168,85,247,0.14)",
                     color: "var(--remi-accent)",
                   }}
                 >
@@ -246,8 +287,8 @@ npm run dev             # open http://localhost:3001`}</code>
             <div
               className="rounded-lg border px-4 py-3 text-center"
               style={{
-                borderColor: "rgba(45,212,191,0.3)",
-                background: "rgba(45,212,191,0.08)",
+                borderColor: "rgba(168,85,247,0.3)",
+                background: "rgba(168,85,247,0.08)",
                 color: "var(--foreground)",
               }}
             >
@@ -255,7 +296,7 @@ npm run dev             # open http://localhost:3001`}</code>
                 Interaction Layer
               </div>
               <div style={{ color: "var(--remi-dim)" }}>
-                Next.js 15 &middot; WebSocket Gateway &middot; VAD &middot; STT
+                Next.js 15 &middot; WebSocket Gateway &middot; SSE Text Chat &middot; VAD &middot; STT
                 Stream &middot; TTS Pipeline &middot; Interrupt Controller
               </div>
             </div>
@@ -268,18 +309,18 @@ npm run dev             # open http://localhost:3001`}</code>
             <div
               className="rounded-lg border px-4 py-3 text-center"
               style={{
-                borderColor: "rgba(125,211,252,0.3)",
-                background: "rgba(125,211,252,0.06)",
+                borderColor: "rgba(192,132,252,0.3)",
+                background: "rgba(192,132,252,0.06)",
                 color: "var(--foreground)",
               }}
             >
-              <div className="mb-1 font-semibold" style={{ color: "#7dd3fc" }}>
+              <div className="mb-1 font-semibold" style={{ color: "#c084fc" }}>
                 Brain Layer
               </div>
               <div style={{ color: "var(--remi-dim)" }}>
                 Fast Brain (streaming) &middot; Slow Brain (analysis) &middot;
                 Emotion Engine &middot; Prompt Builder &middot; Personality
-                System
+                System &middot; Performance Envelope
               </div>
             </div>
 
@@ -291,12 +332,12 @@ npm run dev             # open http://localhost:3001`}</code>
             <div
               className="rounded-lg border px-4 py-3 text-center"
               style={{
-                borderColor: "rgba(168,85,247,0.3)",
-                background: "rgba(168,85,247,0.06)",
+                borderColor: "rgba(217,70,239,0.3)",
+                background: "rgba(217,70,239,0.06)",
                 color: "var(--foreground)",
               }}
             >
-              <div className="mb-1 font-semibold" style={{ color: "#a855f7" }}>
+              <div className="mb-1 font-semibold" style={{ color: "#d946ef" }}>
                 Memory &amp; Storage Layer
               </div>
               <div style={{ color: "var(--remi-dim)" }}>
@@ -322,42 +363,11 @@ npm run dev             # open http://localhost:3001`}</code>
                 Extension Layer
               </div>
               <div style={{ color: "var(--remi-dim)" }}>
-                Plugin System &middot; Capability Registry &middot; Time /
-                Weather Skills &middot; Platform Adapters
+                Plugin System &middot; Capability Registry &middot; Image / Video
+                Gen &middot; RemiWorld &middot; Platform Adapters
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Screenshots */}
-      <section className="mb-16">
-        <h2
-          className="mb-6 text-xs font-medium uppercase tracking-[0.2em]"
-          style={{ color: "var(--remi-dim)" }}
-        >
-          Screenshots
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {["Chat Interface", "Voice Interaction", "Memory Recall", "3D Avatar"].map(
-            (label) => (
-              <div
-                key={label}
-                className="flex aspect-video items-center justify-center rounded-xl border"
-                style={{
-                  borderColor: "var(--remi-border)",
-                  background: "var(--remi-surface)",
-                }}
-              >
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: "var(--remi-dim)" }}
-                >
-                  {label} — placeholder
-                </span>
-              </div>
-            ),
-          )}
         </div>
       </section>
 
@@ -394,7 +404,7 @@ npm run dev             # open http://localhost:3001`}</code>
         }}
       >
         Built by Wu Jian &middot; AI Application Frontend Engineer &middot;
-        2024&ndash;2025
+        2024&ndash;2026
       </footer>
     </main>
   );

@@ -23,12 +23,19 @@ import type {
   WhisperTranscribeFallbackReason,
   WhisperTranscribePriority,
 } from "./stt_whisper_runtime";
+import { senseVoiceSttRuntime } from "./stt_sensevoice_runtime";
 
 export type SttTranscribeMeta = {
   path: "server" | "cli" | "skipped";
   fallbackReason: WhisperTranscribeFallbackReason | null;
   requestDegraded: boolean;
   jobPriority: WhisperTranscribePriority;
+  /** Vocal emotion (happy/sad/angry/…) from SenseVoice; null for other providers. */
+  emotion: string | null;
+  /** Audio event (laughter/cry/…) from SenseVoice; null for other providers. */
+  event: string | null;
+  /** Detected language (zh/en/…) from SenseVoice LID; null for other providers. */
+  lang: string | null;
 };
 
 export type SttTranscribeOptions = {
@@ -44,6 +51,15 @@ type IncrementalSttProvider = "openai-realtime" | "sherpa-onnx";
 function getProvider(): SttProvider {
   const p = getConfig().REMI_STT_PROVIDER;
   return p === "whisper-cpp" ? "whisper-cpp" : "openai";
+}
+
+function isSenseVoiceProvider(): boolean {
+  return getConfig().REMI_STT_PROVIDER === "sense-voice";
+}
+
+export async function warmSenseVoice(): Promise<boolean> {
+  if (!isSenseVoiceProvider()) return false;
+  return senseVoiceSttRuntime.warm();
 }
 
 function getIncrementalProvider(): IncrementalSttProvider | null {
@@ -95,6 +111,9 @@ export class SttStream extends EventEmitter {
     fallbackReason: null,
     requestDegraded: false,
     jobPriority: "high",
+    emotion: null,
+    event: null,
+    lang: null,
   };
 
   private client: OpenAI | null = null;
@@ -111,6 +130,7 @@ export class SttStream extends EventEmitter {
   }
 
   get configured(): boolean {
+    if (isSenseVoiceProvider()) return senseVoiceSttRuntime.canUse();
     if (getProvider() === "whisper-cpp") return Boolean(getConfig().whisper_model);
     return this.client !== null;
   }
@@ -177,8 +197,28 @@ export class SttStream extends EventEmitter {
         fallbackReason: null,
         requestDegraded: false,
         jobPriority: options?.jobPriority ?? "high",
+        emotion: null,
+        event: null,
+        lang: null,
       };
       return "";
+    }
+
+    // In-process SenseVoice: decode PCM directly (no WAV/ffmpeg/HTTP) and carry
+    // the emotion / event / lang labels back through the transcribe meta.
+    if (isSenseVoiceProvider()) {
+      const result = await senseVoiceSttRuntime.transcribe(pcm, rate);
+      this.lastTranscribeMeta = {
+        path: "server",
+        fallbackReason: null,
+        requestDegraded: false,
+        jobPriority: options?.jobPriority ?? "high",
+        emotion: result.emotion,
+        event: result.event,
+        lang: result.lang,
+      };
+      this.emit("final", result.text);
+      return result.text;
     }
 
     const wav = pcmToWav(pcm, rate);
@@ -423,6 +463,9 @@ export class SttStream extends EventEmitter {
       fallbackReason: result.fallbackReason,
       requestDegraded: result.requestDegraded,
       jobPriority: options?.jobPriority ?? "high",
+      emotion: null,
+      event: null,
+      lang: null,
     };
     return result.text;
   }
@@ -440,6 +483,9 @@ export class SttStream extends EventEmitter {
       fallbackReason: null,
       requestDegraded: false,
       jobPriority: options?.jobPriority ?? "high",
+      emotion: null,
+      event: null,
+      lang: null,
     };
     return this.transcribeOpenAIWav(wav);
   }

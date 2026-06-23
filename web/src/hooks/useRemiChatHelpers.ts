@@ -30,12 +30,12 @@ const AUDIO_FRAME_HEADER_BYTES = 16;
 const STT_FALLBACK_PREFIX = "录音中";
 
 export const MESSAGE_STORAGE_MAX = 200;
-export const REM_WS_RECONNECT_DELAY_MS = 3000;
-const WS_RECONNECT_MAX_DELAY_MS = 30_000;
-const WS_RECONNECT_JITTER_MS = 1000;
+export const REM_WS_RECONNECT_DELAY_MS = 1500;
+const WS_RECONNECT_MAX_DELAY_MS = 15_000;
+const WS_RECONNECT_JITTER_MS = 500;
 
 export function computeReconnectDelay(attempt: number): number {
-  const exponential = REM_WS_RECONNECT_DELAY_MS * Math.pow(2, Math.min(attempt, 5));
+  const exponential = REM_WS_RECONNECT_DELAY_MS * Math.pow(2, Math.min(attempt, 4));
   const jitter = Math.random() * WS_RECONNECT_JITTER_MS;
   return Math.min(exponential + jitter, WS_RECONNECT_MAX_DELAY_MS);
 }

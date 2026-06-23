@@ -11,7 +11,7 @@ html {
   background-attachment: scroll;
 }
 
-/* 默认：现代深色 + 青绿点缀（可随系统切换浅色） */
+/* 默认：现代深色 + 紫罗兰点缀（品牌主题色，可随系统切换浅色） */
 :root {
   --font-geist-sans:
     "SF Pro Display", "SF Pro Text", "Segoe UI", "Noto Sans SC", "PingFang SC",
@@ -19,19 +19,19 @@ html {
   --font-geist-mono:
     "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code", "Menlo",
     "Monaco", monospace;
-  --background: #0a0f14;
-  --foreground: #e6f0f0;
+  --background: #0f0a18;
+  --foreground: #f3ecfb;
   --remi-surface: rgba(255, 255, 255, 0.06);
-  --remi-accent: #2dd4bf;
-  --remi-accent-dim: #14b8a6;
+  --remi-accent: #a855f7;
+  --remi-accent-dim: #7c3aed;
   --remi-border: rgba(255, 255, 255, 0.12);
   --remi-input: rgba(0, 0, 0, 0.35);
-  --remi-dim: #8da8a8;
-  --remi-user-bg: rgba(45, 212, 191, 0.2);
-  --remi-user-fg: #d6fff8;
+  --remi-dim: #b6a0c8;
+  --remi-user-bg: rgba(168, 85, 247, 0.2);
+  --remi-user-fg: #f3e8ff;
   --remi-error-bg: rgba(220, 80, 100, 0.15);
   --remi-danger: #f8718c;
-  --remi-dot-off: #4a5560;
+  --remi-dot-off: #4a4256;
   --remi-mic-bg: rgba(255, 255, 255, 0.08);
   --remi-app-bg: transparent;
   /* 侧栏聊天区：偏透明，叠在背景图上 */
@@ -40,71 +40,71 @@ html {
   --remi-page-bg-image: url("/rem-ui-bg.svg");
   --remi-page-overlay: linear-gradient(
     165deg,
-    rgba(4, 8, 14, 0.84) 0%,
-    rgba(8, 14, 24, 0.76) 44%,
-    rgba(4, 8, 14, 0.88) 100%
+    rgba(14, 6, 24, 0.84) 0%,
+    rgba(20, 10, 34, 0.76) 44%,
+    rgba(14, 6, 24, 0.88) 100%
   );
   --remi-stage-veil: radial-gradient(
     ellipse 80% 60% at 50% 40%,
-    rgba(45, 212, 191, 0.1) 0%,
+    rgba(168, 85, 247, 0.1) 0%,
     transparent 65%
   );
   --remi-header-title: #ffffff;
-  --remi-header-subtitle: #bfe5ec;
-  --remi-header-chip-bg: rgba(10, 24, 33, 0.36);
-  --remi-header-chip-border: rgba(210, 241, 246, 0.08);
-  --remi-header-chip-text: #d2eef3;
+  --remi-header-subtitle: #d6bcfa;
+  --remi-header-chip-bg: rgba(20, 10, 33, 0.36);
+  --remi-header-chip-border: rgba(233, 213, 255, 0.08);
+  --remi-header-chip-text: #e9d5ff;
   --remi-chat-card-bg: linear-gradient(
     180deg,
-    rgba(8, 21, 30, 0.44),
-    rgba(8, 21, 30, 0.16)
+    rgba(20, 12, 32, 0.44),
+    rgba(20, 12, 32, 0.16)
   );
-  --remi-chat-card-border: rgba(229, 247, 250, 0.1);
+  --remi-chat-card-border: rgba(237, 213, 255, 0.1);
   --remi-chat-card-shadow: 0 28px 72px rgba(0, 0, 0, 0.18);
-  --remi-hero-panel-bg: rgba(10, 75, 93, 0.18);
+  --remi-hero-panel-bg: rgba(40, 20, 70, 0.18);
   --remi-hero-panel-border: rgba(255, 255, 255, 0.1);
-  --remi-input-shell-bg: rgba(6, 14, 22, 0.62);
-  --remi-input-shell-border: rgba(148, 210, 228, 0.18);
+  --remi-input-shell-bg: rgba(14, 8, 24, 0.62);
+  --remi-input-shell-border: rgba(192, 132, 252, 0.18);
   --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 18px 40px rgba(0, 0, 0, 0.22);
   --remi-input-track-bg: rgba(0, 0, 0, 0.34);
   --remi-input-track-border: rgba(255, 255, 255, 0.06);
-  --remi-input-text: #eefcff;
-  --remi-input-placeholder: rgba(157, 199, 207, 0.72);
-  --remi-input-muted: #8eb8c2;
-  --remi-account-trigger-bg: rgba(8, 22, 30, 0.56);
-  --remi-account-trigger-hover: rgba(8, 22, 30, 0.72);
-  --remi-account-trigger-border: rgba(210, 241, 246, 0.08);
+  --remi-input-text: #f5edff;
+  --remi-input-placeholder: rgba(192, 160, 220, 0.72);
+  --remi-input-muted: #b388c8;
+  --remi-account-trigger-bg: rgba(18, 10, 30, 0.56);
+  --remi-account-trigger-hover: rgba(18, 10, 30, 0.72);
+  --remi-account-trigger-border: rgba(233, 213, 255, 0.08);
   --remi-account-trigger-title: #ffffff;
-  --remi-account-trigger-subtitle: #b5d7de;
-  --remi-account-menu-bg: rgba(6, 17, 23, 0.92);
-  --remi-account-menu-border: rgba(15, 114, 135, 0.22);
-  --remi-bubble-rem-bg: rgba(7, 74, 91, 0.68);
-  --remi-bubble-rem-border: rgba(173, 234, 244, 0.16);
-  --remi-bubble-rem-fg: #eefcff;
-  --remi-bubble-user-bg: rgba(21, 24, 28, 0.58);
+  --remi-account-trigger-subtitle: #c9b3dc;
+  --remi-account-menu-bg: rgba(14, 8, 22, 0.92);
+  --remi-account-menu-border: rgba(124, 58, 237, 0.22);
+  --remi-bubble-rem-bg: rgba(40, 20, 70, 0.68);
+  --remi-bubble-rem-border: rgba(216, 180, 254, 0.16);
+  --remi-bubble-rem-fg: #f5edff;
+  --remi-bubble-user-bg: rgba(26, 22, 32, 0.58);
   --remi-bubble-user-border: rgba(255, 255, 255, 0.07);
-  --remi-bubble-user-fg: #f5f7f8;
-  --remi-bubble-speaker-rem: #89d6e3;
+  --remi-bubble-user-fg: #f5f5f8;
+  --remi-bubble-speaker-rem: #c4b5fd;
   --remi-bubble-speaker-user: rgba(255, 255, 255, 0.65);
   --remi-bubble-speaker-partial: rgba(255, 255, 255, 0.45);
-  --remi-body-bg: #050a10;
+  --remi-body-bg: #0a0612;
   --remi-shell-overlay:
-    radial-gradient(circle at 50% 22%, rgba(23, 144, 176, 0.14), transparent 28%),
-    linear-gradient(180deg, #0b0d10 0%, #0c1015 100%);
-  --remi-grid-line: rgba(9, 95, 118, 0.14);
-  --remi-chat-glow-a: rgba(45, 212, 191, 0.08);
-  --remi-chat-glow-b: rgba(125, 211, 252, 0.09);
+    radial-gradient(circle at 50% 22%, rgba(139, 92, 246, 0.14), transparent 28%),
+    linear-gradient(180deg, #0c0814 0%, #0e0a18 100%);
+  --remi-grid-line: rgba(76, 29, 149, 0.14);
+  --remi-chat-glow-a: rgba(168, 85, 247, 0.08);
+  --remi-chat-glow-b: rgba(192, 132, 252, 0.09);
   --remi-glass-edge: rgba(255, 255, 255, 0.12);
-  --remi-hero-panel-kicker: #9fd1db;
+  --remi-hero-panel-kicker: #c4b5fd;
   --remi-hero-panel-text: #eefcff;
   --remi-mic-button-bg: rgba(255, 255, 255, 0.07);
   --remi-mic-button-hover: rgba(255, 255, 255, 0.14);
   --remi-mic-button-border: rgba(255, 255, 255, 0.1);
-  --remi-send-button-bg: linear-gradient(135deg, #1a3d5c 0%, #2a6f8f 52%, #3d9ab8 100%);
-  --remi-send-button-bg-active: linear-gradient(135deg, #224f75 0%, #3589ad 52%, #4eb5d4 100%);
+  --remi-send-button-bg: linear-gradient(135deg, #3b0764 0%, #5b21b6 52%, #7c3aed 100%);
+  --remi-send-button-bg-active: linear-gradient(135deg, #4c1d95 0%, #6d28d9 52%, #8b5cf6 100%);
   --remi-send-button-fg: #f0fbff;
-  --remi-send-button-shadow: 0 10px 26px rgba(42, 130, 168, 0.32);
+  --remi-send-button-shadow: 0 10px 26px rgba(139, 92, 246, 0.32);
   --remi-composer-addon-bg: rgba(6, 14, 22, 0.5);
   --remi-composer-addon-border: rgba(148, 210, 228, 0.14);
   --remi-composer-ground-bg: linear-gradient(
@@ -126,8 +126,8 @@ html {
   --background: #f0f7f7;
   --foreground: #1a2828;
   --remi-surface: rgba(255, 255, 255, 0.65);
-  --remi-accent: #0d9488;
-  --remi-accent-dim: #0f766e;
+  --remi-accent: #7c3aed;
+  --remi-accent-dim: #6d28d9;
   --remi-border: rgba(0, 0, 0, 0.1);
   --remi-input: #ffffff;
   --remi-dim: #5c7070;
@@ -148,7 +148,7 @@ html {
   );
   --remi-stage-veil: radial-gradient(
     ellipse 80% 60% at 50% 40%,
-    rgba(13, 148, 136, 0.12) 0%,
+    rgba(124, 58, 237, 0.12) 0%,
     transparent 65%
   );
   --remi-header-title: #10343b;
@@ -161,54 +161,54 @@ html {
     rgba(255, 255, 255, 0.42),
     rgba(230, 244, 245, 0.24)
   );
-  --remi-chat-card-border: rgba(8, 96, 120, 0.12);
+  --remi-chat-card-border: rgba(76, 29, 149, 0.12);
   --remi-chat-card-shadow: 0 18px 50px rgba(26, 50, 57, 0.08);
   --remi-hero-panel-bg: rgba(255, 255, 255, 0.5);
-  --remi-hero-panel-border: rgba(8, 96, 120, 0.12);
+  --remi-hero-panel-border: rgba(76, 29, 149, 0.12);
   --remi-input-shell-bg: rgba(255, 255, 255, 0.58);
-  --remi-input-shell-border: rgba(8, 96, 120, 0.14);
+  --remi-input-shell-border: rgba(76, 29, 149, 0.14);
   --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
     0 14px 32px rgba(26, 50, 57, 0.1);
-  --remi-input-track-bg: rgba(8, 96, 120, 0.06);
-  --remi-input-track-border: rgba(8, 96, 120, 0.08);
+  --remi-input-track-bg: rgba(76, 29, 149, 0.06);
+  --remi-input-track-border: rgba(76, 29, 149, 0.08);
   --remi-input-text: #15414b;
   --remi-input-placeholder: rgba(93, 125, 133, 0.72);
   --remi-input-muted: #5a8089;
   --remi-account-trigger-bg: rgba(255, 255, 255, 0.72);
   --remi-account-trigger-hover: rgba(255, 255, 255, 0.86);
-  --remi-account-trigger-border: rgba(8, 96, 120, 0.12);
+  --remi-account-trigger-border: rgba(76, 29, 149, 0.12);
   --remi-account-trigger-title: #153e47;
   --remi-account-trigger-subtitle: #55757d;
   --remi-account-menu-bg: rgba(248, 253, 253, 0.84);
-  --remi-account-menu-border: rgba(8, 96, 120, 0.12);
+  --remi-account-menu-border: rgba(76, 29, 149, 0.12);
   --remi-bubble-rem-bg: rgba(217, 245, 247, 0.82);
-  --remi-bubble-rem-border: rgba(8, 96, 120, 0.14);
+  --remi-bubble-rem-border: rgba(76, 29, 149, 0.14);
   --remi-bubble-rem-fg: #153f49;
   --remi-bubble-user-bg: rgba(255, 255, 255, 0.78);
-  --remi-bubble-user-border: rgba(8, 96, 120, 0.12);
+  --remi-bubble-user-border: rgba(76, 29, 149, 0.12);
   --remi-bubble-user-fg: #20343a;
   --remi-bubble-speaker-rem: #0f6d7f;
   --remi-bubble-speaker-user: rgba(18, 51, 60, 0.58);
   --remi-bubble-speaker-partial: rgba(18, 51, 60, 0.42);
   --remi-body-bg: #e8f4f4;
   --remi-shell-overlay:
-    radial-gradient(circle at 50% 24%, rgba(13, 148, 136, 0.09), transparent 30%),
+    radial-gradient(circle at 50% 24%, rgba(124, 58, 237, 0.09), transparent 30%),
     linear-gradient(180deg, rgba(245, 250, 250, 0.96) 0%, rgba(232, 244, 244, 0.98) 100%);
-  --remi-grid-line: rgba(8, 96, 120, 0.14);
-  --remi-chat-glow-a: rgba(13, 148, 136, 0.1);
-  --remi-chat-glow-b: rgba(56, 189, 248, 0.09);
-  --remi-glass-edge: rgba(8, 96, 120, 0.12);
-  --remi-hero-panel-kicker: #3b7380;
+  --remi-grid-line: rgba(76, 29, 149, 0.14);
+  --remi-chat-glow-a: rgba(124, 58, 237, 0.1);
+  --remi-chat-glow-b: rgba(216, 180, 254, 0.09);
+  --remi-glass-edge: rgba(76, 29, 149, 0.12);
+  --remi-hero-panel-kicker: #7c3aed;
   --remi-hero-panel-text: #133f48;
   --remi-mic-button-bg: rgba(255, 255, 255, 0.62);
   --remi-mic-button-hover: rgba(255, 255, 255, 0.78);
-  --remi-mic-button-border: rgba(8, 96, 120, 0.14);
-  --remi-send-button-bg: linear-gradient(135deg, #1f6f88 0%, #2f9ab5 52%, #4eb8d4 100%);
-  --remi-send-button-bg-active: linear-gradient(135deg, #26829e 0%, #3aacca 52%, #5ec8e2 100%);
+  --remi-mic-button-border: rgba(76, 29, 149, 0.14);
+  --remi-send-button-bg: linear-gradient(135deg, #5b21b6 0%, #7c3aed 52%, #8b5cf6 100%);
+  --remi-send-button-bg-active: linear-gradient(135deg, #6d28d9 0%, #7c3aed 52%, #a78bfa 100%);
   --remi-send-button-fg: #ffffff;
-  --remi-send-button-shadow: 0 10px 24px rgba(47, 154, 181, 0.22);
+  --remi-send-button-shadow: 0 10px 24px rgba(167, 139, 250, 0.22);
   --remi-composer-addon-bg: rgba(255, 255, 255, 0.52);
-  --remi-composer-addon-border: rgba(8, 96, 120, 0.12);
+  --remi-composer-addon-border: rgba(76, 29, 149, 0.12);
   --remi-composer-ground-bg: linear-gradient(
     180deg,
     transparent 0%,
@@ -216,9 +216,9 @@ html {
     rgba(227, 239, 237, 0.92) 100%
   );
   --remi-composer-tertiary-bg: rgba(255, 255, 255, 0.58);
-  --remi-composer-tertiary-border: rgba(8, 96, 120, 0.12);
-  --remi-composer-attachment-bg: rgba(8, 96, 120, 0.05);
-  --remi-composer-send-idle-bg: rgba(8, 96, 120, 0.06);
+  --remi-composer-tertiary-border: rgba(76, 29, 149, 0.12);
+  --remi-composer-attachment-bg: rgba(76, 29, 149, 0.05);
+  --remi-composer-send-idle-bg: rgba(76, 29, 149, 0.06);
   --remi-composer-send-idle-fg: rgba(93, 125, 133, 0.45);
   color-scheme: light;
 }
@@ -228,8 +228,8 @@ html {
     --background: #f0f7f7;
     --foreground: #1a2828;
     --remi-surface: rgba(255, 255, 255, 0.65);
-    --remi-accent: #0d9488;
-    --remi-accent-dim: #0f766e;
+    --remi-accent: #7c3aed;
+    --remi-accent-dim: #6d28d9;
     --remi-border: rgba(0, 0, 0, 0.1);
     --remi-input: #ffffff;
     --remi-dim: #5c7070;
@@ -250,7 +250,7 @@ html {
     );
     --remi-stage-veil: radial-gradient(
       ellipse 80% 60% at 50% 40%,
-      rgba(13, 148, 136, 0.12) 0%,
+      rgba(124, 58, 237, 0.12) 0%,
       transparent 65%
     );
     --remi-header-title: #10343b;
@@ -263,54 +263,54 @@ html {
       rgba(255, 255, 255, 0.42),
       rgba(230, 244, 245, 0.24)
     );
-    --remi-chat-card-border: rgba(8, 96, 120, 0.12);
+    --remi-chat-card-border: rgba(76, 29, 149, 0.12);
     --remi-chat-card-shadow: 0 18px 50px rgba(26, 50, 57, 0.08);
     --remi-hero-panel-bg: rgba(255, 255, 255, 0.5);
-    --remi-hero-panel-border: rgba(8, 96, 120, 0.12);
+    --remi-hero-panel-border: rgba(76, 29, 149, 0.12);
     --remi-input-shell-bg: rgba(255, 255, 255, 0.58);
-    --remi-input-shell-border: rgba(8, 96, 120, 0.14);
+    --remi-input-shell-border: rgba(76, 29, 149, 0.14);
     --remi-input-shell-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
       0 14px 32px rgba(26, 50, 57, 0.1);
-    --remi-input-track-bg: rgba(8, 96, 120, 0.06);
-    --remi-input-track-border: rgba(8, 96, 120, 0.08);
+    --remi-input-track-bg: rgba(76, 29, 149, 0.06);
+    --remi-input-track-border: rgba(76, 29, 149, 0.08);
     --remi-input-text: #15414b;
     --remi-input-placeholder: rgba(93, 125, 133, 0.72);
     --remi-input-muted: #5a8089;
     --remi-account-trigger-bg: rgba(255, 255, 255, 0.72);
     --remi-account-trigger-hover: rgba(255, 255, 255, 0.86);
-    --remi-account-trigger-border: rgba(8, 96, 120, 0.12);
+    --remi-account-trigger-border: rgba(76, 29, 149, 0.12);
     --remi-account-trigger-title: #153e47;
     --remi-account-trigger-subtitle: #55757d;
     --remi-account-menu-bg: rgba(248, 253, 253, 0.84);
-    --remi-account-menu-border: rgba(8, 96, 120, 0.12);
+    --remi-account-menu-border: rgba(76, 29, 149, 0.12);
     --remi-bubble-rem-bg: rgba(217, 245, 247, 0.82);
-    --remi-bubble-rem-border: rgba(8, 96, 120, 0.14);
+    --remi-bubble-rem-border: rgba(76, 29, 149, 0.14);
     --remi-bubble-rem-fg: #153f49;
     --remi-bubble-user-bg: rgba(255, 255, 255, 0.78);
-    --remi-bubble-user-border: rgba(8, 96, 120, 0.12);
+    --remi-bubble-user-border: rgba(76, 29, 149, 0.12);
     --remi-bubble-user-fg: #20343a;
     --remi-bubble-speaker-rem: #0f6d7f;
     --remi-bubble-speaker-user: rgba(18, 51, 60, 0.58);
     --remi-bubble-speaker-partial: rgba(18, 51, 60, 0.42);
     --remi-body-bg: #e8f4f4;
     --remi-shell-overlay:
-      radial-gradient(circle at 50% 24%, rgba(13, 148, 136, 0.09), transparent 30%),
+      radial-gradient(circle at 50% 24%, rgba(124, 58, 237, 0.09), transparent 30%),
       linear-gradient(180deg, rgba(245, 250, 250, 0.96) 0%, rgba(232, 244, 244, 0.98) 100%);
-    --remi-grid-line: rgba(8, 96, 120, 0.14);
-    --remi-chat-glow-a: rgba(13, 148, 136, 0.1);
-    --remi-chat-glow-b: rgba(56, 189, 248, 0.09);
-    --remi-glass-edge: rgba(8, 96, 120, 0.12);
-    --remi-hero-panel-kicker: #3b7380;
+    --remi-grid-line: rgba(76, 29, 149, 0.14);
+    --remi-chat-glow-a: rgba(124, 58, 237, 0.1);
+    --remi-chat-glow-b: rgba(216, 180, 254, 0.09);
+    --remi-glass-edge: rgba(76, 29, 149, 0.12);
+    --remi-hero-panel-kicker: #7c3aed;
     --remi-hero-panel-text: #133f48;
     --remi-mic-button-bg: rgba(255, 255, 255, 0.62);
     --remi-mic-button-hover: rgba(255, 255, 255, 0.78);
-    --remi-mic-button-border: rgba(8, 96, 120, 0.14);
-    --remi-send-button-bg: linear-gradient(135deg, #1f6f88 0%, #2f9ab5 52%, #4eb8d4 100%);
-    --remi-send-button-bg-active: linear-gradient(135deg, #26829e 0%, #3aacca 52%, #5ec8e2 100%);
+    --remi-mic-button-border: rgba(76, 29, 149, 0.14);
+    --remi-send-button-bg: linear-gradient(135deg, #5b21b6 0%, #7c3aed 52%, #8b5cf6 100%);
+    --remi-send-button-bg-active: linear-gradient(135deg, #6d28d9 0%, #7c3aed 52%, #a78bfa 100%);
     --remi-send-button-fg: #ffffff;
-    --remi-send-button-shadow: 0 10px 24px rgba(47, 154, 181, 0.22);
+    --remi-send-button-shadow: 0 10px 24px rgba(167, 139, 250, 0.22);
     --remi-composer-addon-bg: rgba(255, 255, 255, 0.52);
-    --remi-composer-addon-border: rgba(8, 96, 120, 0.12);
+    --remi-composer-addon-border: rgba(76, 29, 149, 0.12);
     --remi-composer-ground-bg: linear-gradient(
       180deg,
       transparent 0%,
@@ -318,9 +318,9 @@ html {
       rgba(227, 239, 237, 0.92) 100%
     );
     --remi-composer-tertiary-bg: rgba(255, 255, 255, 0.58);
-    --remi-composer-tertiary-border: rgba(8, 96, 120, 0.12);
-    --remi-composer-attachment-bg: rgba(8, 96, 120, 0.05);
-    --remi-composer-send-idle-bg: rgba(8, 96, 120, 0.06);
+    --remi-composer-tertiary-border: rgba(76, 29, 149, 0.12);
+    --remi-composer-attachment-bg: rgba(76, 29, 149, 0.05);
+    --remi-composer-send-idle-bg: rgba(76, 29, 149, 0.06);
     --remi-composer-send-idle-fg: rgba(93, 125, 133, 0.45);
     color-scheme: light;
   }
@@ -605,10 +605,10 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 @keyframes remMicPulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.45);
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.45);
   }
   50% {
-    box-shadow: 0 0 0 10px rgba(45, 212, 191, 0);
+    box-shadow: 0 0 0 10px rgba(168, 85, 247, 0);
   }
 }
 
@@ -623,10 +623,10 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 }
 
 .remi-input-composer:focus-within {
-  border-color: rgba(125, 211, 252, 0.28);
+  border-color: rgba(192, 132, 252, 0.28);
   box-shadow:
     var(--remi-input-shell-shadow),
-    0 0 0 1px rgba(125, 211, 252, 0.12);
+    0 0 0 1px rgba(192, 132, 252, 0.12);
 }
 
 .remi-input-send {
@@ -690,10 +690,10 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 }
 
 .remi-input-composer--unified:focus-within {
-  border-color: rgba(125, 211, 252, 0.28);
+  border-color: rgba(192, 132, 252, 0.28);
   box-shadow:
     var(--remi-input-shell-shadow),
-    0 0 0 1px rgba(45, 212, 191, 0.14);
+    0 0 0 1px rgba(168, 85, 247, 0.14);
 }
 
 .remi-input-composer--unified .remi-composer-icon-btn {
@@ -731,7 +731,7 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 .remi-input-composer--unified .remi-composer-menu-btn:hover,
 .remi-input-composer--unified .remi-composer-menu-btn[aria-pressed="true"] {
   color: var(--remi-input-text);
-  background: rgba(45, 212, 191, 0.1);
+  background: rgba(168, 85, 247, 0.1);
 }
 
 .remi-input-composer--unified .remi-composer-icon-btn,
@@ -819,8 +819,8 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 
 .remi-voice-style-pill--active {
   color: var(--remi-input-text);
-  background: rgba(45, 212, 191, 0.16);
-  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(168, 85, 247, 0.16);
+  border-color: rgba(168, 85, 247, 0.28);
 }
 
 .remi-voice-style-option {
@@ -839,8 +839,8 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 
 .remi-voice-style-option--active {
   color: var(--remi-input-text);
-  background: rgba(45, 212, 191, 0.14);
-  border-color: rgba(45, 212, 191, 0.22);
+  background: rgba(168, 85, 247, 0.14);
+  border-color: rgba(168, 85, 247, 0.22);
 }
 
 @keyframes remPortraitFloat {
@@ -906,14 +906,14 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 
 .remi-landing-cta {
   background-color: var(--remi-accent);
-  color: #050a10;
+  color: #0a0612;
   transition:
     box-shadow 0.3s ease,
     transform 0.2s ease;
 }
 
 .remi-landing-cta:hover {
-  box-shadow: 0 0 28px rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 28px rgba(168, 85, 247, 0.45);
   transform: translateY(-1px);
 }
 
@@ -958,4 +958,42 @@ html[data-ios-safari="true"] .remi-app-shell::after {
 
 @media (prefers-reduced-motion: reduce) {
   .remi-portal-pulse, .remi-portal-orb { animation: none !important; }
+}
+
+/* ── iOS Safari Liquid Glass toolbar tinting sentinels ─────────────
+ * Safari 26+ ignores <meta name="theme-color"> and instead samples
+ * background-color from fixed/sticky elements near viewport edges.
+ * These invisible sentinels sit just inside the top/bottom edges
+ * so Safari picks up our page's background color for the chrome.
+ *
+ * The @supports query targets WebKit (Safari) with touch-callout
+ * (= iOS Safari specifically). On desktop or non-Safari browsers
+ * the sentinels stay display:none — zero visual impact.
+ * ─────────────────────────────────────────────────────────────── */
+.remi-safari-tint-top,
+.remi-safari-tint-bottom {
+  display: none;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .remi-safari-tint-top,
+  .remi-safari-tint-bottom {
+    display: block;
+    position: fixed;
+    left: 0;
+    width: 100%;
+    height: 12px;
+    pointer-events: none;
+    z-index: 9999;
+    /* dark mode default — JS overrides for light mode */
+    background-color: var(--remi-body-bg);
+  }
+
+  .remi-safari-tint-top {
+    top: -4px;
+  }
+
+  .remi-safari-tint-bottom {
+    bottom: -8px;
+  }
 }

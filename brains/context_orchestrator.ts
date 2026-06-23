@@ -1,4 +1,5 @@
 import { fastBrainStream } from "./reply_stream";
+import { recallTimelineFacts } from "./timeline_facts";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { runSlowBrain } from './background_analysis';
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
@@ -7,6 +8,11 @@ import { fetchImageAsBase64, extractFirstImageUrl } from "../utils/image_fetch";
 import { completeWithOptions } from "../llm/qwen_client";
 import { getFastBrainModel } from "./fast_brain_model";
 import {
+  executeTool,
+  type ToolExecutionContext,
+} from "../brain/tool_registry";
+import { routeMessageTools, toolRouterPrefilter } from "./tool_router";
+import {
   retrievePromptMemory,
 } from "../memory/memory_agent";
 import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
@@ -14,6 +20,8 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
 import type { RemiSessionContext } from "./remi_session_context";
 import { createLogger } from "../infra/logger";
+import { classifyContextualIntent, registerImage, getRegistry, deriveStyleFromImageDescription } from "./contextual_intent";
+import type { ShadowContextualIntent } from "./contextual_intent";
 
 /**
  * Strip `![alt](url)` image markdown from a reply before storing it in
@@ -34,7 +42,12 @@ function stripImageMarkdownForHistory(
       .replace(/!\[[^\]]*\]\([^)]+\)/g, `[我画了一张图：${imageContext}]`)
       .trim();
   }
-  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
+  // Remove image markdown entirely from history. If we leave any trace
+  // (URL or placeholder), the LLM either fabricates fake URLs by mimicking
+  // the pattern, or echoes the placeholder instead of calling the
+  // generate_image tool. With no trace, the LLM has no choice but to
+  // call the tool when the user asks for an image.
+  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 import { getConfig } from "../server/config";
 import { getLatencyTracer } from "../infra/latency_tracer";
@@ -56,12 +69,13 @@ import {
   type TurnAnalysisBundle,
 } from "../brain/turn_interpreter";
 import type { RepairState, WorkingMemoryV2 } from "./background_analysis_store";
-import { resolvePersonaStyleDirective } from "../persona/style_override";
+import { resolvePersonaStyleDirective, hasPersistentKeyword } from "../persona/style_override";
 
 function maxHistoryEntries(): number {
   return getConfig().REMI_MAX_HISTORY;
 }
 const logger = createLogger("context_orchestrator");
+
 const COMPACT_PRIORITY_BLOCK_LIMIT = 3;
 const ANALYSIS_PRIORITY_BLOCK_LIMIT = 6;
 const GREETING_LIKE_TURN_PATTERN =
@@ -340,6 +354,12 @@ export interface RouteMessageOptions {
   traceId?: string;
   /** 用户附带的图片 (data:image/...;base64,...) — vision sidecar 会将其转为文字描述。 */
   imageBase64?: string;
+  /**
+   * 用户此刻的语音情绪/事件 (SenseVoice STT 提供)。
+   * 例如 "happy"、"sad"、"angry/laughter"。
+   * 让 Remi 接住用户的口气和情绪，而不是只看文字。
+   */
+  userVocalTone?: string;
 }
 
 async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void> {
@@ -529,6 +549,13 @@ export async function* routeMessage(
       if (description) {
         effectiveUserMessage = `${userMessage}\n[用户附带了一张图片：${description}]`;
         logger.info("vision sidecar described user image", { connId: ctx.connId, descriptionChars: description.length });
+        // CIO-P2: 上传图入栈（shadow 用，不影响 legacy 路径）
+        registerImage(ctx.connId, {
+          id: crypto.randomUUID(),
+          origin: "uploaded",
+          descriptor: description,
+          createdAt: Date.now(),
+        });
       } else {
         effectiveUserMessage = `${userMessage}\n[用户发了一张图片]`;
       }
@@ -541,7 +568,40 @@ export async function* routeMessage(
     effectiveUserMessage = `${userMessage}\n[用户发了一张图片，但我暂时看不到图片内容]`;
   }
 
-  const imageIntent = await resolveImageIntent({
+  // ── CIO-P1/P3: 意图分类（shadow 或 wired）────────────────────────
+  // P1/P2: fire-and-forget shadow，只写日志。
+  // P3: wired 模式——分类结果驱动看图/生图消歧。
+  // 注意：必须在 vision sidecar 之后跑，这样本轮上传图才在 registry 里。
+  let cioIntent: ShadowContextualIntent | null = null;
+  const cioWired = getConfig().REMI_CIO_WIRED_ENABLED;
+  if (getConfig().REMI_CIO_SHADOW_ENABLED || cioWired) {
+    try {
+      cioIntent = classifyContextualIntent({
+        userMessage,
+        hasImage: !!opts?.imageBase64,
+        hasSessionImage: sessionHasImage(ctx.connId),
+        imageRegistry: getRegistry(ctx.connId),
+      });
+      if (cioIntent.meta.signals.length > 0) {
+        logger.info("CIO shadow intent", {
+          connId: ctx.connId,
+          primary: cioIntent.primary,
+          signals: cioIntent.meta.signals,
+          wired: cioWired,
+          latencyMs: cioIntent.meta.classifierLatencyMs,
+        });
+      }
+    } catch {
+      // 分类器不得影响主路径
+    }
+  }
+
+  // ── CIO-P3 wired: 看图消歧——附了图且 vision 判定"想看图" → 跳过生图 ──
+  const cioSuppressImageGen = cioWired && cioIntent?.vision?.wantsLook === true;
+
+  const imageIntent = cioSuppressImageGen
+    ? ({ kind: "none" } as const)
+    : await resolveImageIntent({
     userMessage,
     recentHistory: ctx.history.slice(-4),
     hasPreviousImage: sessionHasImage(ctx.connId),
@@ -625,11 +685,121 @@ export async function* routeMessage(
     return;
   }
 
+  // ── Semi-agent tool router (opt-in via REMI_TOOL_USE_ENABLED) ─────────
+  // The regex fast-path above handles explicit capability requests at zero
+  // latency. For the ambiguous phrasings it misses ("不穿衣服呢？" → image),
+  // a clean, minimal, reasoning-off LLM router decides whether to dispatch a
+  // tool. It runs ONLY when a broad keyword prefilter fires, so pure chat never
+  // pays the extra call. The main reply brain is never given tools — it stays
+  // fully in-character (see tool_router.ts).
+  if (
+    !opts?.systemTriggered &&
+    config.REMI_TOOL_USE_ENABLED &&
+    toolRouterPrefilter(userMessage)
+  ) {
+    const routedToolCalls = await routeMessageTools({ userMessage, ctx, signal });
+    if (signal?.aborted) return;
+    if (routedToolCalls.length > 0) {
+      const toolExecCtx: ToolExecutionContext = { ctx, emotion, userMessage, signal };
+      let directReplyFromTool: string | undefined;
+      let skipTtsFromTool = false;
+      let capabilityIdFromTool: string | undefined;
+      const toolOutputs: string[] = [];
+
+      // Image generation is slow (ComfyUI). Reaching here means the dedicated
+      // image gate already classified this turn as non-image (no intro shown),
+      // so a quick in-character intro before blocking is safe and non-duplicate.
+      if (
+        routedToolCalls.some((tc) => tc.name === "generate_image") &&
+        config.COMFYUI_ENABLED
+      ) {
+        const intro = await generateImageProgressIntro(ctx, userMessage, signal);
+        if (signal?.aborted) return;
+        yield intro;
+      }
+
+      for (const tc of routedToolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = tc.arguments ? JSON.parse(tc.arguments) : {};
+        } catch {
+          logger.warn("failed to parse routed tool arguments", {
+            name: tc.name,
+            raw: tc.arguments,
+          });
+        }
+        const result = await executeTool(tc.name, args, toolExecCtx);
+        toolOutputs.push(result.output);
+        if (result.directReply) directReplyFromTool = result.directReply;
+        if (result.skipTts) skipTtsFromTool = true;
+        if (result.capabilityId) capabilityIdFromTool = result.capabilityId;
+      }
+      if (skipTtsFromTool) ctx.skipTtsThisTurn = true;
+
+      // Direct reply (image / video / mode toggle): yield + finalize like the
+      // DirectCapability path, then we're done for this turn.
+      if (directReplyFromTool) {
+        const directWorkingMemoryDraft = ctx.slowBrain.buildWorkingMemoryDraft({
+          userMessage,
+          directCapabilityId: capabilityIdFromTool,
+        });
+        yield directReplyFromTool;
+        const finalizeResult = finalizeDirectReply({
+          ctx,
+          userMessage,
+          reply: directReplyFromTool,
+          emotion,
+          workingMemoryDraft: directWorkingMemoryDraft,
+          signal,
+          systemTriggered: opts?.systemTriggered,
+          inputSource,
+          capabilityId: capabilityIdFromTool,
+        });
+        if (finalizeResult === "handled" && !opts?.systemTriggered) {
+          await persistContinuityCueState(ctx);
+        }
+        // Vision sidecar: upgrade the image history entry with a real visual
+        // description (fire-and-forget) — same as the DirectCapability path.
+        if (
+          finalizeResult === "handled" &&
+          capabilityIdFromTool === "image_generation" &&
+          visionEnabled()
+        ) {
+          const imgUrl = extractFirstImageUrl(directReplyFromTool);
+          if (imgUrl) {
+            fetchImageAsBase64(imgUrl)
+              .then((base64) => (base64 ? describeImage(base64) : ""))
+              .then((description) => {
+                if (!description) return;
+                const lastEntry = ctx.history[ctx.history.length - 1];
+                if (lastEntry?.role === "assistant") {
+                  lastEntry.content = stripImageMarkdownForHistory(
+                    directReplyFromTool!,
+                    description,
+                  );
+                }
+              })
+              .catch(() => {});
+          }
+        }
+        return;
+      }
+
+      // No direct reply (e.g. get_current_time): hand the tool output to the
+      // main in-character brain as context and fall through to a normal reply,
+      // so the answer keeps Remi's voice instead of a bare tool dump.
+      if (toolOutputs.length > 0) {
+        effectiveUserMessage = `${effectiveUserMessage}\n\n[供你参考的工具结果：${toolOutputs.join("；")}]`;
+      }
+    }
+  }
+
   const fastMemoryWrites: { key: string; value: string }[] = [];
   const pregeneratedReply = opts?.pregeneratedReply?.trim();
   const precomputedAnalysis = opts?.structuredAnalysis?.used ? opts.structuredAnalysis : null;
   const carryForwardHint = opts?.carryForwardHint?.trim();
   const situationalContext = opts?.situationalContext?.trim();
+  const userVocalTone = opts?.userVocalTone?.trim();
   const slowBrainSnapshot = ctx.slowBrain.getSnapshot();
   const analysisInput = {
     userMessage,
@@ -736,11 +906,41 @@ export async function* routeMessage(
       maxEntries: promptMemoryMaxEntries,
     });
   }
+  // ── CIO Wired: performance 轴接线（flag 门控）─────────────────────
+  // 发图+"像她一点" → 从图片描述推导说话风格 → 写 styleOverride
+  if (cioWired && cioIntent?.performance?.op === "enter" && cioIntent.performance.wantsImageStyle) {
+    const reg = getRegistry(ctx.connId);
+    const lastUpload = [...reg].reverse().find((e) => e.origin === "uploaded");
+    if (lastUpload?.descriptor) {
+      const derived = await deriveStyleFromImageDescription(lastUpload.descriptor, signal);
+      if (derived) {
+        const persistent = hasPersistentKeyword(userMessage);
+        ctx.persona.liveState.styleOverride = {
+          humorBoost: false,
+          teasingMode: "off",
+          assistantySuppression: true,
+          familiarityBoost: false,
+          romanceBoost: false,
+          roleplayStyle: derived,
+          remainingTurns: 6,
+          persistent,
+          sourceText: userMessage,
+        };
+        logger.info("CIO wired: image→style override set", {
+          connId: ctx.connId,
+          derived,
+          persistent,
+        });
+      }
+    }
+  }
+
   const resolvedStyleDirective = opts?.systemTriggered
     ? null
     : resolvePersonaStyleDirective({
         styleIntent: analysis?.used ? analysis.interpretation.styleIntent : null,
         userMessage,
+        currentOverride: ctx.persona.liveState.styleOverride,
       });
   if (resolvedStyleDirective?.kind === "clear") {
     ctx.persona.liveState.styleOverride = null;
@@ -779,6 +979,10 @@ export async function* routeMessage(
   const strategyHintsForPrompt = [
     // 世界情境放最前，作为本轮对话的场景地基（RW-P1-4）
     situationalContext ? `【你此刻的处境】\n${situationalContext}` : undefined,
+    // 用户语音情绪——让她能接住对方的口气（SenseVoice STT 提供）
+    userVocalTone
+      ? `【对方此刻的语气】\n对方说话时的情绪：${userVocalTone}。请自然地回应这种语气，不要直接提及"我检测到你的情绪是…"。`
+      : undefined,
     analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
     carryForwardHint,
   ]
@@ -856,6 +1060,14 @@ export async function* routeMessage(
     if (latencyTracer && traceId) {
       latencyTracer.mark("llm_request_start", traceId);
     }
+
+    // M3-P2: Tier4 时序事实召回（带硬超时降级）。热路径唯一动态项，
+    // 进 prompt 动态尾部（缓存断点之后），不污染可缓存前缀。
+    const timelineFacts = await recallTimelineFacts(ctx);
+
+    // Capability dispatch is owned by the upstream tool router; the reply brain
+    // is intentionally NOT given tools, so it stays fully in-character and never
+    // fabricates outputs (e.g. fake image URLs) under the heavy persona prompt.
     for await (const token of fastBrainStream({
       userMessage: effectiveUserMessage,
       emotion,
@@ -873,6 +1085,8 @@ export async function* routeMessage(
       persona: ctx.persona,
       connId: ctx.connId,
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
+      coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
+      timelineFacts,
     })) {
       fullReply += token;
       yield token;
@@ -950,6 +1164,7 @@ export async function* routeMessage(
         ctx.persistentRelationshipRepo ??
         ctx.memory.getPersistentBackend() ??
         ctx.memory,
+      temporalFactsRepo: ctx.temporalFactsRepo ?? undefined,
       signal: slowBrainSignal,
     }).catch((err) =>
       logger.warn("后台分析失败", { error: (err as Error).message }),

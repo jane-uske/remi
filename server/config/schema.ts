@@ -107,7 +107,7 @@ export const envSchema = z.object({
 
   // ── STT ──────────────────────────────────────────────────────────────────
   REMI_STT_PROVIDER: z
-    .enum(["openai", "whisper-cpp", "sherpa"])
+    .enum(["openai", "whisper-cpp", "sherpa", "sense-voice"])
     .default("openai"),
   REMI_STT_API_KEY: z.string().optional(),
   REMI_STT_BASE_URL: z.string().optional(),
@@ -125,6 +125,14 @@ export const envSchema = z.object({
   whisper_use_server: booleanString("0"),
   whisper_server_autostart: booleanString("0"),
   whisper_server_url: z.string().optional(),
+  // ── SenseVoice (in-process offline STT + emotion/event via sherpa-onnx) ──
+  STT_SENSEVOICE_MODEL_DIR: z.string().optional(),
+  STT_SENSEVOICE_MODEL: z.string().optional(),
+  STT_SENSEVOICE_TOKENS: z.string().optional(),
+  STT_SENSEVOICE_LANGUAGE: z.string().optional(),
+  STT_SENSEVOICE_USE_ITN: z.string().optional(),
+  STT_SENSEVOICE_NUM_THREADS: z.string().optional(),
+  STT_SENSEVOICE_DEBUG: z.string().optional(),
   REMI_STT_FINAL_DISAMBIG_LOG_DIFF: booleanString("1"),
   REMI_STT_FINAL_DISAMBIG_DICT_PATH: z.string().optional(),
 
@@ -209,6 +217,10 @@ export const envSchema = z.object({
   // ── Adult / NSFW mode (off by default; toggled per-session via chat) ───────
   // Master switch — when off, the "开启成人模式" chat command is a no-op.
   REMI_NSFW_ENABLED: booleanString("0"),
+  // Opt-in: pass function-calling tools to the LLM. Off by default — the
+  // current local uncensored model doesn't reliably call tools under the
+  // Remi persona prompt. Enable when a tool-compliant model is configured.
+  REMI_TOOL_USE_ENABLED: booleanString("0"),
   // Optional ComfyUI overrides used only while a session is in NSFW mode.
   // Empty → fall back to the regular COMFYUI_CHECKPOINT / COMFYUI_DEFAULT_NEGATIVE.
   COMFYUI_NSFW_CHECKPOINT: z.string().default(""),
@@ -330,6 +342,21 @@ export const envSchema = z.object({
   // 尾部、缓存断点之后，绝不污染可缓存前缀。
   REMI_TIME_CONTEXT_ENABLED: booleanString("1"),
 
+  // M3-P2: bi-temporal 长期事实层。默认开；无 DATABASE_URL 时自动降级为内存模式。
+  REMI_TEMPORAL_FACTS_ENABLED: booleanString("1"),
+  // M3-P2: Tier4 时序召回硬超时（ms）。超时退回 Tier0–3，不卡出话。
+  REMI_TEMPORAL_RECALL_TIMEOUT_MS: z.coerce.number().int().positive().default(200),
+
+  // CIO-P1: 上下文意图 shadow 分类器。默认开；只写 debug 日志，不改行为。
+  REMI_CIO_SHADOW_ENABLED: booleanString("1"),
+  // CIO-P3: 编排器 wired 模式——intent 驱动看图/生图消歧。默认关，灰度开。
+  REMI_CIO_WIRED_ENABLED: booleanString("0"),
+
+  // M3-P3a: 主动搭话仲裁门控
+  REMI_PROACTIVE_QUIET_HOURS_START: z.coerce.number().int().min(0).max(23).default(23),
+  REMI_PROACTIVE_QUIET_HOURS_END: z.coerce.number().int().min(0).max(23).default(7),
+  REMI_PROACTIVE_POST_CONVERSATION_COOLDOWN_MS: z.coerce.number().int().min(0).default(300000),
+
   // ── Memory ──────────────────────────────────────────────────────────────
   MAX_PROMPT_MEMORY_ENTRIES: z.coerce.number().int().positive().default(5),
   MAX_PROMPT_MEMORY_VALUE_CHARS: z.coerce.number().int().positive().default(40),
@@ -349,10 +376,10 @@ export const envSchema = z.object({
   // ── VAD / Turn-Taking ──────────────────────────────────────────────────
   VAD_PRE_ROLL_MS: z.coerce.number().nonnegative().default(480),
   VAD_UTTERANCE_GAP_MS: z.coerce.number().nonnegative().default(180),
-  VAD_MIN_UTTERANCE_MS: z.coerce.number().nonnegative().default(220),
+  VAD_MIN_UTTERANCE_MS: z.coerce.number().nonnegative().default(150),
   VAD_UTTERANCE_GAP_ADAPTIVE: booleanString("1"),
   VAD_UTTERANCE_GAP_MIN_MS: z.coerce.number().nonnegative().default(120),
-  VAD_UTTERANCE_GAP_MAX_MS: z.coerce.number().nonnegative().default(320),
+  VAD_UTTERANCE_GAP_MAX_MS: z.coerce.number().nonnegative().default(200),
   VAD_UTTERANCE_GAP_ADAPTIVE_LO_MS: z.coerce
     .number()
     .nonnegative()
@@ -361,7 +388,7 @@ export const envSchema = z.object({
     .number()
     .nonnegative()
     .default(4400),
-  VAD_UTTERANCE_GAP_HESITATION_MS: z.coerce.number().nonnegative().default(980),
+  VAD_UTTERANCE_GAP_HESITATION_MS: z.coerce.number().nonnegative().default(480),
   VAD_UTTERANCE_GAP_PREVIEW_HOLD_MS: z.coerce
     .number()
     .nonnegative()

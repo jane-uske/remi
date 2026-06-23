@@ -370,6 +370,8 @@ export class ConnectionSession {
   private lastSpeechStartAt = 0;
   private lastSpeechEndAt = 0;
   private lastSttFinalAt = 0;
+  /** Last vocal tone string built from SenseVoice emotion/event (consumed once by voice_submit). */
+  private lastSttVocalTone: string | null = null;
   private lastAssistantEnterAt = 0;
   private lastPlaybackStartAt = 0;
   private assistantPlaybackActive = false;
@@ -987,6 +989,7 @@ export class ConnectionSession {
       allowPredictionReuse: job.source === "speech_buffer",
       clearPredictionAfterRun: job.source === "speech_buffer",
       markSttFinalTimestamp: job.source === "speech_buffer" ? undefined : false,
+      userVocalTone: this.lastSttVocalTone ?? undefined,
       logPrefix:
         job.source === "duplex_stop_no_vad"
           ? "[用户·语音 fallback/no-vad]"
@@ -1112,6 +1115,7 @@ export class ConnectionSession {
         traceId: job.traceId,
       } satisfies SttTranscribeOptions);
       transcribeMeta = this.stt.getLastTranscribeMeta();
+      this.lastSttVocalTone = this.buildVocalToneFromMeta();
       activePreemptReason = this.activeSttJob?.preemptReason ?? null;
     } finally {
       if (this.activeSttJob?.utteranceSeq === job.utteranceSeq) {
@@ -1139,6 +1143,8 @@ export class ConnectionSession {
       normalizedSampleRate: job.normalizedSampleRate,
       transport: job.transport,
       textChars: text.length,
+      sttEmotion: transcribeMeta?.emotion ?? null,
+      sttEvent: transcribeMeta?.event ?? null,
     });
     this.annotateTrace(job.traceId, {
       utteranceSeq: job.utteranceSeq,
@@ -1164,6 +1170,16 @@ export class ConnectionSession {
       return;
     }
     await this.handleResolvedDuplexTranscript(job, text);
+  }
+
+  /** Build a human-readable vocal tone string from SenseVoice emotion/event labels. */
+  private buildVocalToneFromMeta(): string | null {
+    const meta = this.stt.getLastTranscribeMeta();
+    if (!meta) return null;
+    const parts: string[] = [];
+    if (meta.emotion) parts.push(meta.emotion);
+    if (meta.event) parts.push(meta.event);
+    return parts.length > 0 ? parts.join("/") : null;
   }
 
   private resetProsodyState(): void {
@@ -3461,6 +3477,7 @@ export class ConnectionSession {
           await submitVoicePipelineTurn(this.buildVoiceSubmitRuntime(), {
             text,
             traceId,
+            userVocalTone: this.buildVocalToneFromMeta() ?? undefined,
           });
         } catch (err) {
           logger.warn("[STT]", { error: (err as Error).message, connId: this.connId });

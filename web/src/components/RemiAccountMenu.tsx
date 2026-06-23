@@ -169,7 +169,7 @@ export function RemiAccountMenu({
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <RemiIdentityAvatar className="size-full border-white/18 shadow-lg shadow-cyan-950/10" />
+          <RemiIdentityAvatar className="size-full border-white/18 shadow-lg shadow-purple-950/10" />
         </button>
       ) : (
         <button
@@ -179,7 +179,7 @@ export function RemiAccountMenu({
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <RemiIdentityAvatar className="size-11 shrink-0 border-white/18 shadow-lg shadow-cyan-950/10" />
+          <RemiIdentityAvatar className="size-11 shrink-0 border-white/18 shadow-lg shadow-purple-950/10" />
           <div className="hidden min-w-0 sm:block">
             <h1 className="truncate whitespace-nowrap text-sm font-semibold tracking-tight text-[var(--remi-account-trigger-title)]">
               {compactPrimaryLabel}

@@ -105,6 +105,18 @@ export async function initializeSessionStorage(input: {
         });
     }
 
+    // M3-P2: 初始化 bi-temporal 事实仓库
+    try {
+      const { getConfig } = await import("../config");
+      if (getConfig().REMI_TEMPORAL_FACTS_ENABLED) {
+        const { PgTemporalFactsRepository } = await import("../../storage/repositories/pg_temporal_facts_repository");
+        input.brain.temporalFactsRepo = new PgTemporalFactsRepository(userId);
+        logger.debug("[Memory] temporal facts repo initialized (pg)", { connId: input.connId, userId });
+      }
+    } catch {
+      // DB 不可用时静默降级——temporalFactsRepo 留 null
+    }
+
     try {
       const recentPage = await getUserMessagesPage(userId, input.historyPageSize);
       if (recentPage.messages.length > 0) {

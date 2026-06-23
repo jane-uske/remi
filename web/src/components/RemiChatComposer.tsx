@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { InputBar, type InputBarProps } from "@/components/InputBar";
 import {
   VoiceStylePicker,
@@ -41,7 +41,13 @@ export function RemiChatComposer({
   onVoiceStyleToggle,
   onVoiceStyleClose,
 }: RemiChatComposerProps) {
-  const [activePresetId, setActivePresetId] = useState(() => readStoredVoiceStyle());
+  // SSR-safe voice style: render "default" on both server and first client
+  // frame (avoid hydration mismatch from reading localStorage during render),
+  // then hydrate the persisted value after mount.
+  const [activePresetId, setActivePresetId] = useState("default");
+  useEffect(() => {
+    setActivePresetId(readStoredVoiceStyle());
+  }, []);
 
   const handlePresetChange = useCallback((id: string) => {
     setActivePresetId(id);

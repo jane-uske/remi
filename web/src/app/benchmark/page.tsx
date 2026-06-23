@@ -23,7 +23,7 @@ const metrics = [
     unit: "ms",
     desc: "Time from user input finalized (STT final / text submit) to the first visible LLM token arriving at the client.",
     detail: "Measured as input_to_llm_first_token in LatencyTracer. Includes STT finalization, memory recall, prompt assembly, and LLM TTFT.",
-    color: "#2dd4bf",
+    color: "#a855f7",
   },
   {
     name: "First Audio Latency",

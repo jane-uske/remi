@@ -518,28 +518,28 @@ export function AvatarDevtoolsPanel({
             </pre>
           </details>
 
-          <details className="rounded-xl border border-cyan-200/15 bg-[linear-gradient(180deg,rgba(10,48,61,0.6),rgba(4,24,31,0.72))] p-3" open>
+          <details className="rounded-xl border border-purple-200/15 bg-[linear-gradient(180deg,rgba(30,12,48,0.6),rgba(14,6,24,0.72))] p-3" open>
             <summary className="cursor-pointer text-xs font-medium text-[var(--remi-dim)]">
               Conversation Performance
             </summary>
             {performanceModel ? (
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
-                  <div className="text-[10px] text-[#94dbe8]">Phase</div>
+                <div className="rounded-lg border border-purple-200/15 bg-[rgba(16,8,30,0.72)] px-3 py-2 text-[#f5edff]">
+                  <div className="text-[10px] text-[#c4b5fd]">Phase</div>
                   <div className="mt-1 font-medium">{performanceModel.phase}</div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
-                  <div className="text-[10px] text-[#94dbe8]">Attention</div>
+                <div className="rounded-lg border border-purple-200/15 bg-[rgba(16,8,30,0.72)] px-3 py-2 text-[#f5edff]">
+                  <div className="text-[10px] text-[#c4b5fd]">Attention</div>
                   <div className="mt-1 font-medium">{performanceModel.attentionTarget}</div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
-                  <div className="text-[10px] text-[#94dbe8]">Energy</div>
+                <div className="rounded-lg border border-purple-200/15 bg-[rgba(16,8,30,0.72)] px-3 py-2 text-[#f5edff]">
+                  <div className="text-[10px] text-[#c4b5fd]">Energy</div>
                   <div className="mt-1 font-medium">
                     {performanceModel.energyLevel.toFixed(2)}
                   </div>
                 </div>
-                <div className="rounded-lg border border-cyan-200/15 bg-[rgba(6,24,31,0.72)] px-3 py-2 text-[#eefcff]">
-                  <div className="text-[10px] text-[#94dbe8]">Beat</div>
+                <div className="rounded-lg border border-purple-200/15 bg-[rgba(16,8,30,0.72)] px-3 py-2 text-[#f5edff]">
+                  <div className="text-[10px] text-[#c4b5fd]">Beat</div>
                   <div className="mt-1 font-medium">
                     {performanceModel.languageBeat.channel} /{" "}
                     {performanceModel.languageBeat.boundary}
@@ -549,21 +549,21 @@ export function AvatarDevtoolsPanel({
             ) : (
               <p className="mt-3 text-xs text-[var(--remi-dim)]">还没有 performance model。</p>
             )}
-            <pre className="mt-3 max-h-56 overflow-auto rounded-lg border border-cyan-200/12 bg-[rgba(3,17,22,0.8)] p-3 text-[11px] leading-5 text-[#dff9ff]">
+            <pre className="mt-3 max-h-56 overflow-auto rounded-lg border border-purple-200/12 bg-[rgba(10,6,18,0.8)] p-3 text-[11px] leading-5 text-[#ede9fe]">
               {performanceModelJson}
             </pre>
           </details>
 
           {presenceFixture && onPresenceFixtureChange ? (
-            <div className="rounded-xl border border-cyan-200/18 bg-[linear-gradient(180deg,rgba(12,76,92,0.42),rgba(8,34,42,0.88))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+            <div className="rounded-xl border border-purple-200/18 bg-[linear-gradient(180deg,rgba(59,7,100,0.42),rgba(30,10,60,0.88))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
               <div className="mb-3 flex items-center justify-between">
-                <div className="text-xs font-semibold tracking-[0.08em] text-[#eefcff]">
+                <div className="text-xs font-semibold tracking-[0.08em] text-[#f5edff]">
                   Presence Fixtures
                 </div>
-                <label className="flex items-center gap-2 text-[11px] text-[#dff9ff]">
+                <label className="flex items-center gap-2 text-[11px] text-[#ede9fe]">
                   <input
                     type="checkbox"
-                    className="h-3.5 w-3.5 accent-cyan-300"
+                    className="h-3.5 w-3.5 accent-purple-300"
                     checked={presenceFixture.enabled}
                     onChange={(event) =>
                       onPresenceFixtureChange({
@@ -580,7 +580,7 @@ export function AvatarDevtoolsPanel({
 
               <div className="space-y-3 text-xs">
                 <label className="block">
-                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#9fe4ef]">
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#c4b5fd]">
                     Phase
                   </div>
                   <select
@@ -594,7 +594,7 @@ export function AvatarDevtoolsPanel({
                         nonce: presenceFixture.nonce + 1,
                       })
                     }
-                    className="w-full rounded-lg border border-[#98dfea]/55 bg-[rgba(232,250,255,0.96)] px-3 py-2 text-[12px] font-medium text-[#083241] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/25"
+                    className="w-full rounded-lg border border-[#c4b5fd]/55 bg-[rgba(245,237,254,0.96)] px-3 py-2 text-[12px] font-medium text-[#1e0a3c] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition focus:border-purple-300 focus:ring-2 focus:ring-purple-300/25"
                   >
                     {PRESENCE_PHASE_OPTIONS.map((phase) => (
                       <option key={phase} value={phase}>
@@ -605,7 +605,7 @@ export function AvatarDevtoolsPanel({
                 </label>
 
                 <label className="block">
-                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#9fe4ef]">
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#c4b5fd]">
                     Assistant Text
                   </div>
                   <textarea
@@ -618,7 +618,7 @@ export function AvatarDevtoolsPanel({
                       })
                     }
                     rows={3}
-                    className="w-full rounded-lg border border-[#98dfea]/55 bg-[rgba(232,250,255,0.96)] px-3 py-2 text-[12px] leading-5 text-[#083241] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition placeholder:text-[#5f8490] focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/25"
+                    className="w-full rounded-lg border border-[#c4b5fd]/55 bg-[rgba(245,237,254,0.96)] px-3 py-2 text-[12px] leading-5 text-[#1e0a3c] shadow-[0_8px_24px_rgba(0,0,0,0.18)] outline-none transition placeholder:text-[#5f6490] focus:border-purple-300 focus:ring-2 focus:ring-purple-300/25"
                     placeholder="好的，我们继续。"
                   />
                 </label>
@@ -648,7 +648,7 @@ export function AvatarDevtoolsPanel({
                         nonce: presenceFixture.nonce + 1,
                       })
                     }
-                    className="rounded-full border border-cyan-200/20 bg-white/5 px-3 py-1.5 text-[11px] text-[#d6f6fb]"
+                    className="rounded-full border border-purple-200/20 bg-white/5 px-3 py-1.5 text-[11px] text-[#ede9fe]"
                   >
                     关闭 fixture
                   </button>
