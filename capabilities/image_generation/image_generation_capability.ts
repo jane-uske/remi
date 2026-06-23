@@ -10,6 +10,7 @@ import {
   generateImage,
   type GenerateImageResult,
 } from "./comfyui_bridge";
+import { registerImage } from "../../brains/contextual_intent";
 
 const logger = createLogger("image_generation");
 
@@ -93,6 +94,15 @@ async function invokeComfyUI(
       subject: assembled.subject,
       prompt: assembled.comfyPrompt,
       characterStyle: assembled.characterStyle,
+    });
+    // CIO-P2: 注册到多图栈（shadow 用，不影响 legacy 路径）
+    registerImage(connId, {
+      id: crypto.randomUUID(),
+      origin: "generated",
+      descriptor: assembled.subject || "",
+      comfyPrompt: assembled.comfyPrompt,
+      characterStyle: assembled.characterStyle,
+      createdAt: Date.now(),
     });
     logger.info("image generated", {
       connId,

@@ -66,7 +66,7 @@ export function RemiMobileControlRail({
           className={connectionDotClass(connectionPhase, reconnectInSec)}
           aria-hidden
         />
-        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#c8e9ef]">
+        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#c4b5fd]">
           {connectionLabel(connectionPhase, reconnectInSec)}
         </span>
       </div>
@@ -81,7 +81,7 @@ export function RemiMobileControlRail({
               : performanceModel.phase === "speaking_active" ||
                   performanceModel.phase === "speaking_prepare"
                 ? "border-cyan-300/30 bg-cyan-500/12 text-cyan-50"
-                : "border-white/10 bg-[rgba(7,14,20,0.38)] text-[#c8e9ef]"
+                : "border-white/10 bg-[rgba(15,10,24,0.38)] text-[#c4b5fd]"
         }`}
         role="status"
       >

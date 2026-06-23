@@ -12,6 +12,7 @@
  */
 
 import { worldTimeProfileAt } from "./worldTime";
+import type { WeatherProfile } from "./weather";
 
 export type BehaviorId = "reading" | "window" | "flowers" | "bench" | "music";
 
@@ -153,9 +154,21 @@ function hash01(n: number): number {
 /** 行为窗口：每段 75~135 秒，由墙钟决定。进入页面时她"早就在做了"。 */
 const SLOT_BASE_MS = 105_000;
 
-export function scheduledBehaviorAt(epochMs: number): BehaviorId {
+/** Outdoor behavior spots that get filtered out during indoorOnly weather */
+const OUTDOOR_BEHAVIORS: ReadonlySet<BehaviorId> = new Set(["flowers", "bench"]);
+
+export function scheduledBehaviorAt(
+  epochMs: number,
+  weather?: Pick<WeatherProfile, "indoorOnly">,
+): BehaviorId {
   const slot = Math.floor(epochMs / SLOT_BASE_MS);
-  const pool = worldTimeProfileAt(epochMs).behaviorPool;
+  let pool: readonly BehaviorId[] = worldTimeProfileAt(epochMs).behaviorPool;
+  // Rain / snow: filter outdoor spots; ensure at least 2 fallback behaviors
+  if (weather?.indoorOnly) {
+    const filtered = pool.filter((id) => !OUTDOOR_BEHAVIORS.has(id));
+    if (filtered.length >= 2) pool = filtered;
+    // else keep original pool (safety: never reduce to < 2)
+  }
   // 避免连续两段相同：用 slot 序列去重
   const pick = (s: number) =>
     pool[Math.floor(hash01(s) * pool.length)];

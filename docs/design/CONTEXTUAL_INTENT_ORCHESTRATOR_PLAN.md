@@ -508,6 +508,6 @@ CONTEXTUAL_INTENT_ORCHESTRATOR_PLAN.md（本文件 · 意图理解层）
 
 ---
 
-*最后更新：2026-06-22*
+*最后更新：2026-06-23*
 *作者：产品 × 架构对齐会话（调研基于 brains/ persona/ capabilities/ voice/ llm/ 实际代码）*
-*状态：P0 设计计划，CIO- 任务条目已同步 TASKS.md 并行支线（2026-06-22）。CIO-P0 done；P1（shadow，无前提、不碰热点）可独立开工；无运行时变更*
+*状态：P0 done / P1 done（2026-06-23：`brains/contextual_intent/` classifier+types+index、32 单测绿、`context_orchestrator` fire-and-forget hook、`REMI_CIO_SHADOW_ENABLED` flag 默认开、已部署 local-prod 并经端到端日志验证）；P2 可独立开工*

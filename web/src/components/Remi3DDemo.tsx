@@ -270,7 +270,7 @@ export function Remi3DDemo() {
     emotion === "happy"
       ? "from-emerald-400/40 via-teal-400/18 to-transparent"
       : emotion === "curious"
-        ? "from-sky-400/38 via-cyan-400/18 to-transparent"
+        ? "from-violet-400/38 via-purple-400/18 to-transparent"
         : emotion === "shy"
           ? "from-amber-300/28 via-rose-300/12 to-transparent"
           : emotion === "sad"

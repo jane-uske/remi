@@ -1,5 +1,5 @@
 // Bump this on shell-strategy changes so the activate handler purges old caches.
-const CACHE_NAME = "remi-shell-v3";
+const CACHE_NAME = "remi-shell-v5";
 const SHELL_ASSETS = [
   "/assets/remi/brand/remi-favicon-32.png",
   "/assets/remi/brand/remi-icon-192.png",
@@ -31,7 +31,7 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  if (url.pathname.startsWith("/ws") || url.pathname.startsWith("/api/")) {
+  if (url.pathname.startsWith("/ws") || url.pathname.startsWith("/api/") || url.pathname === "/health") {
     return;
   }
 

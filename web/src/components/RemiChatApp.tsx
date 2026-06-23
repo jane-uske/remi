@@ -262,14 +262,14 @@ export function RemiChatApp() {
       <main className={layout.mainShell}>
         {!nsfwEnabled ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(17,132,160,0.52),rgba(17,132,160,0.22)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(139,92,246,0.48),rgba(139,92,246,0.18)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
             <div className="remi-stage-grid pointer-events-none absolute inset-0 opacity-30" />
           </>
         ) : null}
 
         {!nsfwEnabled ? (
           <section className={layout.stageShell}>
-            <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(116,224,238,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
+            <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(168,85,247,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
 
             <div className={layout.mobileControlRail}>
               <RemiMobileControlRail
@@ -327,7 +327,7 @@ export function RemiChatApp() {
                   <button
                     type="button"
                     onClick={() => void unlockAudio()}
-                    className="pointer-events-auto rounded-full border border-cyan-200/25 bg-cyan-400/12 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-cyan-50 shadow-lg shadow-black/10 transition hover:bg-cyan-300/18"
+                    className="pointer-events-auto rounded-full border border-purple-200/25 bg-purple-400/12 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-purple-50 shadow-lg shadow-black/10 transition hover:bg-purple-300/18"
                   >
                     启用声音
                   </button>

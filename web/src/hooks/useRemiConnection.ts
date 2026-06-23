@@ -16,8 +16,54 @@ import { pushAvatarDevtoolsLog } from "@/lib/rem3d/devtoolsStore";
 import { getRemWsUrl } from "@/lib/wsUrl";
 
 /** 长时间停留在 CONNECTING 则判定失败（避免 UI 永远「正在连接」）。
- *  Cloudflare Tunnel 空闲后首次连接可能需 10-15s 冷启动，给足 15s。 */
-const WS_CONNECT_TIMEOUT_MS = 15_000;
+ *  页面能加载 = Tunnel 已经热了，WS 升级不需要太久；真正的冷启动
+ *  由 healthPreCheck 覆盖（那边有自己的重试）。 */
+const WS_CONNECT_TIMEOUT_MS = 8_000;
+
+/** 在发起 WS 连接前先用 HTTP /health 端点探测后端是否可达。
+ *  成功 → 立即建 WS；失败 → 快速重试几次（间隔 1.5s），避免让 WS
+ *  的 15→8s 超时白白空等一个不可达的服务器。
+ *
+ *  注意：页面能加载说明 Tunnel 是热的（或直连），但服务器进程可能
+ *  不在线（重启中）。这个预检正好补上那个窗口。 */
+const HEALTH_CHECK_TIMEOUT_MS = 2_000;
+const HEALTH_CHECK_MAX_RETRIES = 3;
+const HEALTH_CHECK_RETRY_INTERVAL_MS = 1_500;
+
+function healthPreCheck(wsUrl: string): Promise<boolean> {
+  // Derive HTTP health URL from the WS URL
+  const httpUrl = wsUrl
+    .replace(/^ws(s)?:\/\//, (_, s) => `http${s ?? ""}://`)
+    .replace(/\/ws\b.*$/, "/health");
+
+  let attempt = 0;
+  return new Promise<boolean>((resolve) => {
+    const tryOnce = () => {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+      fetch(httpUrl, { signal: controller.signal, cache: "no-store" })
+        .then((r) => {
+          window.clearTimeout(timer);
+          if (r.ok) {
+            resolve(true);
+          } else {
+            throw new Error(`health ${r.status}`);
+          }
+        })
+        .catch(() => {
+          window.clearTimeout(timer);
+          attempt++;
+          if (attempt >= HEALTH_CHECK_MAX_RETRIES) {
+            // Gave up — still let WS try (it may succeed via a different path)
+            resolve(false);
+          } else {
+            window.setTimeout(tryOnce, HEALTH_CHECK_RETRY_INTERVAL_MS);
+          }
+        });
+    };
+    tryOnce();
+  });
+}
 
 export type UseRemiConnectionParams = {
   /** Called after ws.onopen state updates, before duplex resume */
@@ -167,6 +213,20 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         return;
       }
 
+      // ── HTTP health pre-check ──────────────────────────────────────
+      // Probe /health before opening WS — this catches "server not running"
+      // within ~2s instead of waiting for the 8s WS connect timeout.
+      // On page refresh the tunnel is already warm (the page loaded), so
+      // the health check is almost instant when the server is up.
+      const healthy = await healthPreCheck(url);
+      if (!mountedRef.current) {
+        connectingRef.current = false;
+        return;
+      }
+      if (!healthy) {
+        pushAvatarDevtoolsLog("system", "health-check failed, proceeding to ws", { url });
+      }
+
       const ws = new WebSocket(url);
       pushAvatarDevtoolsLog("system", "ws connecting", { url });
       params.clearGenerationState();
@@ -244,11 +304,12 @@ export function useRemiConnection(params: UseRemiConnectionParams): UseRemiConne
         params.stopVoiceSession({ preserveAutoResume: shouldResumeDuplex });
 
         // First-connect timeout (attempt 0): retry immediately — Cloudflare Tunnel
-        // cold-start is already penalised by the 15s connect timeout, so don't add
-        // an extra 3s+ backoff on top. After that, use standard exponential backoff.
+        // cold-start is already penalised by the connect timeout, so don't add
+        // an extra backoff on top. Attempt 1: keep a short 1.5s delay instead of
+        // the exponential 3s+ from the old schedule.
         const attempt = reconnectAttemptRef.current;
         const reconnectDelay =
-          attempt === 0 ? 0 : computeReconnectDelay(attempt);
+          attempt === 0 ? 0 : attempt === 1 ? 1500 : computeReconnectDelay(attempt);
         reconnectAttemptRef.current = attempt + 1;
 
         setConnected(false);

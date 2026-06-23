@@ -66,6 +66,8 @@ interface SubmitVoicePipelineTurnInput {
   clearPredictionAfterRun?: boolean;
   allowPredictionReuse?: boolean;
   markSttFinalTimestamp?: boolean;
+  /** User vocal emotion/event from SenseVoice STT — injected into the LLM prompt. */
+  userVocalTone?: string;
 }
 
 interface PreparedVoicePipelineTurn {
@@ -78,6 +80,7 @@ interface PreparedVoicePipelineTurn {
   predictionPartialText: string;
   predictedReply: string;
   predictedStructuredAnalysis: TurnAnalysisBundle | null;
+  userVocalTone?: string;
 }
 
 export function prepareVoicePipelineTurn(
@@ -139,6 +142,7 @@ export function prepareVoicePipelineTurn(
     predictionPartialText,
     predictedReply,
     predictedStructuredAnalysis,
+    userVocalTone: input.userVocalTone,
   };
 }
 
@@ -176,6 +180,7 @@ export async function runPreparedVoicePipelineTurn(
         inputSource: "voice",
         ttsTransport: runtime.getResolvedTtsTransport(),
         ensureSessionId: () => runtime.ensureDbSession(),
+        userVocalTone: prepared.userVocalTone,
       },
     );
   } else {
@@ -200,6 +205,7 @@ export async function runPreparedVoicePipelineTurn(
           inputSource: "voice",
           ttsTransport: runtime.getResolvedTtsTransport(),
           ensureSessionId: () => runtime.ensureDbSession(),
+          userVocalTone: prepared.userVocalTone,
         },
       );
   }

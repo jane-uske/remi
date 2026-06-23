@@ -61,6 +61,20 @@ def pcm_to_wav(pcm: np.ndarray, sample_rate: int = 24000) -> bytes:
     return buf.getvalue()
 
 
+def _estimate_max_tokens(text: str) -> int:
+    """Generous max_tokens for short expressive text (moaning, panting).
+
+    mlx-audio defaults to ``max(75, n_text_tokens * 6)`` which caps a 10-token
+    moan line at 75 audio tokens → ~6 s at 12 Hz.  That's fine for normal
+    speech but moaning/panting needs 2-3× more time per character (breaths,
+    trembles, pauses).  We use ``min(500, max(150, n_chars * 10))`` giving
+    12.5–40 s for typical lines, capped to prevent runaway loops.  The Remi
+    TTS pipeline has its own ``MAX_AUDIO_SEC_PER_CHAR`` guard downstream to
+    truncate model-looping audio, so some overshoot is safe.
+    """
+    return min(500, max(150, len(text) * 10))
+
+
 @app.post("/v1/audio/speech")
 async def speech(req: SpeechRequest):
     model = get_model()
@@ -69,6 +83,12 @@ async def speech(req: SpeechRequest):
         kwargs["instruct"] = req.instruct
     if req.temperature is not None:
         kwargs["temperature"] = req.temperature
+    kwargs["max_tokens"] = _estimate_max_tokens(req.input)
+    # Raise repetition penalty above library default (1.05) — moaning/panting
+    # text ("嗯，爸爸，好大") otherwise triggers the model's token-loop failure
+    # mode (one token repeated to the max length = "一直嗯"). 1.3 dampens the
+    # loop without over-penalising normal repetition in expressive speech.
+    kwargs["repetition_penalty"] = 1.3
 
     if req.stream:
         return StreamingResponse(

@@ -44,6 +44,50 @@ function stripEmojiForTts(text: string, enabled: boolean): string {
     .replace(/\u200D/g, "");
 }
 
+/**
+ * NSFW phonetic substitution table — replaces words that TTS models have
+ * never seen in training data (vulgar slang, rare characters) with
+ * phonetically similar everyday words the model can actually synthesize.
+ *
+ * Without this, MLX/Qwen3-TTS outputs near-silence for these tokens because
+ * it has no speech samples to reference.
+ */
+const NSFW_PHONETIC_SUBS: [RegExp, string][] = [
+  // 屄 (bī) — extremely rare character, TTS outputs silence
+  [/贱屄/g, "贱婢"],     // jiàn bī → jiàn bì (near-identical)
+  [/骚屄/g, "骚逼"],     // normalize to more common form first
+  [/臭屄/g, "臭逼"],
+  [/烂屄/g, "烂逼"],
+  // 逼/屄 as genitalia — replace with homophone 比
+  [/骚逼/g, "骚比"],     // sāo bī → sāo bǐ
+  [/贱逼/g, "贱比"],
+  [/臭逼/g, "臭比"],
+  [/烂逼/g, "烂比"],
+  [/小逼/g, "小比"],
+  // 鸡吧/鸡巴 → 几把 (common euphemism, TTS has samples)
+  [/鸡吧/g, "几把"],     // jī ba → jǐ bǎ
+  [/鸡巴/g, "几把"],
+  // Compound dirty nouns with rare readings
+  [/肉便器/g, "肉瓶器"], // ròu biàn qì → ròu píng qì
+  [/肉棒/g, "入棒"],     // ròu bàng → rù bàng
+  // 操 as fuck — TTS sometimes drops it; 草 (cǎo) is common + same tone class
+  [/挨操/g, "挨草"],
+  [/被操/g, "被草"],
+  [/操烂/g, "草烂"],
+  [/操死/g, "草死"],
+  // 屁眼 — sometimes garbled
+  [/屁眼/g, "屁言"],
+];
+
+/** Apply phonetic substitutions for NSFW words that TTS cannot synthesize. */
+function substituteNsfwPhonetics(text: string): string {
+  let out = text;
+  for (const [re, replacement] of NSFW_PHONETIC_SUBS) {
+    out = out.replace(re, replacement);
+  }
+  return out;
+}
+
 const MOAN_CHAR_RE = /[嗯啊哈嘶呜噢哦呀]/;
 const MOAN_SYLLABLE_COMMA_RE = /([嗯啊哈嘶呜噢哦呀])[，,](?=[嗯啊哈嘶呜噢哦呀])/g;
 const ROLE_PREFIX_RE = /^(?:Remi|remi)\s*[,，:：]\s*/i;
@@ -274,7 +318,8 @@ export function resolveTtsQueueText(
 
   const vocal = extractNsfwVocalLine(trimmed);
   if (vocal) {
-    const prepared = prepareNsfwVocalForTts(vocal, options.speakablePunct);
+    let prepared = prepareNsfwVocalForTts(vocal, options.speakablePunct);
+    prepared = substituteNsfwPhonetics(prepared);
     return guardPunctOnly(prepared);
   }
   if (isNsfwNarrationSegment(trimmed)) return null;
@@ -285,7 +330,8 @@ export function resolveTtsQueueText(
     if (filtered) working = filtered;
   }
 
-  const prepared = prepareNsfwVocalForTts(working, options.speakablePunct);
+  let prepared = prepareNsfwVocalForTts(working, options.speakablePunct);
+  prepared = substituteNsfwPhonetics(prepared);
   return guardPunctOnly(prepared);
 }
 
@@ -368,6 +414,7 @@ export function normalizeTtsTextWithConfig(
   } else {
     working = stripRolePrefixForTts(working);
   }
+  working = substituteNsfwPhonetics(working);
   const clean = stripDecorativeTailForTts(working)
     .replace(/\s+/g, " ")
     .trim();

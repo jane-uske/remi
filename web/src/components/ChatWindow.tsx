@@ -211,7 +211,7 @@ export function ChatWindow({
             ? "border-rose-300/30 bg-rose-500/10 text-rose-50"
             : showListeningPulse
               ? "border-sky-300/30 bg-sky-500/10 text-sky-50"
-              : "border-[#0f7287]/35 bg-black/20 text-[#9fd1db]";
+              : "border-[#3b1a6e]/35 bg-black/20 text-[#c4b5fd]";
   const statusMotionClass =
     awaitingAssistantReply || showThinkingPulse || showListeningPulse
       ? "animate-pulse"
@@ -278,7 +278,7 @@ export function ChatWindow({
       >
         {loadingMoreHistory ? (
           <div className="flex justify-center px-1 pb-1">
-            <div className="rounded-full border border-[#0f7287]/25 bg-black/16 px-2.5 py-1 text-[10px] text-[#92bfca] backdrop-blur-md">
+            <div className="rounded-full border border-[#3b1a6e]/25 bg-black/16 px-2.5 py-1 text-[10px] text-[#c4b5fd] backdrop-blur-md">
               正在加载更早的记录…
             </div>
           </div>

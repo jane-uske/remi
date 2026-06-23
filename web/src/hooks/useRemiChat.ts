@@ -421,7 +421,11 @@ export function useRemiChat() {
       if (!trimmed && !image) return;
       if (transport === "ws" && (!ws || ws.readyState !== WebSocket.OPEN)) return;
       markServerTtsStreaming(false);
-      clearQueue();
+      // Deferred interrupt: don't cut Remi off mid-sentence the instant the user
+      // sends. Keep her current audio playing and displace it only once the new
+      // reply's TTS actually starts — avoids dead air while she's e.g. analysing
+      // an image. Falls back to an immediate clear if nothing is currently audible.
+      clearQueue({ deferUntilNextPlayback: true });
       turnEngine.clearPendingChatEnd();
       void unlockPlayback();
       const interruptedGeneration = turnEngine.activeGenerationRef.current;

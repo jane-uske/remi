@@ -151,6 +151,17 @@ export default function RemiPortalPage() {
           images from a sentence, lives in a world of her own, and stays
           consistent across sessions and devices.
         </p>
+
+        {/* Hero visual — social concept art */}
+        <div className="group relative mt-10 overflow-hidden rounded-2xl border border-[var(--remi-border)] shadow-[0_32px_80px_rgba(168,85,247,0.22)]">
+          <img
+            src="/assets/remi/posters/remi-social-hero.png"
+            alt="Remi — virtual idol social concept"
+            className="h-auto w-full max-w-lg select-none object-cover transition duration-700 group-hover:scale-[1.02]"
+            draggable={false}
+          />
+          <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/10" />
+        </div>
       </header>
 
       {/* Links */}

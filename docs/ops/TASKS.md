@@ -185,6 +185,7 @@
   - 已修复根因 1-5：见 `remi-nsfw-tts-skipping-fixes.md`
   - 已修复根因 6（MLX TTS 短文本循环）：`voice/tts_mlx.ts` 新增音频时长上限截断（`MAX_AUDIO_SEC_PER_CHAR=1.5`，最低 2 秒），buffered + streaming 两条路径都做
   - 客户端 `useAudioBase64Queue` 增加 `hasPendingPlaybackWork` 统一判定 + `serverTtsStreaming` 双保险，不再在 TTS gap 期间误判播放结束
+  - 2026-06-23 新增根因 7（NSFW 脏词 TTS 静默）：`voice/tts_helpers.ts` 加 `NSFW_PHONETIC_SUBS` 音译替换表（贱屄→贱婢、骚逼→骚比、鸡吧→几把、肉便器→肉瓶器、挨操→挨草等），MLX/Qwen3-TTS 训练数据无这些词的语音样本导致输出静音；替换后平均静默率 37%→19%、严重静默 2/10→0/10。同时测试了 Qwen3-TTS bf16 全精度（无改善，问题在训练数据不在量化）、Fish S2-Pro 4B MLX 8bit（更差+慢 10 倍）、IndexTTS-2（已下载待集成）
 
 - [x] **T-044** 音色风格切换 — `done`（2026-06-20）
   - 聊天命令：`用御姐音` / `换成萝莉音` / `恢复原来的声音` 等 regex 匹配 → DirectCapability 拦截 → 设 per-session instruct override
@@ -224,7 +225,7 @@
   - `DL-P0-4` 本表同步 DL- 条目 — `done`（2026-06-22）
   - `DL-P0-5` episodes 加 `scope` 列 — `done`（代码）：`migrations/004_episodes_scope.js`（ADD COLUMN IF NOT EXISTS scope DEFAULT 'core'）+ `MomentInput.scope?: EpisodeScope`；写入路径未改、无运行时变更。**migration 待执行**（同 M3-P2 攒批部署）。ROLEPLAY 线前置已就位
   - → **DL-P0 阶段全部完成**；后续 P1a/P1b/P2 全部 `🔒` 卡 W-PRES-01 验收
-  - `DL-P1a` NSFW 替换 → 包裹（`brain/prompt_builder.ts`，单 owner）— `todo`，前提 W-PRES-01 验收
+  - `DL-P1a` NSFW 替换 → 包裹（`brain/prompt_builder.ts`，单 owner）— `todo`，前提 W-PRES-01 验收。2026-06-23 代码审计：25 生产文件涉 NSFW（2 纯 NSFW 可整文件搬、5 含 NSFW 逻辑块需切 hook、3 深度交织需新增引擎 hook 点 [PersonaOverride / MemoryWriteFilter / TtsTextResolver / TtsInstructOverride / ImageGenParams / SessionLifecycle]、8 薄引用改 plugin event）；~600 行 NSFW 专属逻辑、预估 2-3 天；现有 `plugin/registry.ts` hook 雏形不够（缺 TTS / memory 层 hook）。包裹化同时完成 `CC-P0-2`（NSFW 明文移出引擎）
   - `DL-P1b` RemiSelf 最小持久化（mood / energy / currentFocus 跨会话）— `todo`，前提 W-PRES-01
   - `DL-P2` Disposition 旋钮 + 世界状态服务端化 — `todo`，前提 P1a + P1b
 
