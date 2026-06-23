@@ -82,6 +82,26 @@ export interface SseHistoryPage {
   nextCursor: { id: string; createdAt: string } | null;
 }
 
+/**
+ * 浏览器时区/locale。SSE 文本聊天没有 WebSocket 的 client_context 帧，时区只能
+ * 随每次 POST /api/chat 捎带；不带的话服务端 brain.getClientTimeZone() 为 null，
+ * 时间能力与时间上下文会回退到容器时区（Docker 内是 UTC），导致答错时间、
+ * 误判"深夜/刚睡醒"。
+ */
+function clientTimeContext(): { timeZone?: string; locale?: string } {
+  const ctx: { timeZone?: string; locale?: string } = {};
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+    if (tz) ctx.timeZone = tz;
+  } catch {
+    /* Intl 不可用时忽略，服务端自行回退 */
+  }
+  if (typeof navigator !== "undefined" && navigator.language) {
+    ctx.locale = navigator.language;
+  }
+  return ctx;
+}
+
 export class SseChatClient {
   private baseUrl: string;
 
@@ -107,6 +127,7 @@ export class SseChatClient {
         content,
         ...(opts.situational ? { situational: opts.situational } : {}),
         ...(opts.image ? { image: opts.image } : {}),
+        ...clientTimeContext(),
         ...(opts.voiceStyleId !== undefined ? { voiceStyleId: opts.voiceStyleId } : {}),
         ...(opts.speedModifier !== undefined ? { speedModifier: opts.speedModifier } : {}),
         ...(opts.pitchModifier !== undefined ? { pitchModifier: opts.pitchModifier } : {}),

@@ -114,6 +114,13 @@ interface ChatRequest {
   content: string;
   situational?: string;
   image?: string;
+  /**
+   * 客户端时区（IANA，如 "Asia/Hong_Kong"）。SSE 没有 WS 的 client_context 帧，
+   * 时区只能随每次 POST 捎带；不传则 brain 回退容器时区（Docker 内为 UTC）。
+   */
+  timeZone?: string | null;
+  /** 客户端 locale（如 "zh-HK"），用途同上。 */
+  locale?: string | null;
   /** Voice style override — synced from client localStorage each turn. */
   voiceStyleId?: string | null;
   speedModifier?: string | null;
@@ -160,6 +167,17 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   sseHeaders(res);
   res.write(`event: session\ndata: ${JSON.stringify({ token: entry.token })}\n\n`);
+
+  // SSE 客户端没有 WS 的 client_context 帧，时区/locale 只能随每次 POST 捎带。
+  // 不设的话 brain.getClientTimeZone() 为 null，时间能力/时间上下文会回退到容器
+  // 时区（Docker 内为 UTC），导致答错时间、误判"凌晨/刚睡醒"。只在带了时区时设，
+  // 避免无时区的请求把已设好的值清掉。
+  if (body.timeZone) {
+    entry.brain.setClientContext({
+      timeZone: body.timeZone,
+      locale: body.locale ?? entry.brain.getClientLocale(),
+    });
+  }
 
   // Apply voice style overrides from client localStorage so TTS uses the
   // user's chosen voice even though set_voice_style only travels over WS.
