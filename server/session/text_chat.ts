@@ -77,15 +77,24 @@ export function handleSessionTextChat(
 
   logger.info(`[用户] ${content}`, { connId: runtime.connId });
   runtime.touchUserActivity(content);
-  if (runtime.interrupt.active && runtime.brain.currentAssistantDraft?.trim()) {
+  const { interruptionType, carryForwardHint } = runtime.classifyCarryForward(content);
+
+  // 丢消息修复：只有"显式打断意图"（纠正/换话题/情绪打断/承接 —— 即 interruptionType
+  // 为明确类型，而非 unknown 的全新问题）才真的打断正在生成的上一条。文本快速连发的
+  // 新问题(unknown)不再 abort 上一条，而是靠下方 pipelineChain 串行排队：上一条正常
+  // 答完，再答这一条，不丢消息（回到 CLAUDE.md §17"排队不丢失"的本意）。
+  // 语音打断走 voice_submit，不经此函数；"不对/停/换个话题"等显式打断仍即时生效。
+  const shouldInterrupt =
+    runtime.interrupt.active && !!interruptionType && interruptionType !== "unknown";
+
+  if (shouldInterrupt && runtime.brain.currentAssistantDraft?.trim()) {
     runtime.brain.lastInterruptedReply = runtime.brain.currentAssistantDraft.trim();
   }
-  const { interruptionType, carryForwardHint } = runtime.classifyCarryForward(content);
 
   const interruptedGenerationId = runtime.activeGenerationId;
   const interruptReactionEnabled =
     getConfig().interrupt_reaction !== "0" && isTtsEnabled();
-  if (runtime.interrupt.active && interruptReactionEnabled) {
+  if (shouldInterrupt && interruptReactionEnabled) {
     void synthesize(
       randomInterruptReaction(),
       undefined,
@@ -118,7 +127,7 @@ export function handleSessionTextChat(
       interruptionType: interruptionType ?? "unknown",
       force: true,
     });
-  } else if (runtime.interrupt.active) {
+  } else if (shouldInterrupt) {
     runtime.sendInterrupt(interruptedGenerationId ?? null);
     runtime.interrupt.interrupt();
     runtime.publishTurnState("interrupted_by_user", "user_interrupt", {
@@ -155,7 +164,10 @@ export function handleSessionTextChat(
         generationId,
         traceId,
         {
-          carryForwardHint,
+          // 只有显式打断才把上一句 carry-forward；新问题(unknown)即便因排队而落在
+          // 上一条之后，也不承接上一条 → 不复读。这层统一门控同时覆盖 WS 路径
+          // （其 classifyCarryForward 未单独 gate）。
+          carryForwardHint: shouldInterrupt ? carryForwardHint : undefined,
           situationalContext,
           interruptionType: interruptionType ?? undefined,
           inputSource: "text",

@@ -213,4 +213,35 @@ describe("interruption handling", () => {
     assert.equal(hasExplicitCarryForwardCue("睡不着，脑子里乱糟糟的"), false);
     assert.equal(hasExplicitCarryForwardCue("   "), false);
   });
+
+  it("文本新问题在生成中不打断、不 carry-forward（连发丢消息修复）", async function () {
+    this.timeout(5000);
+    const { ws, session, pipelineCalls, restore } = loadSessionHarness();
+    try {
+      session.brain.currentAssistantDraft = "上一条还没说完的内容。";
+      session.interrupt.begin(); // 模拟上一条正在生成
+
+      ws.emitMessage(
+        Buffer.from(
+          JSON.stringify({ type: "chat", content: "随便推荐我一部周末看的电影" }),
+        ),
+      );
+
+      await waitFor(() => pipelineCalls.length === 1);
+      // 全新问题(unknown) 不该打断上一条（排队 → 不丢消息）
+      const interrupts = ws.parsedMessages().filter((m) => m?.type === "interrupt");
+      assert.equal(
+        interrupts.length,
+        0,
+        `新问题不应打断: ${JSON.stringify(ws.parsedMessages())}`,
+      );
+      // 也不该 carry-forward 上一条草稿（不复读）
+      assert.ok(
+        !pipelineCalls[0].options?.carryForwardHint,
+        "新问题不应 carry-forward 上一条",
+      );
+    } finally {
+      restore();
+    }
+  });
 });
