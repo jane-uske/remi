@@ -20,8 +20,9 @@ import { send } from "../gateway";
 import { synthesize, isTtsEnabled } from "../../voice/tts_stream";
 import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
+import { resolveTurnDetector } from "./voice/turn_detector";
+import { SpeechRuntime } from "./voice/speech_runtime";
 import {
-  decideTurnTaking,
   evaluateBackchannelDecision,
   getMeaningfulTurnPreview,
   isTentativeSpeechText,
@@ -244,6 +245,10 @@ export class ConnectionSession {
   private readonly handshakeTtsTransportRaw: string | null;
   private clientContextTtsTransport: ClientContextTtsTransport | null = null;
   private personaPresetBootstrapReady = false;
+  /** Phase 1 pluggable turn-end / barge-in classification (legacy only for now). */
+  private readonly turnDetector = resolveTurnDetector();
+  /** Phase 1 SHADOW-ONLY observer. Never sends, never mutates session state. */
+  private readonly speechRuntime: SpeechRuntime;
 
   sessionId: string | null = null;
   /**
@@ -429,6 +434,7 @@ export class ConnectionSession {
 
   constructor(ws: WebSocket, req: IncomingMessage) {
     this.connId = randomUUID();
+    this.speechRuntime = new SpeechRuntime(this.connId);
     this.brain = new RemiSessionContext(this.connId);
     notifySessionStart(this.connId);
     this.ws = ws;
@@ -1250,6 +1256,19 @@ export class ConnectionSession {
       connId: this.connId,
       speechMs: Math.round(speechDurationMs),
     });
+    // Barge-in latency baseline: speech_start → stop. Observation only; does not
+    // affect the trigger condition above.
+    const bargeInLatencyMs =
+      this.lastSpeechStartAt > 0 ? Date.now() - this.lastSpeechStartAt : null;
+    logger.info("[BargeInBaseline] barge_in_speech_start_to_stop", {
+      connId: this.connId,
+      bargeInLatencyMs,
+      speechMs: Math.round(speechDurationMs),
+    });
+    this.speechRuntime.observeEvent("user.barge_in", {
+      bargeInLatencyMs,
+      speechMs: Math.round(speechDurationMs),
+    });
     this.publishTurnState("interrupted_by_user", "user_interrupt", {
       generationId: this.currentInterruptTargetGenerationId() ?? undefined,
       interruptionType: "emotional_interrupt",
@@ -1888,6 +1907,11 @@ export class ConnectionSession {
         interruptionType: extras?.interruptionType ?? null,
       });
     }
+    // SHADOW: mirror authoritative turn-state transitions into SpeechRuntime.
+    this.speechRuntime.observeTurnState(state, reason, {
+      generationId: extras?.generationId,
+      interruptionType: extras?.interruptionType ?? null,
+    });
   }
 
   private maybeSendBackchannel(input: {
@@ -2324,7 +2348,7 @@ export class ConnectionSession {
 
     const releaseMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_RELEASE_MS;
     const minGapMs = getConfig().VAD_UTTERANCE_GAP_PREVIEW_MIN_MS;
-    const decision = decideTurnTaking({
+    const decision = this.turnDetector.evaluateTurnEnd({
       baseGapMs: baseGap,
       previewText,
       nowMs: now,
@@ -2595,6 +2619,7 @@ export class ConnectionSession {
       }
 
       this.lastSpeechStartAt = Date.now();
+      this.speechRuntime.observeEvent("vad.speech_start", { mode: nextVadMode });
       this.lastVadStartMode = nextVadMode;
       // Keep cumulative speech-shape evidence when a short internal pause resumes
       // the same utterance; otherwise stop-time suppression can misclassify the
@@ -2667,6 +2692,7 @@ export class ConnectionSession {
 
     this.vad.on("speech_end", () => {
       this.lastSpeechEndAt = Date.now();
+      this.speechRuntime.observeEvent("vad.speech_end");
       logger.info("[VAD] speech_end", { connId: this.connId });
       if (this.ignoredFallbackRestartActive) {
         logger.info("[VAD] ignored fallback restart ended", {
@@ -3110,9 +3136,11 @@ export class ConnectionSession {
       inputMode: this.duplexInputMode,
       inputGain: this.currentDuplexInputGain(),
     });
+    this.speechRuntime.observeDuplexStart();
   }
 
   private handleDuplexStop(): void {
+    this.speechRuntime.observeDuplexStop();
     const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
     const vadMode = this.lastVadStartMode;
     const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
