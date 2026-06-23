@@ -20,7 +20,11 @@ import { handleSessionTextChat, type SessionTextChatRuntime } from "./text_chat"
 import type { MessageSink } from "../gateway/types";
 import { send } from "../gateway";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
-import { buildCarryForwardHint, classifyInterruption } from "./interruption";
+import {
+  buildCarryForwardHint,
+  classifyInterruption,
+  hasExplicitCarryForwardCue,
+} from "./interruption";
 import type { SessionTtsTransport } from "./tts_transport";
 import { clearNsfw, restoreNsfwForUser, unbindNsfwNotifier } from "../../brains/nsfw_mode";
 import { endSession } from "../../storage/repositories/session_repository";
@@ -259,9 +263,15 @@ export function buildTextChatRuntime(
       const interruptionType = entry.interrupt.active
         ? classifyInterruption(userText, entry.brain.currentAssistantDraft ?? "")
         : null;
-      const carryForwardHint = interruptionType
-        ? buildCarryForwardHint(interruptionType, entry.brain.currentAssistantDraft ?? "")
-        : undefined;
+      // 复读机修复：只有用户**显式**承接/修正上一句（"接着说"/"不对我是说"）时，
+      // 才把上一条草稿 carry-forward 进 prompt。否则——哪怕上一条仍在生成
+      // (interrupt.active)、或被 sharesKeywords 误判为 continuation——都当作全新问题，
+      // 不复读上一条。这是线上文本聊天"复读机"的根因（unknown 也会走 default 分支
+      // 注入上一条全文）。interruptionType 保持原值不变，不影响日志/turn_state。
+      const carryForwardHint =
+        interruptionType && hasExplicitCarryForwardCue(userText)
+          ? buildCarryForwardHint(interruptionType, entry.brain.currentAssistantDraft ?? "")
+          : undefined;
       return { interruptionType, carryForwardHint };
     },
     sendInterrupt: (generationId?: number | null) => {

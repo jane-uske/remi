@@ -4,6 +4,7 @@ const { InterruptController } = require("../../../voice/interrupt_controller");
 const { RemiSessionContext } = require("../../../brains/remi_session_context");
 const { routeMessage } = require("../../../brains/context_orchestrator");
 const { loadSessionHarness, waitFor } = require("../../helpers/session_harness");
+const { hasExplicitCarryForwardCue } = require("../../../server/session/interruption");
 
 function loadMockedRouteMessage({ fastBrainStream, runSlowBrain }) {
   const fastBrainModulePath = path.resolve(__dirname, "../../../brains/reply_stream.ts");
@@ -196,5 +197,20 @@ describe("interruption handling", () => {
     } finally {
       restore();
     }
+  });
+
+  it("hasExplicitCarryForwardCue: 仅对显式承接/修正为真（文本复读机修复）", () => {
+    // 显式承接/修正 → 允许把上一句 carry-forward
+    assert.equal(hasExplicitCarryForwardCue("接着说"), true);
+    assert.equal(hasExplicitCarryForwardCue("继续"), true);
+    assert.equal(hasExplicitCarryForwardCue("然后呢"), true);
+    assert.equal(hasExplicitCarryForwardCue("不是那个意思，我想说的是先压误触发"), true);
+    assert.equal(hasExplicitCarryForwardCue("应该是明天"), true);
+    // 全新问题（线上复读机的实际输入）→ 绝不 carry-forward 上一句
+    assert.equal(hasExplicitCarryForwardCue("随便推荐我一部周末看的电影"), false);
+    assert.equal(hasExplicitCarryForwardCue("我家猫叫团子今天又把水杯打翻了"), false);
+    assert.equal(hasExplicitCarryForwardCue("用Python帮我写个快速排序"), false);
+    assert.equal(hasExplicitCarryForwardCue("睡不着，脑子里乱糟糟的"), false);
+    assert.equal(hasExplicitCarryForwardCue("   "), false);
   });
 });

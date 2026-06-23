@@ -69,3 +69,21 @@ export function buildCarryForwardHint(
         : "你刚刚被打断了。请保持上下文连续，但避免像机械重开，开头先用一句短话接回上下文，例如「好，我接着说」。";
   }
 }
+
+/**
+ * 文本聊天专用：判断用户这条消息是否**显式**在承接/修正上一句。
+ *
+ * 语音打断走 `classifyInterruption`（它对模糊情况会落到 "unknown"，再由
+ * `buildCarryForwardHint` 的 default 分支把上一句草稿塞进 prompt 要求"承接"）。
+ * 这套逻辑对语音合理，但文本快速连发时是灾难：用户其实在问**全新问题**，却
+ * 因为上一条仍在生成（interrupt.active=true）被判成 "unknown" → carry-forward
+ * 上一条草稿 → 上一条已生成完整时 LLM 直接逐字复读（线上"复读机"根因）。
+ *
+ * 因此文本路径只在用户**显式**说"接着说/继续"(continuation) 或"不对，我是说"
+ * (correction) 时才允许 carry-forward；其余一律当新问题处理，不复读上一条。
+ */
+export function hasExplicitCarryForwardCue(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  return CONTINUATION_RE.test(t) || CORRECTION_RE.test(t);
+}
