@@ -25,6 +25,10 @@ export const remiChatLayoutClasses = {
 
 const nsfwChatLayoutClasses = {
   ...remiChatLayoutClasses,
+  // NSFW keeps the locked full-screen inner-scroll shell (no mobile
+  // document-scroll conversion): overrides the responsive base appShell.
+  appShell:
+    "remi-app-shell remi-airi-app relative flex h-dvh w-full flex-col overflow-hidden text-[var(--foreground)]",
   mainShell:
     "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden",
   stageShell: "hidden",

@@ -332,7 +332,10 @@ export function RemiChatApp() {
               />
             </div>
 
-            <div ref={composerRef} className={`remi-mobile-composer ${layout.chatComposerFrame}`}>
+            <div
+              ref={composerRef}
+              className={`${documentScroll ? "remi-mobile-composer " : ""}${layout.chatComposerFrame}`}
+            >
               {audioLocked ? (
                 <div className="mb-2 flex justify-end">
                   <button
