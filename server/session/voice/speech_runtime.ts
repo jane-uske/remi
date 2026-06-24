@@ -17,7 +17,12 @@
  * pre-generation (`runPrediction` → `computeSessionPrediction`) runs while the
  * user is still speaking. This only OBSERVES that already-happening behavior and
  * measures the "thinking window"; it does NOT start/stop prediction or change
- * any control flow. `repairing` remains unwired (PR7).
+ * any control flow.
+ *
+ * PR7: `repairing` is now reached (SHADOW ONLY) when a committed STT final looks
+ * low-confidence (see repair_signal.ts). It only MEASURES how often Remi would
+ * ask for clarification (`repairRequestedCount`); it sends no clarification and
+ * gates no reply. The behavioral version is a future flag-gated step.
  */
 import type {
   RemiTurnState,
@@ -73,6 +78,9 @@ export interface SpeechRuntimeSnapshot {
   // PR6: last completed/aborted thinking-while-listening window.
   lastThinkingWindowMs: number | null;
   lastThinkingOutcome: "completed" | "aborted" | null;
+  // PR7: would-repair telemetry (shadow).
+  repairRequestedCount: number;
+  lastRepairReason: string | null;
   recentEvents: SpeechEvent[];
 }
 
@@ -91,6 +99,9 @@ export class SpeechRuntime {
   private stateBeforeThinking: SpeechRuntimeState | null = null;
   private lastThinkingWindowMs: number | null = null;
   private lastThinkingOutcome: "completed" | "aborted" | null = null;
+  // PR7: how many committed finals would have triggered a clarification.
+  private repairRequestedCount = 0;
+  private lastRepairReason: string | null = null;
   private readonly events: SpeechEvent[] = [];
   private readonly verbose: boolean;
 
@@ -125,8 +136,15 @@ export class SpeechRuntime {
       lastBargeInLatencyMs: this.lastBargeInLatencyMs,
       lastThinkingWindowMs: this.lastThinkingWindowMs,
       lastThinkingOutcome: this.lastThinkingOutcome,
+      repairRequestedCount: this.repairRequestedCount,
+      lastRepairReason: this.lastRepairReason,
       recentEvents: [...this.events],
     };
+  }
+
+  /** PR7: how many committed finals would have triggered a clarification. */
+  getRepairRequestedCount(): number {
+    return this.repairRequestedCount;
   }
 
   /** Duplex session opened. */
@@ -199,6 +217,16 @@ export class SpeechRuntime {
           } else {
             this.record(type, data);
           }
+          break;
+        case "repair.requested":
+          // PR7 (shadow): a committed final looked low-confidence. Count it and
+          // briefly reflect `repairing`; the next turn-state event corrects it.
+          // No clarification is sent and no reply is gated.
+          this.repairRequestedCount += 1;
+          if (typeof data?.reason === "string") {
+            this.lastRepairReason = data.reason;
+          }
+          this.transition("repairing", { type, ...data });
           break;
         default:
           this.record(type, data);

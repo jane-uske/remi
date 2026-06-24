@@ -14,6 +14,7 @@ import {
   disambiguateSttFinal,
   sttFinalDisambiguationLogDiffEnabled,
 } from "../../voice/stt_final_disambiguator";
+import { assessTranscriptConfidence } from "./voice/repair_signal";
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { runPipeline } from "../pipeline";
 import { send } from "../gateway";
@@ -56,6 +57,8 @@ interface SessionVoiceSubmitRuntime {
   setLastSttFinalAt(timestamp: number): void;
   cancelPrediction(): void;
   getResolvedTtsTransport(): SessionTtsTransport;
+  /** PR7 (shadow): forward a SpeechRuntime observation (e.g. repair.requested). */
+  observeSpeechEvent?(type: string, data?: Record<string, unknown>): void;
 }
 
 interface SubmitVoicePipelineTurnInput {
@@ -101,6 +104,16 @@ export function prepareVoicePipelineTurn(
       correctedText: finalText,
       matchedRuleIds: disambiguation.matchedRuleIds,
     });
+  }
+
+  // PR7 (shadow): measure how often a committed final would trigger a
+  // clarification. Observation only — no clarification is sent, no reply gated.
+  const repair = assessTranscriptConfidence(input.text, {
+    changed: disambiguation.changed,
+    matchedRuleIds: disambiguation.matchedRuleIds,
+  });
+  if (repair.lowConfidence) {
+    runtime.observeSpeechEvent?.("repair.requested", { reason: repair.reason });
   }
 
   const generationId = runtime.nextGenerationId();

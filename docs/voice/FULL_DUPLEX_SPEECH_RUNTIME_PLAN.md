@@ -366,4 +366,15 @@ zh 阈值 0.0066 是 `unlikely_threshold`（低概率=该多等，非早切）�
 - 工具调用坑（plan §7.2）：本 PR 不碰预生成行为，故 `REMI_TOOL_USE_ENABLED` 的 fast-path
   阻塞问题不在本 PR 触发；真要做"行为版"（用思考窗口结果抢跑降延迟）时再处理，留作后续 flag-gated。
 - 9 个 FSM 单测 + 2 个真实控制流集成测试（stub computeSessionPrediction）；全 PR5/PR6 集 115 passing。
-- **行为版（用 thinking 窗口实际降低 turn 延迟）= 未来 flag-gated 步骤，本 PR 不做。** repairing(PR7) 仍未接。
+- **行为版（用 thinking 窗口实际降低 turn 延迟）= 未来 flag-gated 步骤，本 PR 不做。**
+
+### 8.7 PR7 — repairing（已完成，SHADOW ONLY）
+Remi 无数值 STT 置信度，故用复合启发式作"低置信代理"（`repair_signal.ts` 纯函数）：
+disambiguator 纠正过 / 非语音 / 填充词 / 空 / 过短 → `lowConfidence` + reason。
+- STT final 落地（`prepareVoicePipelineTurn`）时评估，低置信则经 runtime 钩子
+  `observeSpeechEvent("repair.requested", {reason})` 喂给 SpeechRuntime。
+- SpeechRuntime 反映 `repairing` 状态 + 累计 `repairRequestedCount` + 记录 `lastRepairReason`，
+  下一个真实 turn-state 事件立即接管（不卡住）。
+- **纯 shadow**：不发澄清问句、不门控回复、行为完全不变；只度量"会触发多少次澄清、各 reason 占比"。
+- 12 个测试（纯信号 + SpeechRuntime + prepareVoicePipelineTurn 集成，验证行为不变）。
+- **行为版（真发澄清 + 低置信门控）= 未来 flag-gated 步骤，本 PR 不做。** FSM 设计面（PR2 起）至此全部接通为可观测。

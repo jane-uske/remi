@@ -3190,6 +3190,8 @@ export class ConnectionSession {
       },
       cancelPrediction: () => this.cancelPrediction(),
       getResolvedTtsTransport: () => this.getResolvedTtsTransport(),
+      observeSpeechEvent: (type: string, data?: Record<string, unknown>) =>
+        this.speechRuntime.observeEvent(type as never, data),
     };
   }
 
