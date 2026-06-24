@@ -360,4 +360,28 @@ describe("ChatWindow", () => {
     assert.ok(markup.includes('data-chat-stream-phase="speaking_active"'));
     assert.ok(markup.includes("Remi 正在顺着这句说"));
   });
+
+  it("flows messages in the document (no inner scroller) when documentScroll is set", () => {
+    const markup = renderToStaticMarkup(
+      ReactLib.createElement(ChatWindow, {
+        messages: [{ id: "m1", role: "rem", text: "文档流模式。" }],
+        hasMoreHistory: false,
+        loadingMoreHistory: false,
+        onLoadMore: () => {},
+        listMutation: "idle",
+        listMutationNonce: 0,
+        sttPartialText: "",
+        streamingText: "",
+        statusModel: { badgeLabel: "在线", responseBusy: false },
+        documentScroll: true,
+      }),
+    );
+
+    // No inner overflow scroller / height clamp / fade mask — the document scrolls.
+    assert.ok(!markup.includes("overflow-y-auto"));
+    assert.ok(!markup.includes("max-h-[min(34svh,19rem)]"));
+    assert.ok(!markup.includes("remi-chat-scroll-fade"));
+    // Prevents native scroll-anchoring from fighting prepend restoration.
+    assert.ok(markup.includes("[overflow-anchor:none]"));
+  });
 });

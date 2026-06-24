@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RemiAccountMenu } from "@/components/RemiAccountMenu";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { CharacterStage } from "@/components/CharacterStage";
@@ -12,6 +12,9 @@ import { VoiceIndicator } from "@/components/VoiceIndicator";
 
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { remiChatLayoutForNsfw } from "@/components/remiChatLayout";
+import { useIsNarrow } from "@/lib/mobile/useIsNarrow";
+import { useVisualViewportCssVars } from "@/lib/mobile/useVisualViewportCssVars";
+import { useElementHeightCssVar } from "@/lib/mobile/useElementHeightCssVar";
 import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
 import { getEmotionLabel } from "@/lib/emotionLabels";
 import {
@@ -164,6 +167,15 @@ export function RemiChatApp() {
   const emotionLabel = getEmotionLabel(emotion);
   const layout = remiChatLayoutForNsfw(nsfwEnabled);
 
+  // Mobile immersive chat: body/document is the scroller (so iOS Safari can
+  // collapse its toolbar), the avatar is a fixed background, and the composer
+  // is fixed above the keyboard. Desktop / NSFW keep the inner-scroll layout.
+  const isNarrow = useIsNarrow();
+  const documentScroll = !nsfwEnabled && isNarrow;
+  const composerRef = useRef<HTMLDivElement>(null);
+  useVisualViewportCssVars();
+  useElementHeightCssVar(composerRef, "--remi-composer-height");
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const query = new URLSearchParams(window.location.search);
@@ -262,8 +274,8 @@ export function RemiChatApp() {
       <main className={layout.mainShell}>
         {!nsfwEnabled ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(139,92,246,0.48),rgba(139,92,246,0.18)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
-            <div className="remi-stage-grid pointer-events-none absolute inset-0 opacity-30" />
+            <div className="pointer-events-none fixed inset-x-0 top-0 z-0 h-[22svh] bg-[linear-gradient(180deg,rgba(139,92,246,0.48),rgba(139,92,246,0.18)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90 md:absolute md:z-auto" />
+            <div className="remi-stage-grid pointer-events-none fixed inset-0 z-0 opacity-30 md:absolute md:z-auto" />
           </>
         ) : null}
 
@@ -316,10 +328,11 @@ export function RemiChatApp() {
                 performanceModel={performanceModel}
                 awaitingAssistantReply={awaitingAssistantReply}
                 immersive={nsfwEnabled}
+                documentScroll={documentScroll}
               />
             </div>
 
-            <div className={layout.chatComposerFrame}>
+            <div ref={composerRef} className={`remi-mobile-composer ${layout.chatComposerFrame}`}>
               {audioLocked ? (
                 <div className="mb-2 flex justify-end">
                   <button

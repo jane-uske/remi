@@ -154,6 +154,22 @@ export function ChatWindow({
     return () => window.removeEventListener("scroll", fn);
   }, [documentScroll]);
 
+  // When the scroll mode flips (e.g. the narrow breakpoint resolves after the
+  // first client render, switching element-scroll → document-scroll), re-pin to
+  // the bottom in the new coordinate space so we don't get stuck mid-history.
+  const didModeInitRef = useRef(false);
+  useEffect(() => {
+    if (!didModeInitRef.current) {
+      didModeInitRef.current = true;
+      return; // initial mount is already handled by the layout effect above
+    }
+    const target = getTarget();
+    if (!target) return;
+    shouldStickRef.current = true;
+    requestAnimationFrame(() => target.scrollToBottom("auto"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentScroll]);
+
   useEffect(() => {
     if (!targetStreamingText) {
       setVisibleStreamingText("");
