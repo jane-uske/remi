@@ -273,8 +273,6 @@ export function RemiChatApp() {
 
             <div className={layout.mobileControlRail}>
               <RemiMobileControlRail
-                connectionPhase={connectionPhase}
-                reconnectInSec={reconnectInSec}
                 recording={runtimeState.user.recording}
                 performanceModel={performanceModel}
               />
