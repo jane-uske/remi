@@ -2107,6 +2107,12 @@ export class ConnectionSession {
     const abort = new AbortController();
     this.predictionAbort = abort;
     const traceId = this.pendingVoiceTraceId ?? this.activeTraceId;
+    // PR6 (shadow): mark the thinking-while-listening window. Observation only —
+    // does not change when/whether prediction runs.
+    this.speechRuntime.observeEvent("thinking.start", {
+      textLen: text.length,
+      mode: options?.mode ?? "full",
+    });
     try {
       logger.debug("[预判] 开始预判", { text: text.slice(0, 30) });
       const { reply, analysis } = await computeSessionPrediction({
@@ -2119,11 +2125,16 @@ export class ConnectionSession {
         pushPrediction: this.predictionPushEnabled,
         options,
       });
-      if (abort.signal.aborted) return;
+      if (abort.signal.aborted) {
+        this.speechRuntime.observeEvent("thinking.aborted", { reason: "aborted" });
+        return;
+      }
       this.predictedReply = reply;
       this.predictedStructuredAnalysis = analysis;
       logger.debug("[预判] 完成", { preview: reply.slice(0, 30) });
+      this.speechRuntime.observeEvent("thinking.done", { replyLen: reply.length });
     } catch (err) {
+      this.speechRuntime.observeEvent("thinking.aborted", { reason: "error" });
       logger.debug("[预判] 失败", { error: (err as Error).message });
     } finally {
       if (this.predictionAbort === abort) {

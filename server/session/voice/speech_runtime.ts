@@ -13,8 +13,11 @@
  * It derives a coarse SpeechRuntimeState from observed events and keeps a small
  * ring buffer of recent events for inspection (tests / future telemetry).
  *
- * States `thinking_while_listening` and `repairing` are part of the designed
- * surface but are intentionally NOT reached in Phase 1 (no wiring yet).
+ * PR6: `thinking_while_listening` is now reached (SHADOW ONLY) when the existing
+ * pre-generation (`runPrediction` → `computeSessionPrediction`) runs while the
+ * user is still speaking. This only OBSERVES that already-happening behavior and
+ * measures the "thinking window"; it does NOT start/stop prediction or change
+ * any control flow. `repairing` remains unwired (PR7).
  */
 import type {
   RemiTurnState,
@@ -47,7 +50,11 @@ export type SpeechEventType =
   | "tts.chunk_end"
   | "user.barge_in"
   | "tts.stop"
-  | "repair.requested";
+  | "repair.requested"
+  // PR6: pre-generation lifecycle (thinking while the user is still speaking).
+  | "thinking.start"
+  | "thinking.done"
+  | "thinking.aborted";
 
 export interface SpeechEvent {
   type: SpeechEventType;
@@ -63,6 +70,9 @@ export interface SpeechRuntimeSnapshot {
   duplexActive: boolean;
   eventCount: number;
   lastBargeInLatencyMs: number | null;
+  // PR6: last completed/aborted thinking-while-listening window.
+  lastThinkingWindowMs: number | null;
+  lastThinkingOutcome: "completed" | "aborted" | null;
   recentEvents: SpeechEvent[];
 }
 
@@ -76,6 +86,11 @@ export class SpeechRuntime {
   private duplexActive = false;
   private eventCount = 0;
   private lastBargeInLatencyMs: number | null = null;
+  // PR6: thinking-while-listening window bookkeeping.
+  private thinkingStartedAt: number | null = null;
+  private stateBeforeThinking: SpeechRuntimeState | null = null;
+  private lastThinkingWindowMs: number | null = null;
+  private lastThinkingOutcome: "completed" | "aborted" | null = null;
   private readonly events: SpeechEvent[] = [];
   private readonly verbose: boolean;
 
@@ -95,6 +110,11 @@ export class SpeechRuntime {
     return this.lastBargeInLatencyMs;
   }
 
+  /** PR6: duration (ms) of the last thinking-while-listening window, or null. */
+  getLastThinkingWindowMs(): number | null {
+    return this.lastThinkingWindowMs;
+  }
+
   snapshot(): SpeechRuntimeSnapshot {
     return {
       mode: this.mode,
@@ -103,6 +123,8 @@ export class SpeechRuntime {
       duplexActive: this.duplexActive,
       eventCount: this.eventCount,
       lastBargeInLatencyMs: this.lastBargeInLatencyMs,
+      lastThinkingWindowMs: this.lastThinkingWindowMs,
+      lastThinkingOutcome: this.lastThinkingOutcome,
       recentEvents: [...this.events],
     };
   }
@@ -146,6 +168,37 @@ export class SpeechRuntime {
           break;
         case "tts.stop":
           this.transition(this.duplexActive ? "listening" : "idle", { type, ...data });
+          break;
+        case "thinking.start":
+          // Pre-generation launched. Only reflect it as a distinct state while
+          // the user is still on the line (listening / speaking) — otherwise it
+          // is just a normal post-turn generation, so only record it.
+          this.thinkingStartedAt = Date.now();
+          if (this.state === "user_speaking" || this.state === "listening") {
+            this.stateBeforeThinking = this.state;
+            this.transition("thinking_while_listening", { type, ...data });
+          } else {
+            this.stateBeforeThinking = null;
+            this.record(type, data);
+          }
+          break;
+        case "thinking.done":
+        case "thinking.aborted":
+          if (this.thinkingStartedAt != null) {
+            this.lastThinkingWindowMs = Date.now() - this.thinkingStartedAt;
+            this.thinkingStartedAt = null;
+          }
+          this.lastThinkingOutcome =
+            type === "thinking.done" ? "completed" : "aborted";
+          if (this.state === "thinking_while_listening") {
+            // Return to where we were (still listening to the user). The next
+            // real event (vad.speech_end / turn.complete) will correct it.
+            const back = this.stateBeforeThinking ?? (this.duplexActive ? "listening" : "idle");
+            this.stateBeforeThinking = null;
+            this.transition(back, { type, ...data });
+          } else {
+            this.record(type, data);
+          }
           break;
         default:
           this.record(type, data);

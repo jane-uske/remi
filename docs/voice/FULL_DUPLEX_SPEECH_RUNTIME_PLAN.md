@@ -352,4 +352,18 @@ zh 阈值 0.0066 是 `unlikely_threshold`（低概率=该多等，非早切）�
   provider 超时/异常 / 缓存过期或文本不匹配 → 全部回退 legacy。**barge-in 一行未碰。**
 - **latency 对比**（真实 legacy 时间线模拟）：完整句 legacy 800ms commit → limited_on 高 EOU
   **480ms（省 320ms）**；低 EOU **1500ms（加 700ms，正好安全上限）**。
-- 24 个新测试 + 全 PR5 相关集 104 passing。下一步若上真实 A/B 才考虑放宽，仍不进 PR6。
+- 24 个新测试 + 全 PR5 相关集 104 passing。下一步若上真实 A/B 才考虑放宽。
+
+### 8.6 PR6 — thinking_while_listening（已完成，SHADOW ONLY）
+现状：预生成（`runPrediction`→`computeSessionPrediction`）早已实现在线，但 SpeechRuntime
+的 `thinking_while_listening` 状态从未被接入。PR6 **只把这个已发生的行为变成可观测状态**：
+- SpeechRuntime 新增事件 `thinking.start` / `thinking.done` / `thinking.aborted`；
+  用户在线（`user_speaking`/`listening`）时 `thinking.start` → 进入 `thinking_while_listening`，
+  `done`/`aborted` → 回到思考前状态；记录"思考窗口"时长 + outcome（completed/aborted）。
+- `runPrediction` 在开始/完成/中止处各打一个 `observeEvent`（3 行 tap）。
+- **纯 shadow**：不改 prediction 何时/是否跑、不改 fast path、SpeechRuntime 仍只观察、
+  prediction 不直接说话。`thinking_while_listening` 状态不驱动任何控制流。
+- 工具调用坑（plan §7.2）：本 PR 不碰预生成行为，故 `REMI_TOOL_USE_ENABLED` 的 fast-path
+  阻塞问题不在本 PR 触发；真要做"行为版"（用思考窗口结果抢跑降延迟）时再处理，留作后续 flag-gated。
+- 9 个 FSM 单测 + 2 个真实控制流集成测试（stub computeSessionPrediction）；全 PR5/PR6 集 115 passing。
+- **行为版（用 thinking 窗口实际降低 turn 延迟）= 未来 flag-gated 步骤，本 PR 不做。** repairing(PR7) 仍未接。
