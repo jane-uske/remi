@@ -5,6 +5,7 @@
 > 第一阶段**只做 audit + 设计 + 最小接口骨架**，不大规模替换 STT/TTS/VAD。
 > 不绑定任何单一第三方库——provider 用接口隔离，先只落 legacy 适配。
 > 前置阅读：`VOICE_RUNTIME_AUDIT.md`、`docs/design/PIPELINE.md`。
+> **最后重评估**：2026-06-24，基于 main 合并后实际代码。变更见本文末 §7。
 
 ---
 
@@ -75,6 +76,12 @@ export interface TurnDetectorProvider {
 选择由 `REMI_TURN_DETECTOR=legacy|livekit_v1mini|pipecat_smartturn` + mode 决定；
 未配置或推理不可用 → 自动回退 `legacy`。**绝不静默丢 fallback。**
 
+> **main 新增（`b89bd12c`）**：`sense-voice` STT provider 在 transcribe 结果中附带
+> `emotion`/`event`/`lang` 标签。目前这些标签只用于 LLM prompt（`userVocalTone`），
+> 不参与 turn-end 或 barge-in 决策。未来 PR5/PR6 可将 `TurnDetectorInput` 扩展以包含
+> `sttEmotion` 字段，让语义 turn 模型也能利用情绪信号（例如：检测到哭声/愤怒时
+> 降低 barge-in 阈值）。接口设计时预留该字段位置。
+
 ### 1.2 TTSProvider（形式化现有 TTS 路由）
 
 现状已是事实上的多 provider（`voice/tts.ts` 路由 edge/volc/openai/mlx，
@@ -84,7 +91,7 @@ export interface TurnDetectorProvider {
 ```ts
 // voice/tts/types.ts  (新增，现有实现适配进来)
 export interface TTSProvider {
-  readonly id: "edge" | "volc" | "openai" | "mlx" | "csm" | "kyutai" | "qwen3";
+  readonly id: “edge” | “volc” | “openai” | “mlx” | “csm” | “kyutai” | “qwen3”;
   readonly supportsStreaming: boolean;
   synthesize(text: string, ctx: TtsRequestContext, signal?: AbortSignal): Promise<Buffer>;
   streamSynthesize?(
@@ -94,7 +101,10 @@ export interface TTSProvider {
 ```
 
 - 现有 edge/volc/openai/mlx 适配为 provider，行为不变。
-- 未来 `csm`（CSM-MLX，Apple Silicon 本地，自带停顿/气口，治“朗读感”）、
+- **main 新增（`48b345f4`）**：每会话 TTS 风格覆盖（`voice/tts_runtime_overrides.ts`）：
+  speed/pitch/MLX preset/mute。PR3 做接口形式化时，`TtsRequestContext` 应把
+  `sessionVoiceStyle` 纳入（已有字段，不需新建）。
+- 未来 `csm`（CSM-MLX，Apple Silicon 本地，自带停顿/气口，治”朗读感”）、
   `kyutai`（220ms 流式、边来边合成）、`qwen3`（已有 `tts_mlx.ts` 雏形）按需接入，
   **不在第一阶段**。
 - stop 语义沿用 AbortSignal + 前端 `clearQueue`（`tts.stop` 事件，见 §3）。
@@ -253,3 +263,93 @@ TurnDetectorProvider 消费 `audio.frame`/`transcript.partial`/`vad.*`，产出
 - 不删任何现有 fallback（legacy turn detector、buffered_voice、噪声抑制启发式全部保留）。
 - 不在 fast path 加同步阻塞的新推理。
 - AEC（声学回声消除）是真窟窿但工程独立，单列专项，不混进 PR1。
+
+---
+
+## 7. main 合并后的计划评估（2026-06-24）
+
+### 7.1 范围确认：SpeechRuntime 是 WS 专属
+
+`551f32c7` 将文本聊天迁移到 SSE，WS 专供语音/全双工。这是对计划的**正向确认**：
+`SpeechRuntime`、`TurnDetectorProvider` 的作用域从来都是 WS 语音会话，现在边界更清晰。
+SSE 文本会话无需 SpeechRuntime，设计不受影响。
+
+### 7.2 PR 表调整
+
+| 状态变化 | 说明 |
+|---------|------|
+| **PR1/PR2 已完成**（`625bb1c2` `7f2c7a62`） | `LegacyVadTurnDetector` 接口 + `SpeechRuntime` shadow 骨架 + barge-in baseline 日志已落地；10 个测试全过。 |
+| **PR3（TTSProvider）** | `voice/tts_runtime_overrides.ts`（每会话风格控制）已存在，PR3 形式化接口时直接把 `sessionVoiceStyle` 纳入 `TtsRequestContext`；不需要新字段。 |
+| **PR4（interim 默认开）** | 不受 main 变更影响，SenseVoice 是 batch，不提供 interim。PR4 仍针对 `sherpa-onnx`/`openai-realtime` 在可用时自动切为 incremental provider。 |
+| **PR5（SmartTurn/LiveKit provider）** | 不受影响。未来可考虑将 `sense-voice` 的 `sttEmotion` 作为可选输入字段注入 `TurnDetectorInput`。 |
+| **PR6（thinking_while_listening）** | 注意：`REMI_TOOL_USE_ENABLED` 开启时工具调用在 LLM fast path 是阻塞的，PR6 实现 `thinking_while_listening` 时需确认工具调用不在预生成窗口内同步等待。 |
+| **PR8（CSM/Kyutai TTS）** | `tts_runtime_overrides.ts` 每会话 style 控制是好的基础，CSM 的 `voice_preset` 可以复用同一覆盖机制。 |
+
+### 7.3 三大瓶颈重评
+
+main 的 21 个提交**均未修复**三大瓶颈：
+- 瓶颈① barge-in 慢：仍是声学门控，900ms 默认 STT 无 interim 路径不变。
+- 瓶颈② 无 interim 文本：SenseVoice 是 batch，不提供增量文本。
+- 瓶颈③ turn-end 手写规则：`decideTurnTaking` 逻辑未变。
+
+PR 路线图优先级不变。下一步是 PR3（TTSProvider 形式化）或 PR4（interim 默认开），
+两者独立，可并行推进。
+
+---
+
+## 8. PR4 / PR5 / PR5b 实施记录（2026-06-24）
+
+### 8.1 PR4 — interim STT（已完成）
+- `voice/stt_stream.ts`：`getIncrementalProvider()` 自动检测 sherpa-onnx（模型在本地时），
+  显式 `REMI_STT_INCREMENTAL_PROVIDER` 优先，`none` 可抑制；模块级缓存避免逐帧 `fs.existsSync`。
+- `server/session/index.ts`：streaming partial tap `speechRuntime.observeEvent("transcript.partial")`；
+  `duplex_start` 打 `[IntermSTT] interimSttActive` 日志。
+- baseline：无 partial → 900ms 门槛；有 partial → 320ms 门槛。默认 STT 行为不变。
+
+### 8.2 PR5a — turn detector shadow stub（已完成）
+- `SmartTurnStub`（本地启发式）+ `ShadowTurnDetector`（primary 始终 legacy，stub 仅写比对日志）。
+- `REMI_TURN_DETECTOR_SHADOW`（默认 0）+ `REMI_TURN_DETECTOR_SHADOW_PROVIDER`（默认 stub）。
+- 每 session 独立 ShadowTurnDetector 实例携带 connId；legacy 单例缓存。
+- 分歧场景（句末标点提前切 / 纯沉默 legacy 更合理 / 文本稳定 stub 更积极 / barge-in 有 partial 提前 30ms）。
+- **stub 仅作测试 fixture，不作最终 provider。**
+
+### 8.3 PR5b — 真实 provider shadow adapter（已完成）
+- **异步缝**：新增 `AsyncTurnDetectorProvider`（`isAvailable` / `evaluateTurnEndAsync` /
+  `evaluateBargeInAsync`，全部可返回 `null` = 不可用）。同步 primary 路径（legacy）**完全不动**。
+- `LiveKitTurnDetectorAdapter`：HTTP → sidecar，探活缓存（TTL 10s）+ 超时（`REMI_TURN_DETECTOR_TIMEOUT_MS`，默认 150ms）+
+  从不抛错；不可用 / 超时 / 5xx / 畸形 JSON → `null` → **自动 fallback legacy**。
+- `ShadowTurnDetector` 在返回 primary 之后 **fire-and-forget** 跑真实 provider，只写
+  `[TurnDetectorReal] turn_end_comparison` / `barge_in_comparison` 日志，**不影响 fast path**。
+- `scripts/turn_detector_server.py`：sidecar，`livekit` 后端=真实 LiveKit turn-detector v2
+  （`pip install onnxruntime transformers huggingface_hub numpy` + 下载权重），
+  `reference` 后端=透明中文启发式（仅 dev 兜底，/health 标 `reference-heuristic`）。
+- `scripts/turn_detector_shadow_eval.ts`：评测 harness，replay 中文场景 → 输出 5 张表
+  （turn-end 分歧 / barge-in 分歧 / latency 分布 / 有无 partial 对比 / on 模式判断）。
+- 约束全部满足：不接管 turn-taking、不改 VAD/barge-in 阈值、不碰 STT/TTS、不接端到端语音、
+  不让 SpeechRuntime 接管状态、默认 off、provider 不可用必 fallback legacy。
+
+**reference 后端示意数据**（非生产权重，仅验证管道）：turn-end 分歧率 7/10，p90 延迟 ~1ms
+（真实 ONNX 预期 10–50ms），有 partial 一致 3/7、无 partial 一致 0/3。
+**最终 on/off 判断须用 `--backend livekit` 真实权重在真实中文通话上重跑。**
+
+### 8.4 PR5c — 真实 LiveKit 权重评测（已完成）
+真实模型 `livekit/turn-detector` `onnx/model_q8.onnx@v0.4.1-intl`（多语种 EOU 头，输出 `prob`）。
+报告见 `docs/voice/TURN_DETECTOR_LIVEKIT_SHADOW_EVAL.md`。要点：中文完整/未完句分离干净
+（0.25–0.78 vs <0.02），p50=5ms/p90=8ms，**必须有 interim partial 才有效**，barge-in 不在职责内。
+zh 阈值 0.0066 是 `unlikely_threshold`（低概率=该多等，非早切）。
+
+### 8.5 PR5d — LiveKit limited_on（已完成，默认 off）
+真实 EOU **仅调整 turn-END**，非对称、有真实 partial 才启用、不可用即回退 legacy：
+- **异步缝**：`notePartial(text)` 在 partial 到达时异步算 EOU 并缓存（off fast path）；
+  同步 `evaluateTurnEnd` 只读缓存（命中且新鲜且文本匹配才用），HTTP 永不进决策路径。
+- **非对称规则**（`limited_on.ts` 纯函数）：
+  - 低 EOU（<`EOU_LOW`=0.05）：只把 legacy `CONFIRMED_END`→`LIKELY_END`（延长耐心），
+    **绝不早切**；有安全上限 `LOW_EOU_MAX_EXTRA_HOLD_MS`=700ms 防永久挂起。
+  - 高 EOU（≥`EOU_HIGH`=0.6）：只把 legacy `LIKELY_END`→`CONFIRMED_END`（完整句更快 commit），
+    **绝不提升 HOLD**（不切 legacy 认为未完的话）。
+  - 中间区间：不干预。
+- **gating**：`REMI_TURN_DETECTOR_MODE=limited_on`（默认 off）；无 partial / 无 endpoint /
+  provider 超时/异常 / 缓存过期或文本不匹配 → 全部回退 legacy。**barge-in 一行未碰。**
+- **latency 对比**（真实 legacy 时间线模拟）：完整句 legacy 800ms commit → limited_on 高 EOU
+  **480ms（省 320ms）**；低 EOU **1500ms（加 700ms，正好安全上限）**。
+- 24 个新测试 + 全 PR5 相关集 104 passing。下一步若上真实 A/B 才考虑放宽，仍不进 PR6。

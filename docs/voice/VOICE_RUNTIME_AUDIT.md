@@ -3,15 +3,21 @@
 > 目的：在动任何重构前，先把 Remi 当前语音链路逐段读清楚，标出阻塞点。
 > 方法：直接读代码，不靠印象。所有结论都附 `文件:函数/行` 证据。
 > 关联：`docs/design/PIPELINE.md`、`docs/design/VOICE_ROADMAP.md`、`server/session/MODULE.md`。
+> **最后重评估**：2026-06-24，基于 main 合并后的实际代码。变更见本文末 §6。
 
 ---
 
 ## 0. 现状一句话
 
-Remi 的语音链路是**“连续采集 + 声学半双工”**：麦克风在播放时确实没停，但
+Remi 的语音链路是**”连续采集 + 声学半双工”**：麦克风在播放时确实没停，但
 “用户说完没 / 要不要被打断 / 要不要修正” 全靠**声学启发式 + 正则**判断，没有
 语义 turn 模型、没有声学回声消除、默认 STT 没有 interim 文本。结果是 turn 边界
-不稳、打断慢且保守、她说话偏“朗读”。
+不稳、打断慢且保守、她说话偏”朗读”。
+
+> **传输拓扑说明（2026-06-21 更新）**：`551f32c7` 将文本聊天迁移到 HTTP+SSE
+> （`/api/chat`，`TextSessionPool`），WebSocket 现在**专供语音/全双工**。
+> 本文档的 Q1–Q8 分析均针对 WS 语音会话（`ConnectionSession`）；
+> SSE 文本会话不经过 duplex/VAD/TTS，其 turn 状态仅由 LLM 流控制，不在本文范围内。
 
 ---
 
@@ -82,19 +88,26 @@ Remi 的语音链路是**“连续采集 + 声学半双工”**：麦克风在�
 - **结论**：不是裸 silence timer，已有相当复杂的启发式；但本质仍是**手写规则**，
   没有 §VAP/SmartTurn 那类从真实对话学出来的语义端点模型。规则在长尾措辞上会飘。
 
-### Q3. STT 是否支持 partial / interim？ → **支持，但被 provider 门控；默认 provider 没有真 interim 文本**
+### Q3. STT 是否支持 partial / interim？ → **支持，但被 provider 门控；默认 provider 没有真 interim 文本；新增 SenseVoice（情绪检测，非流式）**
 
 - `voice/stt_stream.ts::SttStream.canStreamPartials()` 仅当
   `getIncrementalProvider()` 为 `openai-realtime` 或 `sherpa-onnx` 时为真
-  （`stt_stream.ts:218-223`）；此时 `feedStreamingPcm` → `streaming_partial` 事件
+  （`stt_stream.ts:258-263`）；此时 `feedStreamingPcm` → `streaming_partial` 事件
   给出**真实增量文本**。
 - 默认 provider 是 `openai`（批量），走 `endPcm`/`transcribePcmSnapshot`
-  整段上传（`stt_stream.ts:155-188`）。它的 `feedPcm` 发的 “partial” 只是
-  `录音中… 1.2s` 的**字节计数占位符**（`stt_stream.ts:146-152`），**不是文本**。
-- **结论**：interim 文本能力存在，但默认配置下没有。turn-taking 与“边听边想”
-  都依赖 partial 文本——默认配置下两者都在挨饿。
+  整段上传。它的 `feedPcm` 发的 “partial” 只是 `录音中… 1.2s` 的**字节计数占位符**
+  （`stt_stream.ts:143-149`），**不是文本**。
+- **新增（`b89bd12c`）：`sense-voice` provider**（`voice/stt_sensevoice_runtime.ts`）。
+  基于 sherpa-onnx-node 进程内推理，**批量/非流式**（`isSenseVoiceProvider()` 检测，
+  `canStreamPartials()` 里不返回 true）。特点是能附带 `emotion`（happy/sad/angry/neutral）、
+  `event`（laughter/cry/…）、`lang` 标签。情绪标签经
+  `index.ts::buildVocalToneFromMeta()` → `lastSttVocalTone` → `voice_submit.ts::userVocalTone`
+  注入 LLM prompt，让 Remi 可以接住用户当前语气。**但 sense-voice 不改变 interim 文本缺失的问题**。
+- **结论（不变）**：interim 文本能力存在，但默认配置下没有。turn-taking 与”边听边想”
+  都依赖 partial 文本——默认 openai/sense-voice 配置下两者都在挨饿。
+  sense-voice 新增情绪感知维度，但解的是”接住语气”而非”判断说完没”。
 
-### Q4. TTS 是否流式合成？能否按语义 chunk 播放？能否快速 stop？ → **逐句流式（非逐 token）；能 stop**
+### Q4. TTS 是否流式合成？能否按语义 chunk 播放？能否快速 stop？ → **逐句流式（非逐 token）；能 stop；新增每会话语音风格控制**
 
 - 语义切句：`server/pipeline/runner.ts` 用 `utils/sentence_chunker.ts::SentenceChunker`
   在 LLM 流上**边来边切句**（`runner.ts:405, 429`）。
@@ -104,9 +117,12 @@ Remi 的语音链路是**“连续采集 + 声学半双工”**：麦克风在�
 - **粒度**：流式是**句级**的——每句仍是先合出一段再播；不是真正的逐 token /
   逐音素流式合成模型。所以句内无法变速、无法插停顿气口。
 - Stop：`voice/interrupt_controller.ts::InterruptController.interrupt()` abort
-  AbortSignal（服务端停发后续句）+ 服务端发 `interrupt` → 前端
-  `web/src/hooks/useRemiChatMessageDispatch.ts:792 case "interrupt"` → `clearQueue()`
-  → `useAudioBase64Queue.ts:650 src.stop()` 停掉正在播的 WebAudio 源。**stop 链路是通的**。
+  AbortSignal（服务端停发后续句）+ 服务端发 `interrupt` → 前端 `clearQueue()`
+  → `useAudioBase64Queue.ts src.stop()` 停掉正在播的 WebAudio 源。**stop 链路是通的**。
+- **新增（`48b345f4`+`429314a9`）：每会话 TTS 风格控制**（`voice/tts_runtime_overrides.ts`）：
+  speed/pitch 调整 + MLX voice style preset + TTS 开关（静音 toggle），可在会话中实时覆盖。
+  同期新增 `d8f85e4d` punct-only guard：`guardPunctOnly()` 过滤纯标点 TTS 请求（防静默 chunk），
+  em/en dash 规范化。这些是 TTS 可靠性改进，不改架构。
 
 ### Q5. interruption.ts 的分类是否真的接入“播放中打断”？ → **没有接入“是否打断”的决策，只用于打断之后的回复塑形**
 
@@ -163,18 +179,20 @@ Remi 的语音链路是**“连续采集 + 声学半双工”**：麦克风在�
 
 | 维度 | 现状 | 定级 |
 |------|------|------|
-| 播放中持续采集 | 连续 getUserMedia，帧不停 | ✅ 有 |
+| 播放中持续采集 | 连续 getUserMedia，帧不停（WS 路径） | ✅ 有 |
 | 声学 VAD | 能量+ZCR+crest+activeRatio | ✅ 有，但纯声学 |
 | 语义 turn 检测 | 正则+标点+韵律启发式 | 🟡 有但手写、会飘 |
 | 学习型 EoT 模型 | 无 | ❌ 缺 |
-| STT interim 文本 | 仅 sherpa/openai-realtime；默认 openai 无 | 🟡 门控、默认无 |
+| STT interim 文本 | 仅 sherpa/openai-realtime；默认 openai/sense-voice 无 | 🟡 门控、默认无 |
+| STT 情绪识别 → LLM | sense-voice 附带 emotion/event，已注入 prompt | 🟡 新增，仅塑形回复 |
 | TTS 流式 | 句级 PCM 流；非逐 token | 🟡 半 |
 | TTS 快速 stop | abort + clearQueue + src.stop | ✅ 有 |
+| TTS 每会话风格控制 | speed/pitch/preset/mute，实时覆盖 | ✅ 新增 |
 | barge-in 触发 | 纯声学时长/RMS 门 | 🟡 慢且保守 |
 | 打断分类接入 stop | 未接（只塑形后续回复） | ❌ 缺 |
 | 边听边想 | 预生成整句，挂 partial | 🟡 种子在 |
 | 回声消除 | 仅浏览器原生 | ❌ 无服务端 AEC |
-| 统一状态机 | 散在三层，缺 2 态 | 🟡 半 |
+| 统一状态机 | 散在三层，缺 2 态；SSE 文本会话另行管理 | 🟡 半 |
 
 ---
 
@@ -214,6 +232,54 @@ Remi 的语音链路是**“连续采集 + 声学半双工”**：麦克风在�
   “什么时候不说、只回个嗯”的现成钩子。
 - 句级 PCM 传输协商（`tts_transport.ts` 的 `pcm_stream_v1`）——未来接流式 TTS 的口子。
 
-改造方向因此明确：**不是重写，而是在这些好底子外面，补一层“语义 turn 检测 +
+改造方向因此明确：**不是重写，而是在这些好底子外面，补一层”语义 turn 检测 +
 统一状态机 + 可插拔 provider”**，并把已有但没接通的能力（打断分类、预生成、interim）接起来。
 详见 `FULL_DUPLEX_SPEECH_RUNTIME_PLAN.md`。
+
+---
+
+## 6. main 合并后的变更评估（2026-06-24）
+
+以下是主线 merge（截至 `b89bd12c`）带来的有效变化与对各节的影响：
+
+### 变更：SSE/WS 传输分离（`551f32c7` `429314a9`）
+
+- 文本走 HTTP+SSE（`/api/chat`，`TextSessionPool`），WS 专供语音/全双工。
+- **影响**：Q1/Q4/Q7/Q8 结论范围收窄到 WS 会话，在 §0 已加说明框。
+- SSE 文本路径无 duplex/VAD，其 turn 状态由 LLM 流控制，不需要 SpeechRuntime。
+- **结论变化**：无（WS 路径结论不变）；但 §8 「散在三层」应明确 SSE/WS 是两条独立路径。
+
+### 变更：SenseVoice STT（`b89bd12c` `168fb58b`）
+
+- 新增 `sense-voice` provider（batch，进程内 sherpa-onnx-node），返回 emotion/event/lang。
+- 情绪已接线：`buildVocalToneFromMeta()` → `userVocalTone` → LLM prompt。
+- **影响**：Q3 在 §2 已更新。能力表新增”STT 情绪识别 → LLM”一行。
+- **结论变化**：三大瓶颈**不变**——SenseVoice 是 batch provider，不提供 interim 文本，
+  turn-taking 和预生成的饥饿问题仍在。情绪接入 prompt 是好事，但它改善的是「接住情绪」
+  而非「判断说完没」与「打断慢」这两个主要瓶颈。
+
+### 变更：TTS voice style picker + punct guard（`48b345f4` `d8f85e4d` `429314a9`）
+
+- 每会话 speed/pitch/preset/mute 控制（`voice/tts_runtime_overrides.ts`）。
+- punct-only guard + dash normalization（`voice/tts_helpers.ts`）。
+- **影响**：Q4 已更新，新增说明。
+- **结论变化**：不影响三大瓶颈，属于 TTS 可靠性改进。
+
+### 变更：M3 记忆（`9b2b7502`）
+
+- `core_memory`（slow brain 提取）、`temporal_facts`（flag 控）。
+- 全在 slow brain path，不影响 WS 语音 fast path（`sttFinal → llm_first`）。
+- **结论变化**：无，与语音链路无直接关系。
+
+### 变更：Tool-use（`a6e1e31f` `074601ee` `b299566e`）
+
+- `REMI_TOOL_USE_ENABLED` 门控，LLM function-calling dispatch。
+- **注意**：工具执行（图片生成、视频生成等）在 LLM → TTS fast path 上是同步阻塞的。
+  默认关闭，但开启时会给 `sttFinal → llm_first` 增加工具调用延迟。
+- **建议**：PR5/PR6 实现”边听边想”时，需确认工具调用不在 thinking_while_listening 窗口内同步执行。
+
+### 总结
+
+三大瓶颈（barge-in 纯声学慢 / 默认无 interim / turn-end 手写规则）**均未被 main 变更修复**，
+改造优先级不变。SenseVoice 情绪 → LLM 是额外新增能力，PR6（边听边想）阶段可考虑将
+emotion 标签也输入 TurnDetectorProvider，辅助打断分类。
