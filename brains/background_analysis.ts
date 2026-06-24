@@ -26,6 +26,7 @@ import type { PromptMessage } from "../brain/prompt_builder";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
 import { isNsfwEnabled } from "./nsfw_mode";
+import { runProjectMemoryAnalysis } from "./project_memory_analysis";
 import type { TemporalFactsRepository } from "../storage/repositories/temporal_facts_repository";
 
 const logger = createLogger("background_analysis");
@@ -115,6 +116,21 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
         error: (err as Error).message,
       });
     }
+  }
+
+  // Project Memory Layer: extract reusable project info (decisions / progress /
+  // working style / performance profiles) off the hot path. Self-gates on
+  // flag + worthiness + LLM config; never throws into the slow-brain pipeline.
+  if (!lightTouchTurn && !nsfwActive) {
+    await runProjectMemoryAnalysis({
+      userId,
+      userMessage,
+      assistantReply,
+      history,
+      repo: relationshipRepo,
+      signal: input.signal,
+      connId: input.connId,
+    });
   }
 
   if ((input.inputSource ?? "text") === "text") {

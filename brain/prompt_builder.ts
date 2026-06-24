@@ -87,6 +87,8 @@ interface BuildPromptInput {
   timelineFacts?: string;
   /** 后台任务事实锚：真实任务状态（如"当前没有视频在生成"），放动态尾部，堵住 LLM 编造进度。 */
   backgroundTask?: string;
+  /** 长期事务记忆主线块：独立 system part，放在 core memory 之后（自带预算，NSFW 模式跳过）。 */
+  projectMemoryBlock?: string;
 }
 
 type PrioritySlots = {
@@ -340,6 +342,7 @@ export function buildPrompt({
   coreMemoryBlock,
   timelineFacts,
   backgroundTask,
+  projectMemoryBlock,
 }: BuildPromptInput): PromptMessage[] {
   // Collect all system content parts — Qwen3's tools-aware chat template
   // (used when tools are passed) rejects multiple system messages followed
@@ -350,6 +353,12 @@ export function buildPrompt({
   ];
   if (coreMemoryBlock?.trim()) {
     systemParts.push(coreMemoryBlock.trim());
+  }
+  // Project / long-term-affairs memory: a dedicated system part with its own
+  // budget, so the compact summary (incl. user_working_style) is never squeezed
+  // into the 500-char priorityContext. Suppressed in NSFW mode.
+  if (projectMemoryBlock?.trim() && !isNsfwEnabled(connId)) {
+    systemParts.push(projectMemoryBlock.trim());
   }
   const messages: PromptMessage[] = [
     { role: "system", content: systemParts.filter((s) => s.trim()).join("\n\n") },

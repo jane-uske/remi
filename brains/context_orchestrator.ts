@@ -1011,8 +1011,6 @@ export async function* routeMessage(
     userVocalTone
       ? `【对方此刻的语气】\n对方说话时的情绪：${userVocalTone}。请自然地回应这种语气，不要直接提及"我检测到你的情绪是…"。`
       : undefined,
-    // Remi 项目主线（长期项目记忆，作为背景让她像长期搭档一样接话）
-    projectMemoryHint,
     analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
     carryForwardHint,
   ]
@@ -1118,6 +1116,9 @@ export async function* routeMessage(
       coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
       timelineFacts,
       backgroundTask: describeActiveVideoTask(ctx.connId),
+      // 长期事务记忆主线：独立 system part（自带预算），不挤占 priorityContext。
+      // 仅在召回轮（detectProjectRecall 命中）计算，命中前为 undefined。
+      projectMemoryBlock: projectMemoryHint,
     })) {
       fullReply += token;
       yield token;
