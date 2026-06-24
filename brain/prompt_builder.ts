@@ -89,6 +89,11 @@ interface BuildPromptInput {
   backgroundTask?: string;
   /** 长期事务记忆主线块：独立 system part，放在 core memory 之后（自带预算，NSFW 模式跳过）。 */
   projectMemoryBlock?: string;
+  /**
+   * DL-P1b RemiSelf 跨会话挂念：她「还惦记着上次」的一件事。轻量、可选、放动态
+   * 尾部；自然时可以提起，但不要每轮硬提 / 机械复述。NSFW 模式跳过。
+   */
+  remiSelfFocus?: string | null;
 }
 
 type PrioritySlots = {
@@ -343,6 +348,7 @@ export function buildPrompt({
   timelineFacts,
   backgroundTask,
   projectMemoryBlock,
+  remiSelfFocus,
 }: BuildPromptInput): PromptMessage[] {
   // Collect all system content parts — Qwen3's tools-aware chat template
   // (used when tools are passed) rejects multiple system messages followed
@@ -359,6 +365,13 @@ export function buildPrompt({
   // into the 500-char priorityContext. Suppressed in NSFW mode.
   if (projectMemoryBlock?.trim() && !isNsfwEnabled(connId)) {
     systemParts.push(projectMemoryBlock.trim());
+  }
+  // DL-P1b RemiSelf 跨会话挂念：她「还惦记着上次」的一件事。轻量、可选，自然时
+  // 可以提起，但不要每轮硬提 / 机械复述。NSFW 模式跳过。
+  if (remiSelfFocus?.trim() && !isNsfwEnabled(connId)) {
+    systemParts.push(
+      `（你心里还惦记着上次的一件事：${remiSelfFocus.trim()}。自然的时候可以提一句，但别每轮都硬提、别机械复述这句话。）`,
+    );
   }
   const messages: PromptMessage[] = [
     { role: "system", content: systemParts.filter((s) => s.trim()).join("\n\n") },

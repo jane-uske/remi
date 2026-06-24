@@ -13,8 +13,10 @@ import {
   touchSessionUserActivity,
   fireSessionSilenceNudge,
   persistRelationshipContinuityState,
+  persistRemiSelfState,
   type SessionContinuityRuntime,
 } from "./continuity";
+import { loadAndApplyRemiSelf } from "./remi_self";
 import { cleanupSessionResources } from "./lifecycle";
 import { handleSessionTextChat, type SessionTextChatRuntime } from "./text_chat";
 import type { MessageSink } from "../gateway/types";
@@ -152,6 +154,10 @@ class TextSessionPool {
       entry.bootstrapReady = true;
     }
 
+    // DL-P1b: 异步加载 RemiSelf + 漂移 + soft-patch（用 bootstrap 解析出的
+    // brain.userId；flag off / 无记录 / 失败静默 no-op）。fire-and-forget。
+    void loadAndApplyRemiSelf(brain, brain.userId);
+
     // Restore adult mode if this user dropped while in it and came back within
     // the window (keyed by the bootstrap-resolved user id, matching setNsfw).
     await restoreNsfwForUser(connId, brain.userId);
@@ -185,6 +191,12 @@ class TextSessionPool {
     unbindNsfwNotifier(entry.connId);
 
     void persistRelationshipContinuityState({
+      connId: entry.connId,
+      brain: entry.brain,
+    }).catch(() => {});
+
+    // DL-P1b: RemiSelf 写回，与关系连续性状态并排（flag off 时 no-op）。
+    void persistRemiSelfState({
       connId: entry.connId,
       brain: entry.brain,
     }).catch(() => {});

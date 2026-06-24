@@ -186,6 +186,12 @@ export class RemiSessionContext {
   persistentRelationshipRepo: MemoryRepository | null = null;
   /** M3-P2: bi-temporal 事实仓库。bootstrap 时初始化。 */
   temporalFactsRepo: import("../storage/repositories/temporal_facts_repository").TemporalFactsRepository | null = null;
+  /**
+   * DL-P1b: RemiSelf 跨会话「还惦记着上次」的 currentFocus。bootstrap 异步加载
+   * RemiSelf + 漂移后 soft-patch 进来（不阻塞 fast path）；orchestrator 作为轻量
+   * 可选提示注入 prompt（NSFW 模式跳过）。flag off / 无记录时保持 null。
+   */
+  remiSelfFocus: string | null = null;
   private clientTimeZone: string | null = null;
   private clientLocale: string | null = null;
   /** 会话创建时刻，用于"距上次对话"的一次性计算。 */

@@ -294,6 +294,12 @@ export const envSchema = z.object({
   // building (north star / current focus / decisions / next steps / working
   // style). Gated recall injection + off-hot-path slow-brain extraction.
   REMI_PROJECT_MEMORY_ENABLED: booleanString("1"),
+  // DL-P1b RemiSelf 最小持久化 + 离线演进：让 Remi 成为跨会话/跨设备持续存在
+  // 的同一个她。关掉隔几小时/隔天回来 → mood/energy 已合理漂移（非冻结非清
+  // 零），开口体现"我还在、还记着上次"。默认 OFF —— flag off 时 load/save/
+  // inject 全短路，行为与现状逐字节一致。设计见
+  // docs/design/DIGITAL_LIFE_NORTH_STAR.md §1。
+  REMI_SELF_PERSISTENCE_ENABLED: booleanString("0"),
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
   REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: booleanString("1"),
   REMI_RELATIONSHIP_STATE_ENABLED: booleanString("1"),

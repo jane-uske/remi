@@ -1119,6 +1119,9 @@ export async function* routeMessage(
       // 长期事务记忆主线：独立 system part（自带预算），不挤占 priorityContext。
       // 仅在召回轮（detectProjectRecall 命中）计算，命中前为 undefined。
       projectMemoryBlock: projectMemoryHint,
+      // DL-P1b RemiSelf 跨会话挂念：bootstrap 漂移后 soft-patch 进 ctx.remiSelfFocus
+      // （flag off / 无记录时为 null）。轻量可选注入，NSFW 由 buildPrompt 跳过。
+      remiSelfFocus: getConfig().REMI_SELF_PERSISTENCE_ENABLED ? ctx.remiSelfFocus : null,
     })) {
       fullReply += token;
       yield token;

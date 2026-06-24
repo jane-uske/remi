@@ -41,9 +41,11 @@ import {
   fireSessionSilenceNudge,
   isContinuousConversation,
   persistRelationshipContinuityState,
+  persistRemiSelfState,
   syncSessionVadSilenceThreshold,
   touchSessionUserActivity,
 } from "./continuity";
+import { loadAndApplyRemiSelf } from "./remi_self";
 import {
   applyDeveloperPreset,
   applyDeveloperTtsVoiceOverride,
@@ -530,6 +532,10 @@ export class ConnectionSession {
     } finally {
       this.personaPresetBootstrapReady = true;
     }
+    // DL-P1b: 异步加载 RemiSelf + 漂移 + soft-patch（绝不阻塞握手 / fast path）。
+    // 在 bootstrap 之后跑，用最终解析出的 brain.userId；flag off / 无记录 / 失败
+    // 静默 no-op。fire-and-forget，不 await。
+    void loadAndApplyRemiSelf(this.brain, this.brain.userId);
     this.sendPersonaPresetState();
     // Re-enable adult mode if this user dropped while in it and reconnected
     // within the restore window (crash / network blip / redeploy). New sessions
@@ -2622,10 +2628,10 @@ export class ConnectionSession {
   }
 
   private async persistRelationshipContinuityState(): Promise<void> {
-    await persistRelationshipContinuityState({
-      connId: this.connId,
-      brain: this.brain,
-    });
+    const runtime = { connId: this.connId, brain: this.brain };
+    await persistRelationshipContinuityState(runtime);
+    // DL-P1b: RemiSelf 写回，与关系连续性状态并排（flag off 时 no-op）。
+    void persistRemiSelfState(runtime).catch(() => {});
   }
 
   /** Feed accumulated speechBuffer into STT and run pipeline (buffer cleared after feed). */
