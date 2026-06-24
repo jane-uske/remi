@@ -106,6 +106,8 @@ export interface FastBrainInput {
   coreMemoryBlock?: string;
   /** M3-P2 Tier4 时序事实：透传给 buildPrompt，放在动态尾部。 */
   timelineFacts?: string;
+  /** 后台任务事实锚：透传给 buildPrompt，堵住 LLM 编造后台任务进度。 */
+  backgroundTask?: string;
   /** Tool definitions for function calling. When provided, LLM may return
    *  tool_calls instead of text. */
   tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
@@ -168,6 +170,7 @@ export async function* fastBrainStream(
     timeContext: input.timeContext,
     coreMemoryBlock: input.coreMemoryBlock,
     timelineFacts: input.timelineFacts,
+    backgroundTask: input.backgroundTask,
   });
 
   // Append tool-usage directive so the LLM calls tools instead of fabricating
@@ -330,6 +333,7 @@ export async function fastBrainPredictOnly(
     timeContext: input.timeContext,
     coreMemoryBlock: input.coreMemoryBlock,
     timelineFacts: input.timelineFacts,
+    backgroundTask: input.backgroundTask,
   });
 
   // Append tool-usage directive so the LLM calls tools instead of fabricating

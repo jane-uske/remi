@@ -47,6 +47,18 @@ function buildVideoReply(runName: string, label: string): string {
   ].join("\n");
 }
 
+/**
+ * 给 reply brain 注入的"后台任务事实锚"。reply brain 不持有工具、也看不到真实
+ * 任务状态，过去只能靠对话历史脑补，于是会编造"视频还在跑 / 已经跑了 24 小时"这类
+ * 不存在的进度（线上实测的假视频根因）。这里用 activeBySession（唯一真相源）给它
+ * 一句确定的事实，堵住凭空捏造。
+ */
+export function describeActiveVideoTask(connId: string): string {
+  return activeBySession.has(connId)
+    ? "【后台任务】此刻确有一个视频在后台生成中。可以说『还在生成』，但不要编造具体进度百分比或『已经跑了多少小时/多少天』。"
+    : "【后台任务】当前没有任何正在进行的后台任务（视频/图片生成等）。绝不要声称自己正在生成视频、还在跑进度、或有任务在后台运行——没有就是没有，不要凭空捏造。";
+}
+
 export const videoGenerationCapability: DirectCapability = {
   id: CAPABILITY_ID,
   async tryHandle(request) {

@@ -15,6 +15,12 @@ import { routeMessageTools, toolRouterPrefilter } from "./tool_router";
 import {
   retrievePromptMemory,
 } from "../memory/memory_agent";
+import {
+  detectProjectRecall,
+  loadProjectMemory,
+  projectMemoryEnabled,
+  renderProjectMemoryContext,
+} from "../memory/project_memory";
 import { recordTextArchiveEntry } from "../cold_layer/text_archive_ledger";
 import type { PromptMessage } from "../brain/prompt_builder";
 import type { Emotion } from "../emotion/emotion_state";
@@ -58,6 +64,7 @@ import {
 import { reviewReplyTone } from "../brain/tone_policy";
 import { tryHandleDirectCapabilities } from "../brain/direct_capabilities";
 import { resolveImageIntent } from "../capabilities/image_generation/resolve_image_intent";
+import { describeActiveVideoTask } from "../capabilities/video_generation/video_generation_capability";
 import {
   getSessionLastImage,
   sessionHasImage,
@@ -976,6 +983,27 @@ export async function* routeMessage(
       ? buildCompactPriorityContext(guidance.hints, slowBrainContext)
       : undefined;
   const historyForPrompt = trimHistoryToTokenBudget([...ctx.history], historyTokenBudget);
+  // Project memory recall: gated + trigger-detected, so ordinary turns pay only
+  // a cheap regex and the prompt stays unpolluted. Fires when the user asks
+  // about project status / next steps / past decisions / a style ("像她一点").
+  let projectMemoryHint: string | undefined;
+  if (projectMemoryEnabled() && ctx.userId && !opts?.systemTriggered) {
+    const projectFocus = detectProjectRecall(userMessage);
+    if (projectFocus) {
+      try {
+        const projectRepo =
+          ctx.persistentRelationshipRepo ??
+          ctx.memory.getPersistentBackend() ??
+          ctx.memory;
+        const pm = await loadProjectMemory(projectRepo, ctx.userId);
+        projectMemoryHint = renderProjectMemoryContext(pm, projectFocus);
+      } catch (err) {
+        logger.debug("project memory recall failed", {
+          error: (err as Error).message,
+        });
+      }
+    }
+  }
   const strategyHintsForPrompt = [
     // 世界情境放最前，作为本轮对话的场景地基（RW-P1-4）
     situationalContext ? `【你此刻的处境】\n${situationalContext}` : undefined,
@@ -983,6 +1011,8 @@ export async function* routeMessage(
     userVocalTone
       ? `【对方此刻的语气】\n对方说话时的情绪：${userVocalTone}。请自然地回应这种语气，不要直接提及"我检测到你的情绪是…"。`
       : undefined,
+    // Remi 项目主线（长期项目记忆，作为背景让她像长期搭档一样接话）
+    projectMemoryHint,
     analysisPriorityContext ?? compactPriorityContext ?? guidance.hints,
     carryForwardHint,
   ]
@@ -1087,6 +1117,7 @@ export async function* routeMessage(
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
       coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
       timelineFacts,
+      backgroundTask: describeActiveVideoTask(ctx.connId),
     })) {
       fullReply += token;
       yield token;

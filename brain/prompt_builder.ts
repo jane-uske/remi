@@ -85,6 +85,8 @@ interface BuildPromptInput {
   coreMemoryBlock?: string;
   /** M3-P2 Tier4 时序事实：bi-temporal 召回结果，放在动态尾部（时间块之前）。 */
   timelineFacts?: string;
+  /** 后台任务事实锚：真实任务状态（如"当前没有视频在生成"），放动态尾部，堵住 LLM 编造进度。 */
+  backgroundTask?: string;
 }
 
 type PrioritySlots = {
@@ -337,6 +339,7 @@ export function buildPrompt({
   timeContext,
   coreMemoryBlock,
   timelineFacts,
+  backgroundTask,
 }: BuildPromptInput): PromptMessage[] {
   // Collect all system content parts — Qwen3's tools-aware chat template
   // (used when tools are passed) rejects multiple system messages followed
@@ -377,7 +380,7 @@ export function buildPrompt({
   // 合并进 user message 而非独立 system message —— Qwen3 的 tools-aware
   // chat template 不允许 system role 出现在对话中间，拼到 user 前缀既保留
   // 语义又不破坏 template。
-  const dynamicTailParts = [timelineFacts?.trim(), timeContext?.trim()].filter(
+  const dynamicTailParts = [timelineFacts?.trim(), backgroundTask?.trim(), timeContext?.trim()].filter(
     (s): s is string => Boolean(s?.trim()),
   );
   const finalUserContent = dynamicTailParts.length > 0
