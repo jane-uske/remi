@@ -38,3 +38,34 @@ describe("RemiLanding portal chrome", () => {
     assert.match(landing, /PORTAL_CHROME_COLOR = "#0a0612"/);
   });
 });
+
+describe("global document-scroll baseline", () => {
+  const css = readSource("src", "app", "globals.css");
+
+  it("drives html/body background from the route-bg token with a theme fallback", () => {
+    const matches = css.match(
+      /background-color:\s*var\(--remi-route-bg,\s*var\(--remi-body-bg\)\)/g,
+    );
+    // both html and body
+    assert.ok(matches && matches.length >= 2, "expected html + body to use --remi-route-bg fallback");
+  });
+
+  it("keeps body as the main scroller (overflow-y auto, momentum scroll)", () => {
+    // [^}]* stays inside the body rule so the assertion can't drift into
+    // another block.
+    assert.match(css, /body\s*\{[^}]*overflow-y:\s*auto/);
+    assert.match(css, /body\s*\{[^}]*-webkit-overflow-scrolling:\s*touch/);
+  });
+
+  it("never locks html/body to a fixed-height non-scrolling shell", () => {
+    // Isolate the top-level html{} and body{} rules (no nested braces inside),
+    // then assert neither locks scrolling.
+    const htmlBlock = css.match(/\nhtml\s*\{[^}]*\}/)?.[0] ?? "";
+    const bodyBlock = css.match(/\nbody\s*\{[^}]*\}/)?.[0] ?? "";
+    assert.ok(htmlBlock && bodyBlock, "expected top-level html{} and body{} rules");
+    assert.doesNotMatch(htmlBlock, /overflow:\s*hidden/);
+    assert.doesNotMatch(htmlBlock, /height:\s*100vh/);
+    assert.doesNotMatch(bodyBlock, /overflow:\s*hidden/);
+    assert.doesNotMatch(bodyBlock, /height:\s*100vh/);
+  });
+});
