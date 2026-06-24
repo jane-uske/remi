@@ -14,6 +14,16 @@ describe("Safari near-fullscreen css", () => {
     assert.match(source, /height:\s*auto\s*!important/);
   });
 
+  it("pins the mobile chat dock to the visual viewport so the composer stays above the Safari toolbar", () => {
+    const cssPath = path.resolve(__dirname, "..", "src", "app", "globals.css");
+    const source = fs.readFileSync(cssPath, "utf8");
+
+    assert.match(
+      source,
+      /@media \(max-width: 767px\) \{\s*html\[data-ios-safari="true"\] \.remi-chat-mobile-immersive \{\s*position: fixed;/,
+    );
+  });
+
   it("keeps the root html background aligned with the remi stage so exposed Safari chrome does not fall back to pure black", () => {
     const cssPath = path.resolve(__dirname, "..", "src", "app", "globals.css");
     const source = fs.readFileSync(cssPath, "utf8");
