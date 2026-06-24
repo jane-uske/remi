@@ -180,7 +180,7 @@ export function RemiChatApp() {
       data-remi-nsfw={nsfwEnabled ? "1" : "0"}
     >
       <header className={layout.headerShell}>
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 bg-[linear-gradient(180deg,rgba(168,85,247,0.16),rgba(168,85,247,0.08)_44%,transparent)] blur-2xl sm:h-24" />
+        {/* header glow removed — body SVG background now shows through */}
         <div className={layout.headerInner}>
           <div className="flex min-w-0 items-center gap-3">
             <RemiAccountMenu
@@ -262,14 +262,17 @@ export function RemiChatApp() {
       <main className={layout.mainShell}>
         {!nsfwEnabled ? (
           <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[22svh] bg-[linear-gradient(180deg,rgba(139,92,246,0.48),rgba(139,92,246,0.18)_62%,transparent)] [clip-path:ellipse(84%_100%_at_50%_0%)] opacity-90" />
-            <div className="remi-stage-grid pointer-events-none absolute inset-0 opacity-30" />
+            <div className="remi-twinkle" style={{ left: "26%", top: "20%" }} />
+            <div className="remi-twinkle" style={{ left: "68%", top: "28%", animationDelay: "1.6s" }} />
+            <div className="remi-twinkle" style={{ left: "48%", top: "14%", animationDelay: "2.8s" }} />
+            <div className="remi-twinkle" style={{ left: "82%", top: "46%", animationDelay: "0.9s" }} />
+            <div className="remi-twinkle" style={{ left: "16%", top: "52%", animationDelay: "3.4s" }} />
           </>
         ) : null}
 
         {!nsfwEnabled ? (
           <section className={layout.stageShell}>
-            <div className="pointer-events-none absolute inset-x-[10%] bottom-[10%] h-24 rounded-[50%] bg-[radial-gradient(circle,rgba(168,85,247,0.18),transparent_72%)] blur-3xl md:bottom-[8%]" />
+            {/* stage floor glow removed — body SVG background shows through */}
 
             <div className={layout.mobileControlRail}>
               <RemiMobileControlRail
