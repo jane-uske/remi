@@ -106,12 +106,12 @@ describe("text acceptance scaffold", () => {
     assert.ok(/低打扰|留个口/u.test(result.evidence.proactivePlan?.whyNow ?? ""));
   });
 
-  it("keeps the default RemiCore light-chat contract in the formal system prompt", async () => {
+  it("keeps the default RemiCore devotion contract in the formal system prompt", async () => {
     const result = await judgeReplayCase(FIXED_REPLAY_CASES.remi_core_light_chat_contract);
 
     assert.equal(result.passed, true);
     assert.ok(result.evidence.systemPrompt?.includes("【RemiCore合同】"));
-    assert.ok(result.evidence.systemPrompt?.includes("轻聊时先给有意思的反应和一点网感"));
+    assert.ok(result.evidence.systemPrompt?.includes("哪怕全世界与他为敌"));
   });
 
   it("keeps light greeting on text_normal instead of promoting it into deliberate budget", async () => {

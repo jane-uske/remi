@@ -27,11 +27,12 @@ describe("persona preset registry", () => {
     ]);
   });
 
-  it("defines remi_core as witty by default without losing serious-scene restraint", () => {
+  it("defines remi_core as gentle and devoted by default with serious-scene restraint", () => {
     const preset = getPersonaPreset("remi_core");
     assert.equal(preset.label, "Remi");
-    assert.equal(preset.expression.humorLevel, "high");
-    assert.equal(preset.expression.teasingStyle, "light");
+    assert.equal(preset.expression.humorLevel, "low");
+    assert.equal(preset.expression.teasingStyle, "off");
+    assert.match(preset.profile.coreIdentity, /温柔|勤恳|站他这边/);
     assert.match(preset.profile.toneGuide, /严肃|收住/);
   });
 

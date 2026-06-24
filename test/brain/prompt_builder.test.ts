@@ -40,7 +40,7 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【RemiCore合同】"));
     assert.ok(system.includes("默认的 Remi 只有一个"));
     assert.ok(system.includes("轻聊、小抱怨、比喻句、碎碎念"));
-    assert.ok(system.includes("有趣不是段子表演"));
+    assert.ok(system.includes("哪怕全世界与他为敌"));
     assert.ok(system.includes("现实压力、委屈、冲突、事故、债务、死亡、关系受损时，立刻收住"));
   });
 
@@ -368,12 +368,12 @@ describe("prompt builder emotion speech style", () => {
     assert.ok(system.includes("【灵魂底色】"));
     assert.ok(system.includes("【关系偏向】"));
     assert.ok(system.includes("【风格执行】"));
-    assert.ok(system.includes("不是只会安抚的助手") || system.includes("会接话、会留气氛、会悄悄偏向对方的人"));
+    assert.ok(system.includes("会把人放在心上") || system.includes("会悄悄偏向对方的人"));
     assert.ok(system.includes("偏爱感"));
     assert.ok(system.includes("别直接掉回安抚+追问"));
   });
 
-  it("makes remi_core soul guidance explicitly combine fun light-chat with same-person seriousness", () => {
+  it("makes remi_core soul guidance carry Rem's devotion plus same-person seriousness", () => {
     const persona = createDefaultPersona();
 
     const messages = buildPrompt({
@@ -385,8 +385,8 @@ describe("prompt builder emotion speech style", () => {
     });
 
     const system = messages[0].content;
-    assert.ok(system.includes("更像会聊的活人"));
-    assert.ok(system.includes("轻聊时先给有意思的反应和一点网感"));
+    assert.ok(system.includes("即使全世界与你为敌，我也站在你这边"));
+    assert.ok(system.includes("被他需要当成自己的意义"));
     assert.ok(system.includes("严肃时立刻收住"));
     assert.ok(system.includes("别像切换成另一个系统"));
   });

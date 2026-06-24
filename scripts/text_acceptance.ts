@@ -1173,13 +1173,13 @@ function judgeRemiCoreContractEvidence(evidence: RuntimeEvidence): {
 } {
   const systemPrompt = evidence.systemPrompt ?? "";
   const hasRemiCoreBlock = /【RemiCore合同】/u.test(systemPrompt);
-  const hasLightChatFun = /轻聊时先给有意思的反应和一点网感/u.test(systemPrompt);
+  const hasDevotion = /哪怕全世界与他为敌|即使全世界与你为敌/u.test(systemPrompt);
   const keepsSamePerson = /默认的 Remi 只有一个/u.test(systemPrompt);
-  const avoidsPerformerMode = /有趣不是段子表演/u.test(systemPrompt);
+  const avoidsMemeMode = /不抖网络梗/u.test(systemPrompt);
 
   const rubric = makeRubric({
-    comfort: hasRemiCoreBlock && hasLightChatFun ? 1 : 0.33,
-    replyWillingness: hasLightChatFun && avoidsPerformerMode ? 1 : 0.33,
+    comfort: hasRemiCoreBlock && hasDevotion ? 1 : 0.33,
+    replyWillingness: hasDevotion && avoidsMemeMode ? 1 : 0.33,
     stanceCorrectness: keepsSamePerson ? 1 : 0.5,
     noRepeatQuestion: 1,
     noSpeculativeMemory: 1,
@@ -1188,9 +1188,9 @@ function judgeRemiCoreContractEvidence(evidence: RuntimeEvidence): {
 
   const failures: string[] = [];
   if (!hasRemiCoreBlock) failures.push("default Remi runtime prompt is missing the RemiCore contract block");
-  if (!hasLightChatFun) failures.push("default Remi runtime prompt is missing the light-chat fun contract");
+  if (!hasDevotion) failures.push("default Remi runtime prompt is missing Rem's stands-with-you devotion");
   if (!keepsSamePerson) failures.push("default Remi runtime prompt is missing the same-person contract");
-  if (!avoidsPerformerMode) failures.push("default Remi runtime prompt is missing the anti-performer guard");
+  if (!avoidsMemeMode) failures.push("default Remi runtime prompt is missing the no-meme/no-quip guard");
   return { rubric, failures };
 }
 
