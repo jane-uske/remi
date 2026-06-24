@@ -16,6 +16,10 @@ import type { InterruptController } from "../../voice/interrupt_controller";
 import { getLatencyTracer } from "../../infra/latency_tracer";
 import { runPipeline } from "../pipeline";
 import { proactivePlannerMainPathEnabled, silenceNudgeMs } from "./runtime_config";
+import {
+  remiSelfPersistenceEnabled,
+  saveRemiSelfFromLiveState,
+} from "./remi_self";
 import type { SessionTtsTransport } from "./tts_transport";
 
 const logger = createLogger("session");
@@ -106,6 +110,26 @@ export async function persistRelationshipContinuityState(
     );
   } catch (err) {
     logger.warn("[陪伴] 连续性状态持久化失败", {
+      error: (err as Error).message,
+      connId: runtime.connId,
+    });
+  }
+}
+
+/**
+ * DL-P1b: RemiSelf 断连写回 —— persistRelationshipContinuityState 的兄弟函数。
+ * 在所有调用 persistRelationshipContinuityState 的地方并排 fire-and-forget 调用。
+ * flag off（默认）/ 无 userId → no-op；失败只 warn，绝不抛。设计见
+ * docs/design/DIGITAL_LIFE_NORTH_STAR.md §1。
+ */
+export async function persistRemiSelfState(
+  runtime: Pick<SessionContinuityRuntime, "brain" | "connId">,
+): Promise<void> {
+  if (!remiSelfPersistenceEnabled()) return;
+  try {
+    await saveRemiSelfFromLiveState(runtime.brain);
+  } catch (err) {
+    logger.warn("[RemiSelf] 自我状态持久化失败", {
       error: (err as Error).message,
       connId: runtime.connId,
     });
