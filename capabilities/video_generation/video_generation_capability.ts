@@ -56,7 +56,7 @@ function buildVideoReply(runName: string, label: string): string {
 export function describeActiveVideoTask(connId: string): string {
   return activeBySession.has(connId)
     ? "【后台任务】此刻确有一个视频在后台生成中。可以说『还在生成』，但不要编造具体进度百分比或『已经跑了多少小时/多少天』。"
-    : "【后台任务】当前没有任何正在进行的后台任务（视频/图片生成等）。绝不要声称自己正在生成视频、还在跑进度、或有任务在后台运行——没有就是没有，不要凭空捏造。";
+    : "【后台任务】你当前没有、也从未在后台跑过任何视频生成任务。若用户提到『那个视频』『跑完了没』，要如实说你并没有在做/没有做过那个视频——绝不要附和着说『还在跑』『早就跑完了』『在等你验收』『关进小黑屋了』这类把不存在的任务说成真的话。可以顺势问要不要现在帮 ta 生成。";
 }
 
 export const videoGenerationCapability: DirectCapability = {
