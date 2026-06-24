@@ -94,6 +94,12 @@ interface BuildPromptInput {
    * 尾部；自然时可以提起，但不要每轮硬提 / 机械复述。NSFW 模式跳过。
    */
   remiSelfFocus?: string | null;
+  /**
+   * 离线居家人生归来叙事「事实锚」：她离线期间确定性算出的居家经历（看书/看海/打
+   * 理花/听音乐/发呆）+ 白名单 + 黑名单反例。独立 system part（自带封闭白名单，堵
+   * 住编造），NSFW 模式跳过。
+   */
+  offlineReturnAnchor?: string | null;
 }
 
 type PrioritySlots = {
@@ -349,6 +355,7 @@ export function buildPrompt({
   backgroundTask,
   projectMemoryBlock,
   remiSelfFocus,
+  offlineReturnAnchor,
 }: BuildPromptInput): PromptMessage[] {
   // Collect all system content parts — Qwen3's tools-aware chat template
   // (used when tools are passed) rejects multiple system messages followed
@@ -372,6 +379,11 @@ export function buildPrompt({
     systemParts.push(
       `（你心里还惦记着上次的一件事：${remiSelfFocus.trim()}。自然的时候可以提一句，但别每轮都硬提、别机械复述这句话。）`,
     );
+  }
+  // 离线居家人生归来叙事：她离线期间确定性算出的真实经历 + 封闭白名单 + 黑名单反
+  // 例，独立 system part（自带防编造约束）。NSFW 模式跳过。
+  if (offlineReturnAnchor?.trim() && !isNsfwEnabled(connId)) {
+    systemParts.push(offlineReturnAnchor.trim());
   }
   const messages: PromptMessage[] = [
     { role: "system", content: systemParts.filter((s) => s.trim()).join("\n\n") },

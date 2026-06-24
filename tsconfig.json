@@ -14,6 +14,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["server/**/*", "agents/**/*", "memory/**/*", "emotion/**/*", "brain/**/*", "brains/**/*", "voice/**/*", "llm/**/*", "utils/**/*", "storage/**/*", "avatar/**/*", "infra/**/*", "plugin/**/*", "services/**/*"],
+  "include": ["server/**/*", "agents/**/*", "memory/**/*", "emotion/**/*", "brain/**/*", "brains/**/*", "voice/**/*", "llm/**/*", "utils/**/*", "storage/**/*", "avatar/**/*", "infra/**/*", "plugin/**/*", "services/**/*", "world/**/*"],
   "exclude": ["node_modules", "dist"]
 }
