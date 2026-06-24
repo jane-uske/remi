@@ -62,15 +62,43 @@ export async function warmSenseVoice(): Promise<boolean> {
   return senseVoiceSttRuntime.warm();
 }
 
+// Module-level cache for the auto-detected incremental provider.
+// "uncached" sentinel avoids null/undefined ambiguity.
+let _cachedAutoIncremental: IncrementalSttProvider | null | "uncached" = "uncached";
+
+/** Reset the auto-detect cache between tests only — never call in production. */
+export function __resetIncrementalProviderCacheForTest(): void {
+  _cachedAutoIncremental = "uncached";
+}
+
 function getIncrementalProvider(): IncrementalSttProvider | null {
-  const p = (
+  // Explicit config always wins and suppresses auto-detect.
+  const explicit = (
+    getConfig().REMI_STT_INCREMENTAL_PROVIDER ??
     getConfig().stt_incremental_provider ??
-    getConfig().STT_INCREMENTAL_PROVIDER ??
-    getConfig().REMI_STT_PROVIDER ??
-    "openai"
-  ).toLowerCase();
-  if (p === "openai-realtime" || p === "sherpa-onnx") return p;
-  return null;
+    getConfig().STT_INCREMENTAL_PROVIDER
+  )?.toLowerCase();
+  if (explicit === "openai-realtime") return "openai-realtime";
+  if (explicit === "sherpa-onnx") return "sherpa-onnx";
+  if (explicit === "none" || explicit === "off" || explicit === "disabled") return null;
+  if (explicit != null) return null; // unrecognized value → no incremental
+
+  // Backward compat: REMI_STT_PROVIDER itself might be an incremental provider.
+  const mainProvider = (getConfig().REMI_STT_PROVIDER ?? "openai").toLowerCase();
+  if (mainProvider === "openai-realtime") return "openai-realtime";
+  if (mainProvider === "sherpa-onnx") return "sherpa-onnx";
+
+  // Auto-detect: when sherpa-onnx models are present locally, use them for
+  // streaming partials alongside the batch provider. Result cached after first check
+  // to avoid repeated fs.existsSync on every audio frame.
+  if (_cachedAutoIncremental !== "uncached") return _cachedAutoIncremental;
+  if (sherpaSttRuntime.canUseSherpa()) {
+    sttLogger.info("[IntermSTT] auto-detected sherpa-onnx for streaming partials", {});
+    _cachedAutoIncremental = "sherpa-onnx";
+  } else {
+    _cachedAutoIncremental = null;
+  }
+  return _cachedAutoIncremental;
 }
 
 export async function warmWhisperServer(): Promise<boolean> {
