@@ -3,6 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AuroraBackground } from "@/components/AuroraBackground";
+import { useRouteChromeColor } from "@/lib/mobile/useRouteChromeColor";
+
+/** The portal is a dark-only aurora route; pin the Safari chrome + deep
+ *  background to its hero color so the top status-bar / Dynamic Island area
+ *  matches the hero instead of showing a pale band under a light system theme. */
+const PORTAL_CHROME_COLOR = "#0a0612";
 
 interface RemiLandingProps {
   /** Called when the user chooses to enter (CTA). Preserves the prior contract
@@ -59,6 +65,7 @@ const EXPLORE_LINKS = [
 ];
 
 export function RemiLanding({ onEnter }: RemiLandingProps) {
+  useRouteChromeColor(PORTAL_CHROME_COLOR);
   const [hover, setHover] = useState<number | null>(null);
   const [pinned, setPinned] = useState(DEFAULT_EMOTION);
   const active = hover ?? pinned;
