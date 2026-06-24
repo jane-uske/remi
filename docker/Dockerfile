@@ -21,6 +21,7 @@ COPY storage/ ./storage/
 COPY infra/ ./infra/
 COPY persona/ ./persona/
 COPY plugin/ ./plugin/
+COPY world/ ./world/
 RUN npx tsc
 
 # Stage 2: Build frontend
