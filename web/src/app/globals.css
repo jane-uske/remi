@@ -406,6 +406,19 @@ html[data-ios-safari="true"] .remi-app-shell::after {
   flex: 0 0 2px;
 }
 
+/* iOS Safari 的 near-fullscreen 让 body 可滚动以收起地址栏，但这会把
+   .remi-app-shell 拉到 100lvh（地址栏收起时的高度）。此时 chatAside 的
+   absolute bottom-0 会锚定到这个更高的 lvh 底部——初次进入（地址栏展开、
+   可视视口 = svh < lvh）时，输入栏下半行就被 Safari 底部工具栏盖住，要先
+   滚动才能露出。把移动端的 chat dock 改为 fixed，锚定到可视视口底部，使输入
+   栏始终浮在 Safari chrome 之上、无需滚动即可使用。md+ 是右侧面板布局，故
+   仅在窄屏生效。 */
+@media (max-width: 767px) {
+  html[data-ios-safari="true"] .remi-chat-mobile-immersive {
+    position: fixed;
+  }
+}
+
 .remi-chat-shell {
   position: relative;
 }
