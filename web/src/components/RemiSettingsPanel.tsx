@@ -146,7 +146,7 @@ export function RemiSettingsPanel({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header + status pills */}
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-[color:var(--remi-border)] px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-[var(--foreground)]">服务设置</h2>
             <p className="mt-0.5 text-[11px] text-[var(--remi-dim)]">
@@ -157,13 +157,13 @@ export function RemiSettingsPanel({
             type="button"
             aria-label="关闭"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--remi-surface)] text-[var(--remi-dim)] transition hover:text-[var(--foreground)]"
           >
             ✕
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-b border-white/10 px-5 py-3">
+        <div className="flex flex-wrap gap-2 border-b border-[color:var(--remi-border)] px-5 py-3">
           <StatusPill label="ComfyUI" health={health?.comfyui} />
           <StatusPill label="MLX TTS" health={health?.mlx} />
         </div>
@@ -210,7 +210,7 @@ export function RemiSettingsPanel({
               <select
                 value={form.REMI_TTS_PROVIDER ?? "edge"}
                 onChange={(e) => setField("REMI_TTS_PROVIDER", e.target.value)}
-                className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition hover:border-white/20"
+                className="rounded-xl border border-[color:var(--remi-border)] bg-[var(--remi-input)] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition hover:border-[color:var(--remi-accent)]"
               >
                 {TTS_PROVIDERS.map((p) => (
                   <option key={p} value={p}>
@@ -335,7 +335,7 @@ export function RemiSettingsPanel({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-t border-[color:var(--remi-border)] px-5 py-4">
           <span className="text-xs text-[var(--remi-dim)]">
             {status === "loading" && "读取中…"}
             {status === "saved" && "已保存 ✓"}
@@ -345,7 +345,7 @@ export function RemiSettingsPanel({
             type="button"
             onClick={save}
             disabled={status === "saving" || status === "loading"}
-            className="rounded-xl bg-white/90 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white disabled:cursor-wait disabled:opacity-60"
+            className="rounded-xl bg-[var(--remi-accent)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           >
             {status === "saving" ? "保存中…" : "保存"}
           </button>
@@ -361,7 +361,7 @@ function StatusPill({ label, health }: { label: string; health?: ServiceHealth }
   const color = !known ? "#9ca3af" : up ? "#34d399" : "#f87171";
   const text = !known ? "检测中" : up ? `在线 ${health?.latencyMs}ms` : "离线";
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-[var(--foreground)]">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--remi-border)] bg-[var(--remi-surface)] px-2.5 py-1 text-[11px] text-[var(--foreground)]">
       <span
         className="inline-block h-2 w-2 rounded-full"
         style={{ backgroundColor: color }}
@@ -374,7 +374,7 @@ function StatusPill({ label, health }: { label: string; health?: ServiceHealth }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <section className="space-y-3 rounded-2xl border border-[color:var(--remi-border)] bg-[var(--remi-surface)] p-4">
       <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--remi-dim)]">
         {title}
       </h3>
@@ -404,7 +404,7 @@ function Text({
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
         autoComplete="off"
-        className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition placeholder:text-white/25 hover:border-white/20 focus:border-white/30"
+        className="rounded-xl border border-[color:var(--remi-border)] bg-[var(--remi-input)] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--remi-input-placeholder)] hover:border-[color:var(--remi-accent)] focus:border-[color:var(--remi-accent)]"
       />
     </label>
   );
@@ -428,7 +428,7 @@ function Toggle({
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full px-0.5 transition-colors ${
-          checked ? "bg-emerald-400/80" : "bg-white/15"
+          checked ? "bg-emerald-400/80" : "bg-[var(--remi-dot-off)]"
         }`}
       >
         {/* Track content box is 40px (44 − 2×2px padding); knob is 20px, so
