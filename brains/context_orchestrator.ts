@@ -1122,6 +1122,10 @@ export async function* routeMessage(
       // DL-P1b RemiSelf 跨会话挂念：bootstrap 漂移后 soft-patch 进 ctx.remiSelfFocus
       // （flag off / 无记录时为 null）。轻量可选注入，NSFW 由 buildPrompt 跳过。
       remiSelfFocus: getConfig().REMI_SELF_PERSISTENCE_ENABLED ? ctx.remiSelfFocus : null,
+      // 离线居家人生归来叙事：bootstrap 用 lastSeenAt 确定性复算后填入
+      // ctx.offlineReturnAnchor（flag off / <30min / 无记录时为 null）。独立 system
+      // part 事实锚，NSFW 由 buildPrompt 跳过。
+      offlineReturnAnchor: getConfig().REMI_OFFLINE_LIFE_ENABLED ? ctx.offlineReturnAnchor : null,
     })) {
       fullReply += token;
       yield token;

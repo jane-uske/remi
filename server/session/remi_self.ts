@@ -19,6 +19,11 @@ import {
   normalizeCurrentFocus,
 } from "../../memory/remi_self";
 import { getRemiSelfRepository } from "../../storage/repositories/remi_self_repository_factory";
+import { offlineLifeEnabled } from "./runtime_config";
+import {
+  computeReturnNarrative,
+  buildReturnNarrativeAnchor,
+} from "../../world/return_narrative";
 
 const logger = createLogger("remi-self");
 
@@ -74,6 +79,26 @@ export async function loadAndApplyRemiSelf(
     brain.persona.liveState.topicPull = drifted.topicPull;
     // 暂存 currentFocus 供 prompt 注入（漂移按规则刻意保留）。
     brain.remiSelfFocus = normalizeCurrentFocus(drifted.currentFocus);
+
+    // 离线居家人生：复用同一处已有的 saved.lastSeenAt（零额外 DB 读），确定性复算
+    // 离线期间的居家经历，非空则把"事实锚"暂存供 prompt 注入（NSFW 由 buildPrompt
+    // 跳过）。纯函数 µs 级，塞进这条已是 fire-and-forget 的路径，不阻塞 fast path。
+    // flag off → 整段短路，offlineReturnAnchor 保持 null。
+    if (offlineLifeEnabled()) {
+      const narrative = computeReturnNarrative(
+        saved.lastSeenAt.getTime(),
+        now.getTime(),
+      );
+      if (narrative) {
+        brain.offlineReturnAnchor = buildReturnNarrativeAnchor(narrative);
+        logger.debug("[OfflineLife] return narrative computed", {
+          userId,
+          elapsedMinutes: narrative.elapsedMinutes,
+          beatCount: narrative.beats.length,
+          phase: narrative.phase,
+        });
+      }
+    }
 
     logger.debug("[RemiSelf] restored + drifted", {
       userId,

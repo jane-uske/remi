@@ -112,6 +112,8 @@ export interface FastBrainInput {
   projectMemoryBlock?: string;
   /** DL-P1b RemiSelf 跨会话挂念：透传给 buildPrompt，轻量可选注入（NSFW 跳过）。 */
   remiSelfFocus?: string | null;
+  /** 离线居家人生归来叙事「事实锚」：透传给 buildPrompt，独立 system part（NSFW 跳过）。 */
+  offlineReturnAnchor?: string | null;
   /** Tool definitions for function calling. When provided, LLM may return
    *  tool_calls instead of text. */
   tools?: Array<{ type: "function"; function: Record<string, unknown> }>;
@@ -177,6 +179,7 @@ export async function* fastBrainStream(
     backgroundTask: input.backgroundTask,
     projectMemoryBlock: input.projectMemoryBlock,
     remiSelfFocus: input.remiSelfFocus,
+    offlineReturnAnchor: input.offlineReturnAnchor,
   });
 
   // Append tool-usage directive so the LLM calls tools instead of fabricating
@@ -342,6 +345,7 @@ export async function fastBrainPredictOnly(
     backgroundTask: input.backgroundTask,
     projectMemoryBlock: input.projectMemoryBlock,
     remiSelfFocus: input.remiSelfFocus,
+    offlineReturnAnchor: input.offlineReturnAnchor,
   });
 
   // Append tool-usage directive so the LLM calls tools instead of fabricating

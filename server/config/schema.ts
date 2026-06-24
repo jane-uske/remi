@@ -300,6 +300,14 @@ export const envSchema = z.object({
   // inject 全短路，行为与现状逐字节一致。设计见
   // docs/design/DIGITAL_LIFE_NORTH_STAR.md §1。
   REMI_SELF_PERSISTENCE_ENABLED: booleanString("0"),
+  // 离线居家人生 + 归来叙事：Remi 离线时在 RemiWorld 过自己的确定性居家日程
+  // （看书/看海/打理花/听音乐/发呆），回来时用 [lastSeenAt, now] 窗口确定性复算
+  // 这段经历，被动注入"事实锚"——用户先开口问起时她能自然带出真实经历，零编造
+  // （beat 措辞全来自确定性查表，封闭白名单）。
+  // 前置依赖 REMI_SELF_PERSISTENCE_ENABLED=1：lastSeenAt 是唯一来源，两 flag 都
+  // on 才生效。默认 OFF —— flag off 时 anchor 恒 null，行为与现状逐字节一致。
+  // 设计见 docs/design/DIGITAL_LIFE_NORTH_STAR.md。
+  REMI_OFFLINE_LIFE_ENABLED: booleanString("0"),
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
   REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: booleanString("1"),
   REMI_RELATIONSHIP_STATE_ENABLED: booleanString("1"),

@@ -192,6 +192,14 @@ export class RemiSessionContext {
    * 可选提示注入 prompt（NSFW 模式跳过）。flag off / 无记录时保持 null。
    */
   remiSelfFocus: string | null = null;
+  /**
+   * 离线居家人生：归来叙事的「事实锚」文本。bootstrap 在 loadAndApplyRemiSelf 里
+   * 用 saved.lastSeenAt 确定性复算 [lastSeen, now] 窗口的居家经历后填入（复用同一
+   * 处已有的 lastSeenAt，零额外 DB 读）。orchestrator 作为独立 system part 注入
+   * （NSFW 跳过）。两 flag（REMI_SELF_PERSISTENCE_ENABLED + REMI_OFFLINE_LIFE_
+   * ENABLED）都 on 且离线 ≥30min 才非空；否则恒 null（行为与现状逐字节一致）。
+   */
+  offlineReturnAnchor: string | null = null;
   private clientTimeZone: string | null = null;
   private clientLocale: string | null = null;
   /** 会话创建时刻，用于"距上次对话"的一次性计算。 */

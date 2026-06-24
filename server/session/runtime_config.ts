@@ -26,6 +26,14 @@ export function proactivePlannerMainPathEnabled(): boolean {
   return getConfig().REMI_PROACTIVE_PLANNER_MAIN_PATH_ENABLED;
 }
 
+/**
+ * 离线居家人生 + 归来叙事是否开启。前置依赖 REMI_SELF_PERSISTENCE_ENABLED=1
+ * （lastSeenAt 唯一来源）；off 时 anchor 计算/注入全短路，行为与现状逐字节一致。
+ */
+export function offlineLifeEnabled(): boolean {
+  return getConfig().REMI_OFFLINE_LIFE_ENABLED;
+}
+
 export function isSemanticallyCompletePreview(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
