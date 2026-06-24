@@ -247,6 +247,24 @@ export function RemiSettingsPanel({
             </div>
           </Section>
 
+          <Section title="实时语音外壳（实验 · Voice Native）">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-[var(--remi-dim)]">语音引擎</span>
+              <select
+                value={form.REMI_VOICE_ENGINE ?? "legacy"}
+                onChange={(e) => setField("REMI_VOICE_ENGINE", e.target.value)}
+                className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition hover:border-white/20"
+              >
+                <option value="legacy">legacy（级联，默认 · 与现状等价）</option>
+                <option value="realtime_shadow">realtime_shadow（端到端影子 · 仅打日志）</option>
+              </select>
+            </label>
+            <p className="text-[11px] leading-5 text-[var(--remi-dim)]">
+              realtime_shadow 仅把统一事件协议打到服务端日志，不接任何厂商、不发客户端消息、不改变现有语音链路；
+              legacy 始终是兜底。下次语音会话生效。
+            </p>
+          </Section>
+
           <Section title="成人模式（NSFW）">
             <Toggle
               label="允许成人模式"

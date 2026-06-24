@@ -281,6 +281,15 @@ export type RemiServerMessage =
       enabled: boolean;
     }
   | {
+      // Ack for the WS `set_voice_engine` override (realtime voice shell).
+      // `engine` is the id that actually took effect; `fellBack` is true when it
+      // differs from `requested` (unknown id / non-brain authority → legacy).
+      type: "voice_engine_ack";
+      engine: string;
+      requested: string;
+      fellBack: boolean;
+    }
+  | {
       type: "error";
       content: string;
     };

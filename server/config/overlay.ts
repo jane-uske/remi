@@ -56,6 +56,8 @@ export const OVERLAY_WRITABLE_KEYS = [
   "REMI_TTS_MLX_LANGUAGE",
   // Adult mode master switch
   "REMI_NSFW_ENABLED",
+  // Realtime voice shell (experimental): legacy | realtime_shadow
+  "REMI_VOICE_ENGINE",
 ] as const;
 
 export type OverlayKey = (typeof OVERLAY_WRITABLE_KEYS)[number];
