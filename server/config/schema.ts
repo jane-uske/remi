@@ -119,6 +119,39 @@ export const envSchema = z.object({
   STT_MIN_PCM_MS: z.coerce.number().int().nonnegative().optional(),
   stt_incremental_provider: z.string().optional(),
   STT_INCREMENTAL_PROVIDER: z.string().optional(),
+  REMI_STT_INCREMENTAL_PROVIDER: z.string().optional(),
+  // ── Turn detector shadow (PR5) ────────────────────────────────────────────
+  REMI_TURN_DETECTOR_SHADOW: booleanString("0"),
+  REMI_TURN_DETECTOR_SHADOW_PROVIDER: z
+    .enum(["pipecat_smartturn", "livekit_v1mini", "stub"])
+    .default("stub"),
+  // PR5b: real (async) turn-detector sidecar endpoint. When unset or the
+  // sidecar is unreachable, the shadow gracefully falls back to legacy only.
+  REMI_TURN_DETECTOR_ENDPOINT: z.string().optional(),
+  REMI_TURN_DETECTOR_TIMEOUT_MS: z.coerce.number().int().positive().default(150),
+  // End-of-turn probability threshold for mapping the real model output to a
+  // CONFIRMED_END state in shadow comparison. Tuning knob for the eval harness;
+  // does NOT affect any live behavior (shadow only).
+  REMI_TURN_DETECTOR_EOU_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
+  // PR5d: turn-detector mode. off=legacy only; shadow=log-only comparison;
+  // limited_on=real EOU may adjust turn-END ONLY (never barge-in), asymmetrically:
+  //   low EOU → extend patience (never cut earlier); high EOU → LIKELY_END→CONFIRMED_END.
+  // When unset, derived from REMI_TURN_DETECTOR_SHADOW (1→shadow, 0→off) for back-compat.
+  // limited_on requires REMI_TURN_DETECTOR_ENDPOINT + a real partial; otherwise full legacy.
+  REMI_TURN_DETECTOR_MODE: z.enum(["off", "shadow", "limited_on"]).optional(),
+  // EOU below this → "extend patience" band (never used to cut early).
+  REMI_TURN_DETECTOR_EOU_LOW: z.coerce.number().min(0).max(1).default(0.05),
+  // EOU at/above this → allowed to upgrade legacy LIKELY_END → CONFIRMED_END.
+  REMI_TURN_DETECTOR_EOU_HIGH: z.coerce.number().min(0).max(1).default(0.6),
+  // Safety cap: max extra hold (ms past confirmedStableMs) a low-EOU downgrade
+  // may add, so a persistently-low EOU can never hang the turn forever.
+  REMI_TURN_DETECTOR_LOW_EOU_MAX_EXTRA_HOLD_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(700),
+  // Cached EOU (computed on partial arrival) is only used if fresher than this.
+  REMI_TURN_DETECTOR_EOU_CACHE_TTL_MS: z.coerce.number().int().positive().default(1500),
   whisper_model: z.string().optional(),
   whisper_prompt: z.string().optional(),
   whisper_lang: z.string().optional(),
@@ -257,6 +290,10 @@ export const envSchema = z.object({
 
   REMI_WORKING_MEMORY_ENABLED: booleanString("0"),
   REMI_EPISODE_MEMORY_ENABLED: booleanString("1"),
+  // Project Memory Layer: long-term structured memory of what the user is
+  // building (north star / current focus / decisions / next steps / working
+  // style). Gated recall injection + off-hot-path slow-brain extraction.
+  REMI_PROJECT_MEMORY_ENABLED: booleanString("1"),
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
   REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: booleanString("1"),
   REMI_RELATIONSHIP_STATE_ENABLED: booleanString("1"),
@@ -533,6 +570,10 @@ export const envSchema = z.object({
   STT_PREDICTION_DEBOUNCE_MS: z.coerce.number().nonnegative().default(300),
 
   // ── Voice ───────────────────────────────────────────────────────────────
+  // Swappable realtime voice shell (docs/voice/VOICE_NATIVE_MODE.md §6/§7).
+  // Free-form string (NOT a strict enum) so an unknown value degrades to legacy
+  // at resolve time instead of crashing startup. Today: legacy | realtime_shadow.
+  REMI_VOICE_ENGINE: z.string().default("legacy"),
   VOICE_BACKCHANNEL_ENABLED: booleanString("1"),
   VOICE_BACKCHANNEL_COOLDOWN_MS: z.coerce.number().nonnegative().default(6000),
   VOICE_BACKCHANNEL_STABLE_MS: z.coerce.number().nonnegative().default(1100),

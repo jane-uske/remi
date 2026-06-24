@@ -22,6 +22,8 @@ import type { TurnAnalysisBundle } from "../../brain/turn_interpreter";
 import type { InterruptionType, RemiTurnState, RemiTurnStateReason } from "../../avatar/types";
 import { resolveTurnDetector } from "./voice/turn_detector";
 import { SpeechRuntime } from "./voice/speech_runtime";
+import { resolveVoiceEngine } from "./voice/engine";
+import type { VoiceEngine } from "./voice/engine";
 import {
   evaluateBackchannelDecision,
   getMeaningfulTurnPreview,
@@ -246,9 +248,15 @@ export class ConnectionSession {
   private clientContextTtsTransport: ClientContextTtsTransport | null = null;
   private personaPresetBootstrapReady = false;
   /** Phase 1 pluggable turn-end / barge-in classification (legacy only for now). */
-  private readonly turnDetector = resolveTurnDetector();
+  private readonly turnDetector: ReturnType<typeof resolveTurnDetector>;
   /** Phase 1 SHADOW-ONLY observer. Never sends, never mutates session state. */
   private readonly speechRuntime: SpeechRuntime;
+  /**
+   * Phase 1 swappable voice shell (docs/voice/VOICE_NATIVE_MODE.md). Default
+   * `legacy` is a no-op pass-through (byte-identical to pre-seam). Mutable so a
+   * per-session WS `set_voice_engine` override can swap it live.
+   */
+  private voiceEngine: VoiceEngine;
 
   sessionId: string | null = null;
   /**
@@ -436,7 +444,9 @@ export class ConnectionSession {
 
   constructor(ws: WebSocket, req: IncomingMessage) {
     this.connId = randomUUID();
+    this.turnDetector = resolveTurnDetector(this.connId);
     this.speechRuntime = new SpeechRuntime(this.connId);
+    this.voiceEngine = resolveVoiceEngine(this.connId, this.speechRuntime);
     this.brain = new RemiSessionContext(this.connId);
     notifySessionStart(this.connId);
     this.ws = ws;
@@ -1258,7 +1268,21 @@ export class ConnectionSession {
     }
     const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
     if (speechDurationMs < duplexInterruptMinSpeechMs()) return;
-    if (!this.hasReliableDuplexInterruptEvidence(speechDurationMs)) return;
+    const hasEvidence = this.hasReliableDuplexInterruptEvidence(speechDurationMs);
+    // PR5 shadow tap: run shadow barge-in evaluation for comparison logging.
+    // Never affects the outcome — try/catch protected.
+    try {
+      const partialText = this.lastMeaningfulPartialText || this.lastPreviewText;
+      this.turnDetector.evaluateBargeIn({
+        assistantActive: this.interrupt.active || this.assistantPlaybackActive,
+        speechDurationMs,
+        minSpeechMs: duplexInterruptMinSpeechMs(),
+        hasReliableEvidence: hasEvidence,
+        hasPartial: getMeaningfulTurnPreview(partialText).length >= 2,
+        partialText,
+      });
+    } catch { /* shadow must not throw */ }
+    if (!hasEvidence) return;
     this.pendingDuplexInterrupt = false;
     this.lastConfirmedInterruptAt = Date.now();
     this.markMeaningfulSpeechActivity("accepted_interrupt", this.lastConfirmedInterruptAt);
@@ -1928,6 +1952,13 @@ export class ConnectionSession {
       generationId: extras?.generationId,
       interruptionType: extras?.interruptionType ?? null,
     });
+    // SHADOW: feed the swappable voice shell (legacy = no-op; realtime_shadow = log).
+    this.voiceEngine.observe({
+      kind: "turn_state",
+      state,
+      reason,
+      data: { interruptionType: extras?.interruptionType ?? null },
+    });
   }
 
   private maybeSendBackchannel(input: {
@@ -2180,6 +2211,11 @@ export class ConnectionSession {
 
     this.lastPreviewText = text;
     this.markMeaningfulSpeechActivity("streaming_stt_partial");
+    this.speechRuntime.observeEvent("transcript.partial", { text, source: event.provider ?? null });
+    this.voiceEngine.observe({ kind: "partial_user_text", text });
+    // PR5d: feed the real partial to the turn detector so limited_on can compute
+    // & cache an EOU off the fast path. No-op outside limited_on. Never throws.
+    this.turnDetector.notePartial?.(text);
     this.emitSttPartial(text, {
       source: event.provider,
       stability: event.stability,
@@ -2928,6 +2964,7 @@ export class ConnectionSession {
       handleChat: (data) => this.handleChat(data),
       handleWorldEvent: (data) => this.handleWorldEvent(data),
       handleSetVoiceStyle: (data) => this.handleSetVoiceStyle(data),
+      handleSetVoiceEngine: (data) => this.handleSetVoiceEngine(data),
     });
   }
 
@@ -2958,6 +2995,30 @@ export class ConnectionSession {
       setSessionTtsEnabled(connId, data.ttsEnabled === false ? false : true);
     }
     send(this.ws, { type: "voice_style_ack", ...data });
+  }
+
+  /**
+   * WS message `set_voice_engine` — per-session live override of the realtime
+   * voice shell. Re-resolves through {@link resolveVoiceEngine}, so an unknown
+   * id / a non-brain-authority engine / a construction failure all fall back to
+   * legacy. The acked `engine` is the engine that actually took effect (which
+   * may differ from `requested` when a fallback fired). Phase 1 never sends the
+   * client anything beyond this ack, and never changes the live audio path.
+   */
+  private handleSetVoiceEngine(data: any): void {
+    const requested = String(data?.engine ?? "").trim().toLowerCase();
+    this.voiceEngine = resolveVoiceEngine(this.connId, this.speechRuntime, requested);
+    logger.info("[VoiceEngine] set_voice_engine", {
+      connId: this.connId,
+      requested,
+      resolved: this.voiceEngine.id,
+    });
+    send(this.ws, {
+      type: "voice_engine_ack",
+      engine: this.voiceEngine.id,
+      requested,
+      fellBack: requested !== "" && this.voiceEngine.id !== requested,
+    });
   }
 
   private runDevCommand(task: Promise<void>): void {
@@ -3143,6 +3204,10 @@ export class ConnectionSession {
     this.duplexIdleSince = 0;
     this.resetDuplexRxMetrics();
     this.stt.startStreamingPcmSession();
+    logger.info("[IntermSTT] duplex_start", {
+      connId: this.connId,
+      interimSttActive: this.stt.canStreamPartials(),
+    });
     // 启动双工前同步VAD阈值
     this.syncVadSilenceThreshold();
     logger.info(`[Duplex] 已启动`, {
@@ -3153,10 +3218,12 @@ export class ConnectionSession {
       inputGain: this.currentDuplexInputGain(),
     });
     this.speechRuntime.observeDuplexStart();
+    this.voiceEngine.observe({ kind: "duplex_start" });
   }
 
   private handleDuplexStop(): void {
     this.speechRuntime.observeDuplexStop();
+    this.voiceEngine.observe({ kind: "duplex_stop" });
     const turnPreview = this.lastMeaningfulPartialText || this.lastPreviewText;
     const vadMode = this.lastVadStartMode;
     const speechDurationMs = (this.speechBufferBytes / 2 / this.duplexSampleRate) * 1000;
