@@ -264,6 +264,23 @@ export function InputBar({
     fileInputRef.current?.click();
   }, []);
 
+  // Focusing the composer must not scroll the conversation. By default the
+  // browser brings a newly-focused input into view, which nudges the message
+  // list / chat card up a notch on click. Intercept the first focusing click,
+  // suppress the default focus, and focus with preventScroll instead. We only
+  // do this when the textarea isn't already focused, so click-to-position the
+  // caret keeps working once you're typing.
+  const handleTextareaMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+      const textarea = textareaRef.current;
+      if (textarea && document.activeElement !== textarea) {
+        e.preventDefault();
+        textarea.focus({ preventScroll: true });
+      }
+    },
+    [],
+  );
+
   const chatgptMicButtonClass = recording
     ? "remi-mic-pulse remi-composer-icon-btn shrink-0 bg-[var(--remi-danger)] text-white opacity-100"
     : "remi-composer-icon-btn shrink-0 disabled:cursor-default disabled:opacity-30";
@@ -309,6 +326,7 @@ export function InputBar({
               value={value}
               disabled={disabled}
               rows={1}
+              onMouseDown={handleTextareaMouseDown}
               onChange={(e) => setValue(e.target.value)}
               onPaste={handlePaste}
               onKeyDown={(e) => {
@@ -441,6 +459,7 @@ export function InputBar({
             value={value}
             disabled={disabled}
             rows={1}
+            onMouseDown={handleTextareaMouseDown}
             onChange={(e) => setValue(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {

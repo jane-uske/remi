@@ -5,22 +5,31 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 describe("Safari near-fullscreen css", () => {
-  it("adds iPhone Safari specific near-fullscreen viewport rules", () => {
+  it("drops the old 100lvh near-fullscreen workaround in favor of true document scroll", () => {
     const cssPath = path.resolve(__dirname, "..", "src", "app", "globals.css");
     const source = fs.readFileSync(cssPath, "utf8");
 
-    assert.match(source, /\[data-ios-safari="true"\] \.remi-app-shell/);
-    assert.match(source, /100lvh/);
-    assert.match(source, /height:\s*auto\s*!important/);
+    // The chat now scrolls at the document level; the height-locking hack must be gone.
+    assert.doesNotMatch(source, /100lvh/);
+    assert.doesNotMatch(source, /height:\s*auto\s*!important/);
+    // iOS still gets momentum scroll + no rubber-band chaining on the body.
+    assert.match(
+      source,
+      /html\[data-ios-safari="true"\] body \{[^}]*overscroll-behavior-y:\s*none/,
+    );
   });
 
-  it("pins the mobile chat dock to the visual viewport so the composer stays above the Safari toolbar", () => {
+  it("fixes the mobile composer to the visual viewport above the keyboard", () => {
     const cssPath = path.resolve(__dirname, "..", "src", "app", "globals.css");
     const source = fs.readFileSync(cssPath, "utf8");
 
     assert.match(
       source,
-      /@media \(max-width: 767px\) \{\s*html\[data-ios-safari="true"\] \.remi-chat-mobile-immersive \{\s*position: fixed;/,
+      /@media \(max-width: 767px\) \{[\s\S]*\.remi-mobile-composer \{[\s\S]*position: fixed/,
+    );
+    assert.match(
+      source,
+      /translateY\(calc\(-1 \* var\(--remi-vv-bottom-offset, 0px\)\)\)/,
     );
   });
 

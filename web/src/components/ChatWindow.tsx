@@ -5,6 +5,12 @@ import type { ChatMessage } from "@/types/chat";
 import type { ConversationPerformanceModel } from "@/lib/presence/conversationPerformanceModel";
 import { MessageBubble } from "@/components/MessageBubble";
 import type { ChatWindowStatusModel } from "@/runtime/remiRuntimeSelectors";
+import {
+  documentScrollTarget,
+  elementScrollTarget,
+  isNearBottom,
+  type ScrollTarget,
+} from "@/lib/scroll/scrollTarget";
 
 export type ChatWindowProps = {
   messages: ChatMessage[];
@@ -20,6 +26,12 @@ export type ChatWindowProps = {
   /** True from send until the first assistant token is rendered. */
   awaitingAssistantReply?: boolean;
   immersive?: boolean;
+  /**
+   * When true, messages flow in the document and the window/document is the
+   * scroller (mobile immersive chat). When false (default), ChatWindow uses
+   * its own inner overflow-y:auto scroller (desktop / NSFW).
+   */
+  documentScroll?: boolean;
 };
 
 export function ChatWindow({
@@ -35,6 +47,7 @@ export function ChatWindow({
   performanceModel = null,
   awaitingAssistantReply = false,
   immersive = false,
+  documentScroll = false,
 }: ChatWindowProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const prevStreamingRef = useRef("");
@@ -67,51 +80,114 @@ export function ChatWindow({
   const showListeningPulse = Boolean(performanceModel?.chatSync.showListeningPulse);
   const showYieldClamp = Boolean(performanceModel?.chatSync.showYieldClamp);
 
+  const getTarget = (): ScrollTarget | null => {
+    if (documentScroll) return documentScrollTarget();
+    const el = scrollerRef.current;
+    return el ? elementScrollTarget(el) : null;
+  };
+
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    scroller.scrollTop = scroller.scrollHeight;
+    const target = getTarget();
+    if (!target) return;
+    target.scrollToBottom("auto");
     shouldStickRef.current = true;
     didInitialScrollRef.current = true;
+    // In document mode the page height isn't final until the avatar canvas /
+    // fonts lay out; re-pin once on the next frame so we land at the bottom.
+    if (documentScroll) {
+      requestAnimationFrame(() => {
+        if (shouldStickRef.current) target.scrollToBottom("auto");
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
   useLayoutEffect(() => {
     if (listMutationNonce === 0 || listMutationNonce === lastHandledMutationRef.current) return;
     lastHandledMutationRef.current = listMutationNonce;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
+    const target = getTarget();
+    if (!target) return;
 
     if (listMutation === "prepend") {
       const previousHeight = pendingPrependHeightRef.current;
       if (previousHeight != null) {
-        const delta = scroller.scrollHeight - previousHeight;
-        scroller.scrollTop += delta;
+        const delta = target.getScrollHeight() - previousHeight;
+        target.setScrollTop(target.getScrollTop() + delta);
       }
       pendingPrependHeightRef.current = null;
       return;
     }
 
     if (listMutation === "replace") {
-      scroller.scrollTop = scroller.scrollHeight;
+      target.scrollToBottom("auto");
       shouldStickRef.current = true;
       didInitialScrollRef.current = true;
       pendingPrependHeightRef.current = null;
       return;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listMutation, listMutationNonce]);
 
   const handleScroll = () => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const distanceToBottom =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    shouldStickRef.current = distanceToBottom < 72;
+    const target = getTarget();
+    if (!target) return;
+    shouldStickRef.current = isNearBottom(
+      target.getScrollHeight(),
+      target.getScrollTop(),
+      target.getClientHeight(),
+    );
     if (!hasMoreHistory || loadingMoreHistory) return;
-    if (scroller.scrollTop > 48) return;
-    pendingPrependHeightRef.current = scroller.scrollHeight;
+    if (target.getScrollTop() > 48) return;
+    pendingPrependHeightRef.current = target.getScrollHeight();
     onLoadMore();
   };
+
+  // In document mode the scroll events fire on window, not the inner div.
+  // Route them through the latest handleScroll without re-binding per render.
+  const handleScrollRef = useRef(handleScroll);
+  handleScrollRef.current = handleScroll;
+  useEffect(() => {
+    if (!documentScroll) return;
+    const fn = () => handleScrollRef.current();
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, [documentScroll]);
+
+  // When the scroll mode flips (e.g. the narrow breakpoint resolves after the
+  // first client render, switching element-scroll → document-scroll), re-pin to
+  // the bottom in the new coordinate space so we don't get stuck mid-history.
+  const didModeInitRef = useRef(false);
+  useEffect(() => {
+    if (!didModeInitRef.current) {
+      didModeInitRef.current = true;
+      return; // initial mount is already handled by the layout effect above
+    }
+    const target = getTarget();
+    if (!target) return;
+    shouldStickRef.current = true;
+    requestAnimationFrame(() => target.scrollToBottom("auto"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentScroll]);
+
+  // When the scroller itself gets shorter — e.g. the composer grows by a line
+  // while you type and squeezes the message area — a bottom-pinned list would
+  // otherwise keep its scrollTop and let the latest message slide up under the
+  // composer. Re-pin on scroller resize, but only when we were already stuck to
+  // the bottom. Element-scroll mode only (document mode uses a fixed composer +
+  // padding, so the scroller height doesn't change as the composer grows).
+  useEffect(() => {
+    if (documentScroll) return;
+    const el = scrollerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!shouldStickRef.current) return;
+      getTarget()?.scrollToBottom("auto");
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentScroll]);
 
   useEffect(() => {
     if (!targetStreamingText) {
@@ -163,8 +239,8 @@ export function ChatWindow({
   useEffect(() => {
     const addedMessage = messages.length !== prevMessagesLenRef.current;
     prevMessagesLenRef.current = messages.length;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
+    const target = getTarget();
+    if (!target) return;
     const latestMessage = messages[messages.length - 1];
     const forceStickToBottom = addedMessage && latestMessage?.role === "user";
     if (!shouldStickRef.current && !forceStickToBottom) return;
@@ -172,7 +248,7 @@ export function ChatWindow({
       shouldStickRef.current = true;
     }
     const behavior: ScrollBehavior = addedMessage ? "smooth" : "auto";
-    scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+    target.scrollToBottom(behavior);
   }, [
     messages,
     effectivePartialText,
@@ -269,12 +345,16 @@ export function ChatWindow({
         aria-live="off"
         aria-busy={responseBusy}
         tabIndex={0}
-        onScroll={handleScroll}
-        className={`remi-chat-scroll-fade pointer-events-auto flex flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${
-          immersive
-            ? "max-h-none min-h-0 flex-1"
-            : "max-h-[min(34svh,19rem)] min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none"
-        }`}
+        onScroll={documentScroll ? undefined : handleScroll}
+        className={
+          documentScroll
+            ? "pointer-events-auto flex flex-col gap-1.5 px-3 pb-3 pt-2 outline-none [overflow-anchor:none] focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            : `remi-chat-scroll-fade pointer-events-auto flex flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${
+                immersive
+                  ? "max-h-none min-h-0 flex-1"
+                  : "max-h-[min(34svh,19rem)] min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none"
+              }`
+        }
       >
         {loadingMoreHistory ? (
           <div className="flex justify-center px-1 pb-1">
