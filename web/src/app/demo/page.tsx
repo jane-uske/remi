@@ -11,7 +11,7 @@ export default function DemoPage() {
     <main className="relative min-h-dvh">
       <div className="pointer-events-none absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
         <Link
-          href="/"
+          href="/chat"
           className="pointer-events-auto inline-flex items-center rounded-full border border-white/10 bg-black/40 px-4 py-2 text-sm text-[var(--foreground)] backdrop-blur-md transition hover:border-[var(--remi-accent)] hover:bg-black/55"
         >
           返回聊天页

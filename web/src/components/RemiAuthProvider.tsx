@@ -25,6 +25,7 @@ import {
   resolveCurrentUserId,
   resolveIsDefaultDevUser,
 } from "@/hooks/useRemiChatHelpers";
+import { isLegacyTokenUsable } from "@/lib/browserIdentity";
 
 type RemiWebAuthContextValue = {
   clerkEnabled: boolean;
@@ -79,6 +80,20 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, userId, getToken } = useAuth();
   const clerk = useClerk();
 
+  // A `?token=` in the address bar is only meaningful for the legacy/desktop
+  // (clerk-disabled) flow. In clerk mode it's spurious — a stale one hijacks
+  // auth: it keeps `signedIn` stuck (so sign-out bounces back to the chat page)
+  // and gets handed to the WebSocket forever (permanent 401 loop). Strip it on
+  // mount so it can't persist across reloads or navigations.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("token")) {
+      url.searchParams.delete("token");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, []);
+
   const authCapabilities = resolveAuthCapabilities({
     clerkEnabled: true,
     clerkSignedIn: Boolean(isSignedIn),
@@ -87,7 +102,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const value = useMemo<RemiWebAuthContextValue>(
     () => ({
       clerkEnabled: true,
-      ready: isLoaded || Boolean(legacyToken),
+      ready: isLoaded || isLegacyTokenUsable(legacyToken),
       signedIn: authCapabilities.signedIn,
       canSignOut: authCapabilities.canSignOut,
       currentUserId: resolveCurrentUserId({
@@ -99,7 +114,14 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
         legacyToken,
       }),
       getSessionToken: async () => {
-        if (legacyToken) return legacyToken;
+        // Clerk is the source of truth when signed in — always use its
+        // auto-refreshed session token. Only fall back to a URL `?token=` when
+        // Clerk isn't signed in AND that token is still usable (not expired);
+        // a stale one must never shadow Clerk — a dead `?token=` otherwise gets
+        // handed to the WebSocket forever, causing a permanent 401 → reconnect
+        // loop even though the Clerk session is alive.
+        if (isSignedIn) return getToken();
+        if (isLegacyTokenUsable(legacyToken)) return legacyToken;
         return getToken();
       },
       signOut: async () => {
@@ -107,7 +129,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
         await clerk.signOut({ redirectUrl: "/sign-in" });
       },
     }),
-    [authCapabilities.canSignOut, authCapabilities.signedIn, clerk, getToken, isLoaded, legacyToken, userId],
+    [authCapabilities.canSignOut, authCapabilities.signedIn, clerk, getToken, isLoaded, isSignedIn, legacyToken, userId],
   );
 
   return (

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { BackToChatLink } from "@/components/BackToChatLink";
+
 export const metadata: Metadata = {
   title: "Remi Benchmark — Latency & Memory Recall",
   description:
@@ -100,10 +102,11 @@ const scenarios = [
 export default function BenchmarkPage() {
   return (
     <main className="mx-auto min-h-dvh max-w-5xl px-6 py-12 md:py-20">
+      <BackToChatLink />
       {/* Header */}
       <header className="mb-12">
         <Link
-          href="/remi"
+          href="/develop"
           className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium transition hover:opacity-80"
           style={{ color: "var(--remi-accent)" }}
         >
@@ -377,7 +380,7 @@ export default function BenchmarkPage() {
         Data collected manually &middot; Automated benchmark pipeline planned
         &middot;{" "}
         <Link
-          href="/remi"
+          href="/develop"
           className="underline transition hover:opacity-80"
           style={{ color: "var(--remi-accent)" }}
         >

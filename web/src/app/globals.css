@@ -1065,3 +1065,76 @@ html[data-ios-safari="true"] body {
     bottom: -8px;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Remi 门户 · 液态玻璃（visionOS-style）升级
+   全部作用域限定在 .remi-portal，绝不影响聊天界面。
+   ───────────────────────────────────────────────────────────── */
+
+/* 在极光画布(z0)与内容(z2)之间叠一层发光的色彩晕染(screen 混合)，
+   给整页加上「液态」的色彩纵深，而不是压暗背景。 */
+.remi-portal::before {
+  content: "";
+  position: fixed;
+  inset: -12%;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 16% 20%, color-mix(in srgb, var(--remi-accent) 34%, transparent), transparent 70%),
+    radial-gradient(34% 30% at 84% 14%, rgba(125, 211, 252, 0.18), transparent 70%),
+    radial-gradient(46% 42% at 72% 90%, rgba(255, 158, 196, 0.15), transparent 72%);
+  mix-blend-mode: screen;
+  filter: blur(36px);
+}
+
+/* 显示字体：Apple 上即 SF Pro Display，中文走 PingFang，字距收紧。 */
+.remi-portal h1,
+.remi-portal h2,
+.remi-portal h3,
+.remi-portal .remi-display {
+  font-family: -apple-system, "SF Pro Display", "PingFang SC",
+    "Noto Sans SC", system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  font-optical-sizing: auto;
+}
+
+/* Hero 字标：极光渐变文字 + 柔光，告别系统默认的扁平感。 */
+.remi-portal-wordmark {
+  background: linear-gradient(
+    176deg,
+    #ffffff 0%,
+    #f4e9ff 45%,
+    color-mix(in srgb, var(--remi-accent) 72%, #ffffff) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 48px color-mix(in srgb, var(--remi-accent) 32%, transparent));
+}
+
+/* 磨砂玻璃卡：分层填充 + 顶部高光 + 漂浮投影（visionOS 材质感）。
+   高光做进 background 多层，避免 ::before 盖住文字的绘制顺序坑。 */
+.remi-portal-card {
+  position: relative;
+  background:
+    radial-gradient(86% 60% at 16% -8%, rgba(255, 255, 255, 0.13), transparent 58%),
+    linear-gradient(
+      162deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.042) 46%,
+      rgba(255, 255, 255, 0.02) 100%
+    );
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  backdrop-filter: blur(30px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+    0 26px 64px -30px rgba(8, 4, 20, 0.78);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remi-portal::before {
+    filter: blur(36px);
+  }
+}

@@ -66,17 +66,17 @@ function appendWebClientParamsToWsUrl(wsUrl: string): string {
 }
 
 export function appendTokenToWsUrl(wsUrl: string, token?: string | null): string {
-  if (typeof window === "undefined" && !token) return wsUrl;
-  const resolvedToken =
-    token ??
-    (typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("token")
-      : null);
-  if (!resolvedToken) return wsUrl;
+  // The token must be supplied explicitly by the auth layer (getSessionToken).
+  // We deliberately do NOT fall back to reading `?token=` off the page URL: a
+  // stale token left in the address bar would otherwise be re-attached to every
+  // WS connection (and every reconnect) forever — a permanent 401 loop even
+  // after the real auth state is gone. No token → connect without one and let
+  // the server reject cleanly, rather than reviving a dead credential.
+  if (!token) return wsUrl;
   try {
     const url = new URL(wsUrl);
     if (!url.searchParams.get("token")) {
-      url.searchParams.set("token", resolvedToken);
+      url.searchParams.set("token", token);
     }
     return url.toString();
   } catch {

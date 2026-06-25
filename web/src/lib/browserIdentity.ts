@@ -28,6 +28,24 @@ export function tokenUserId(token?: string | null): string {
   return typeof payload?.id === "string" ? payload.id.trim() : "";
 }
 
+/**
+ * A URL-provided (`?token=`) credential only counts as auth if it's present AND
+ * not expired. A dead token must never shadow Clerk's real-time state — a stale
+ * `?token=` (e.g. a 60s Clerk JWT left in the address bar) otherwise (a) keeps
+ * `signedIn` stuck true after a Clerk sign-out — "logged out but still on the
+ * chat page" — and (b) is handed to the WebSocket forever, causing a permanent
+ * 401 → reconnect loop. Opaque/non-JWT tokens and JWTs without `exp` keep the
+ * prior "present = usable" behavior (legacy long-lived tokens).
+ */
+export function isLegacyTokenUsable(token?: string | null): boolean {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  if (!payload) return true;
+  const exp = typeof payload.exp === "number" ? payload.exp : null;
+  if (exp === null) return true;
+  return exp * 1000 > Date.now();
+}
+
 export function resolveCurrentUserId(input?: {
   clerkUserId?: string | null;
   legacyToken?: string | null;
@@ -50,7 +68,7 @@ export function resolveAuthCapabilities(input?: {
   clerkSignedIn?: boolean;
   legacyToken?: string | null;
 }): ResolvedAuthCapabilities {
-  const hasLegacyToken = Boolean(input?.legacyToken);
+  const hasLegacyToken = isLegacyTokenUsable(input?.legacyToken);
   const clerkEnabled = Boolean(input?.clerkEnabled);
   const clerkSignedIn = Boolean(input?.clerkSignedIn);
 

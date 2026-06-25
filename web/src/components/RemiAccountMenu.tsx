@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { RemiIdentityAvatar } from "@/components/RemiIdentityAvatar";
 import { RemiSettingsPanel } from "@/components/RemiSettingsPanel";
@@ -228,6 +229,32 @@ export function RemiAccountMenu({
             themePreference={themePreference}
             onUpdateThemePreference={handleThemePreferenceChange}
           />
+
+          <div className="space-y-2 px-3 pt-3">
+            <p className="px-1 text-[11px] uppercase tracking-[0.22em] text-[var(--remi-dim)]">
+              前往
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { href: "/world", label: "World", icon: "🏝️" },
+                { href: "/benchmark", label: "Benchmark", icon: "⚡" },
+                { href: "/develop", label: "Develop", icon: "🔧" },
+              ].map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.05] px-2 py-3 text-center text-[11px] text-[var(--foreground)] transition hover:border-white/20 hover:bg-white/[0.08]"
+                >
+                  <span className="text-base" aria-hidden>
+                    {l.icon}
+                  </span>
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </div>
 
           <div className="space-y-2 px-3 py-3">
             <button

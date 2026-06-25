@@ -61,7 +61,7 @@ const EXPLORE_LINKS = [
   { href: "/world", label: "RemiWorld", desc: "她的小世界", icon: "🏝️" },
   { href: "/demo", label: "3D Demo", desc: "角色形象实验", icon: "🎭" },
   { href: "/benchmark", label: "Benchmark", desc: "延迟与性能", icon: "⚡" },
-  { href: "/remi", label: "Developer", desc: "技术文档与架构", icon: "🔧" },
+  { href: "/develop", label: "Developer", desc: "技术文档与架构", icon: "🔧" },
 ];
 
 export function RemiLanding({ onEnter }: RemiLandingProps) {
@@ -119,7 +119,7 @@ export function RemiLanding({ onEnter }: RemiLandingProps) {
               当前在场 · {emo.zh}
             </span>
             <h1
-              className="mt-6 font-semibold leading-[0.92] tracking-tight"
+              className="remi-portal-wordmark mt-6 font-semibold leading-[0.92] tracking-tight"
               style={{ fontSize: "clamp(64px, 13vw, 150px)" }}
             >
               Remi
@@ -323,15 +323,7 @@ function Section({
 
 function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div
-      className={`remi-portal-card rounded-3xl ${className}`}
-      style={{
-        background: "var(--remi-surface)",
-        border: "1px solid var(--remi-glass-edge)",
-        backdropFilter: "blur(20px) saturate(1.2)",
-        WebkitBackdropFilter: "blur(20px) saturate(1.2)",
-      }}
-    >
+    <div className={`remi-portal-card rounded-3xl ${className}`}>
       {children}
     </div>
   );

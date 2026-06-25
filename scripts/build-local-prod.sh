@@ -28,7 +28,12 @@ PLUGIN_HOST_PATH=$(
 
 if [ -f "$PLUGIN_HOST_PATH/package.json" ]; then
   echo "[prod:build] compiling adult plugin at $PLUGIN_HOST_PATH"
-  npm run build --prefix "$PLUGIN_HOST_PATH"
+  # Non-fatal: if the host can't read/build the plugin (e.g. the plugin lives
+  # under a macOS TCC-protected dir like ~/Desktop and this shell lacks access),
+  # keep the already-built dist — Docker mounts it read-only at runtime with its
+  # own file-access grant, so a host build failure must not abort the app deploy.
+  npm run build --prefix "$PLUGIN_HOST_PATH" \
+    || echo "[prod:build] WARN adult plugin build failed (host path unreadable — e.g. macOS TCC); keeping existing dist for the read-only container mount"
 else
   echo "[prod:build] WARN adult plugin not found at $PLUGIN_HOST_PATH — skip plugin build"
 fi
