@@ -170,6 +170,25 @@ export function ChatWindow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentScroll]);
 
+  // When the scroller itself gets shorter — e.g. the composer grows by a line
+  // while you type and squeezes the message area — a bottom-pinned list would
+  // otherwise keep its scrollTop and let the latest message slide up under the
+  // composer. Re-pin on scroller resize, but only when we were already stuck to
+  // the bottom. Element-scroll mode only (document mode uses a fixed composer +
+  // padding, so the scroller height doesn't change as the composer grows).
+  useEffect(() => {
+    if (documentScroll) return;
+    const el = scrollerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!shouldStickRef.current) return;
+      getTarget()?.scrollToBottom("auto");
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentScroll]);
+
   useEffect(() => {
     if (!targetStreamingText) {
       setVisibleStreamingText("");
