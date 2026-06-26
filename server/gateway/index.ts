@@ -24,6 +24,8 @@ import type { ServerMessage } from "./types";
 import { handleExtApi } from "./rest_api";
 import { handleSseChatApi } from "./sse_chat";
 import { handleDesktopExchangeToken } from "./desktop_auth";
+import { handleGuestToken } from "./guest_token";
+import { handleInviteStatus, handleInviteRedeem, handleInviteMyCodes } from "./invite_api";
 import { handleSettingsApi, handleServiceHealth } from "./settings_api";
 import { textSessionPool } from "../session/pool";
 import { listVideoRuns } from "../../capabilities/video_generation/video_bridge";
@@ -650,6 +652,27 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       // gateway-level HTTP auth check above).
       if (pathname === "/api/desktop/exchange-token") {
         await handleDesktopExchangeToken(req, res);
+        return;
+      }
+
+      // Guest trial token — issues a short-lived legacy JWT for unauthenticated
+      // visitors. No Bearer token required; rate-limited per IP.
+      if (pathname === "/api/guest-token") {
+        await handleGuestToken(req, res);
+        return;
+      }
+
+      // Invite code API — status check, code redemption, and listing user's codes.
+      if (pathname === "/api/invite/status") {
+        await handleInviteStatus(req, res);
+        return;
+      }
+      if (pathname === "/api/invite/redeem") {
+        await handleInviteRedeem(req, res);
+        return;
+      }
+      if (pathname === "/api/invite/my-codes") {
+        await handleInviteMyCodes(req, res);
         return;
       }
 

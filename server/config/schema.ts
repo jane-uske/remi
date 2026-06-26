@@ -193,6 +193,8 @@ export const envSchema = z.object({
   REMI_NEXT_HOSTNAME: z.string().optional(),
   REMI_ACCESS_PASSWORD: z.string().optional(),
   REMI_EXTERNAL_API_KEY: z.string().optional(),
+  REMI_SEED_INVITE_CODES: z.string().optional(),
+  REMI_GUEST_MESSAGE_CAP: z.coerce.number().int().positive().default(15),
   REMI_MOBILE_DEV_ENABLED: booleanString("0"),
   REMI_MOBILE_DEV_KEY: z.string().optional(),
   DEV_USER_ID: z.string().optional(),

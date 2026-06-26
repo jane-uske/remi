@@ -46,7 +46,7 @@ function forceSignOutNavigation(): void {
   window.location.replace("/sign-in");
 }
 
-type RemiWebAuthContextValue = {
+export type RemiWebAuthContextValue = {
   clerkEnabled: boolean;
   ready: boolean;
   signedIn: boolean;
@@ -127,7 +127,11 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const value = useMemo<RemiWebAuthContextValue>(
     () => ({
       clerkEnabled: true,
-      ready: isLoaded || isLegacyTokenUsable(legacyToken),
+      // Only mark ready when Clerk has truly settled the session.
+      // isLoaded alone is insufficient: it can flip true before isSignedIn is
+      // determined (undefined), and the legacy-token shortcut risks ready=true
+      // while signedIn=false during the SW-cached fast-boot window.
+      ready: isLoaded && isSignedIn !== undefined,
       signedIn: authCapabilities.signedIn,
       canSignOut: authCapabilities.canSignOut,
       currentUserId: resolveCurrentUserId({
@@ -236,4 +240,18 @@ export function RemiAuthProvider({ children }: { children: ReactNode }) {
 
 export function useRemiWebAuth(): RemiWebAuthContextValue {
   return useContext(RemiWebAuthContext);
+}
+
+export function RemiWebAuthProvider({
+  value,
+  children,
+}: {
+  value: RemiWebAuthContextValue;
+  children: ReactNode;
+}) {
+  return (
+    <RemiWebAuthContext.Provider value={value}>
+      {children}
+    </RemiWebAuthContext.Provider>
+  );
 }

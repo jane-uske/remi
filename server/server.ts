@@ -50,6 +50,7 @@ import { startDecayTimer, stopDecayTimer } from "../memory/memory_decay";
 import { getMemoryRepository, setMemoryRepository } from "../memory/memory_store";
 import { initDatabase, closeDatabase } from "../storage/database";
 import { ensureStorageSchema } from "../storage/schema_manager";
+import { seedInviteCodes } from "../storage/repositories/invite_code_repository";
 import { initRedis, closeRedis } from "../storage/redis";
 import { ensureDevUser } from "../storage/repositories/dev_identity";
 import { getPgMemoryRepository } from "../storage/repositories/pg_memory_repository";
@@ -258,6 +259,14 @@ async function bootstrap() {
       await ensureStorageSchema();
       dbInitialized = true;
       setDbReady(true);
+
+      // Seed invite codes from env (idempotent — skips existing codes)
+      const rawSeedCodes = getConfig().REMI_SEED_INVITE_CODES?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+      if (rawSeedCodes.length > 0) {
+        await seedInviteCodes(rawSeedCodes);
+        logger.info("[Invites] Seed codes initialized", { count: rawSeedCodes.length });
+      }
+
       const devUserId = await ensureDevUser();
       const pgRepo = getPgMemoryRepository(devUserId);
       setMemoryRepository(pgRepo);

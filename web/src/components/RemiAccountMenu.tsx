@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { RemiIdentityAvatar } from "@/components/RemiIdentityAvatar";
 import { RemiSettingsPanel } from "@/components/RemiSettingsPanel";
+import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import {
   applyThemePreferenceToDocument,
   normalizeThemePreference,
@@ -256,6 +257,10 @@ export function RemiAccountMenu({
             </div>
           </div>
 
+          {canSignOut && (
+            <InviteCodesSection />
+          )}
+
           <div className="space-y-2 px-3 py-3">
             <button
               type="button"
@@ -301,6 +306,81 @@ export function RemiAccountMenu({
     </div>
     <RemiSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
+  );
+}
+
+// ── InviteCodesSection ─────────────────────────────────────────────────────
+
+interface InviteCode {
+  code: string;
+  trialUses: number;
+  registerRedeemed: boolean;
+}
+
+interface MyCodesResponse {
+  codes: InviteCode[];
+  messageCap: number;
+}
+
+function InviteCodesSection() {
+  const auth = useRemiWebAuth();
+  const [codes, setCodes] = useState<InviteCode[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const token = await auth.getSessionToken().catch(() => null);
+        const res = await fetch("/api/invite/my-codes", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok || cancelled) return;
+        const body = await res.json() as MyCodesResponse;
+        if (!cancelled) setCodes(body.codes ?? []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [auth.getSessionToken]);
+
+  const handleCopy = async (code: string) => {
+    const shareBase = typeof window !== "undefined" ? window.location.origin : "";
+    try {
+      await navigator.clipboard.writeText(`${shareBase}/try/${code}`);
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2000);
+    } catch {}
+  };
+
+  if (loading) return null;
+  if (!codes || codes.length === 0) return null;
+
+  return (
+    <div className="border-b border-white/10 px-4 py-4">
+      <p className="mb-3 text-xs uppercase tracking-[0.22em] text-[var(--remi-dim)]">
+        我的邀请码
+      </p>
+      <div className="space-y-2">
+        {codes.map((c) => (
+          <button
+            key={c.code}
+            type="button"
+            onClick={() => void handleCopy(c.code)}
+            className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-left transition hover:border-white/20"
+          >
+            <span className="font-mono text-sm tracking-widest text-neutral-200">{c.code}</span>
+            <span className="text-[11px] text-[var(--remi-dim)]">
+              {copiedCode === c.code ? "已复制！" : c.registerRedeemed ? "已被使用" : "复制分享"}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-neutral-600">分享链接即可邀请好友体验 Remi</p>
+    </div>
   );
 }
 

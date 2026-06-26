@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RemiAccountMenu } from "@/components/RemiAccountMenu";
 import { AvatarDevtoolsPanel } from "@/components/AvatarDevtoolsPanel";
 import { CharacterStage } from "@/components/CharacterStage";
@@ -75,7 +75,11 @@ function remiConnectionDotClass(
   }
 }
 
-export function RemiChatApp() {
+export function RemiChatApp({
+  onBeforeSend,
+}: {
+  onBeforeSend?: (text: string) => boolean;
+} = {}) {
   const remiAuth = useRemiWebAuth();
   const {
     emotion,
@@ -157,6 +161,13 @@ export function RemiChatApp() {
   // Only voice (mic) and recording state gate the input; the WS connection
   // state is irrelevant for text — users can chat immediately on page load.
   const inputDisabled = runtimeState.user.recording;
+  const wrappedSendText = useCallback(
+    (text: string) => {
+      if (onBeforeSend && !onBeforeSend(text)) return;
+      sendText(text);
+    },
+    [onBeforeSend, sendText],
+  );
   const micDisabled = !connected || !hasMic;
   const connectionStatusLabel = remiConnectionStatusText(connectionPhase, reconnectInSec);
   const connectionCompactLabel = remiConnectionCompactText(
@@ -348,7 +359,7 @@ export function RemiChatApp() {
               ) : null}
               <div className={layout.chatComposerDock}>
                 <RemiChatComposer
-                  onSend={sendText}
+                  onSend={wrappedSendText}
                   onMicToggle={toggleMic}
                   disabled={inputDisabled}
                   micDisabled={micDisabled}

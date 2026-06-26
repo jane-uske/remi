@@ -93,3 +93,29 @@ ALTER TABLE episodes ADD COLUMN IF NOT EXISTS v3_last_user_position TEXT;
 CREATE INDEX IF NOT EXISTS idx_episodes_user_id ON episodes (user_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_user_status_updated
   ON episodes (user_id, status, last_seen_at DESC);
+
+-- ── Invite codes ──────────────────────────────────────────────────────────
+-- Each code may be used for:
+--   (a) guest trial (/try/<code>) — repeatable, rate-limited per IP
+--   (b) registration — one-time: a single Clerk user can redeem it to join
+-- Each newly-registered user is automatically issued CODES_PER_USER (2) codes.
+-- Seed codes (issued_by_user_id IS NULL) are created from REMI_SEED_INVITE_CODES.
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE,
+  -- who generated this code (NULL = seed / admin-generated)
+  issued_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  -- registration: one Clerk user can redeem the code to create their account
+  register_redeemed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  register_redeemed_at TIMESTAMPTZ,
+  -- trial usage counter (incremented each time a guest token is issued with this code)
+  trial_use_count INT NOT NULL DEFAULT 0,
+  -- lifecycle
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_invite_codes_issued_by
+  ON invite_codes (issued_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_invite_codes_redeemed_by
+  ON invite_codes (register_redeemed_by_user_id);
