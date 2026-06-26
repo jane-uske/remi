@@ -16,7 +16,8 @@
 | 改实时链路、延迟 | [design/PIPELINE.md](design/PIPELINE.md) |
 | 改记忆系统（现状） | [design/MEMORY_V2_DESIGN.md](design/MEMORY_V2_DESIGN.md) |
 | 记忆 / 时间感 / 主动打招呼（路线图） | [design/MEMORY_V3_DESIGN.md](design/MEMORY_V3_DESIGN.md) |
-| 改语音链路 | [design/VOICE_ROADMAP.md](design/VOICE_ROADMAP.md) |
+| 改语音链路（方向 / 路线图） | [design/VOICE_ROADMAP.md](design/VOICE_ROADMAP.md) |
+| 改语音前要守的工程规则（守则） | [guides/VOICE_BEST_PRACTICES.md](guides/VOICE_BEST_PRACTICES.md) |
 | 世界线 / RemiWorld 终局 | [design/REMIWORLD_NORTH_STAR.md](design/REMIWORLD_NORTH_STAR.md) |
 | 写插件 | [guides/PLUGIN_GUIDE.md](guides/PLUGIN_GUIDE.md) |
 | 改目录后跑什么测试 | [guides/TEST_MAP.md](guides/TEST_MAP.md) |
@@ -67,6 +68,7 @@ docs/
 | [LOCAL_LLM.md](guides/LOCAL_LLM.md) | Ollama / LM Studio 本地模型 |
 | [PLUGIN_GUIDE.md](guides/PLUGIN_GUIDE.md) | 插件开发 |
 | [TEST_MAP.md](guides/TEST_MAP.md) | 改目录 → 跑哪些测试 |
+| [VOICE_BEST_PRACTICES.md](guides/VOICE_BEST_PRACTICES.md) | 语音链路守则（首音 / turn-taking / fast path 关键路径） |
 | [LOG_DATA_ANALYSIS.md](guides/LOG_DATA_ANALYSIS.md) | 日志分析入口 |
 | [DUPLEX_DATA_ANALYSIS.md](guides/DUPLEX_DATA_ANALYSIS.md) | 全双工语音数据分析 |
 

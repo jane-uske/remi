@@ -65,6 +65,11 @@ export async function computeSessionPrediction(
     }
   });
 
+  // 预热召回（VOICE_BEST_PRACTICES 杠杆1）：存下这次 partial 的召回，供真实轮在
+  // 回复预测未命中时复用，把召回从 stt_final→llm_first 关键路径上拿掉。
+  // 存储本身廉价、无副作用；是否复用由真实轮按 REMI_WARM_RECALL_ENABLED 决定。
+  brain.warmRecall.store(text, memory);
+
   const slowBrainContext = brain.slowBrain.synthesizeContext({
     suppressResponseStyleNotes: Boolean(brain.persona.liveState.styleOverride),
   });
@@ -97,6 +102,7 @@ export async function computeSessionPrediction(
       ? buildCarryForwardHint(
           classifyInterruption(text, interruptedReply),
           interruptedReply,
+          text,
         )
       : undefined;
   const guidance = brain.slowBrain.buildConversationGuidance(

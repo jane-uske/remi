@@ -4,6 +4,7 @@ import type { MemoryRepository } from "../memory/memory_repository";
 import type { PersistentRelationshipStateV1 } from "../memory/relationship_state";
 import { SessionMemoryOverlayRepository } from "../memory/session_memory_overlay";
 import { SlowBrainStore } from "./background_analysis_store";
+import { WarmRecallCache } from "./warm_recall";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { getConfig } from "../server/config";
 import { buildTimeContext, describeGap } from "../brain/time_context";
@@ -219,6 +220,8 @@ export class RemiSessionContext {
   lastResponsePolicy: ResponsePolicy | null = null;
   analysisSource: StructuredAnalysisSource | null = null;
   analysisLatencyMs: number | null = null;
+  /** 预热召回缓存（VOICE_BEST_PRACTICES 杠杆1）：partial 预测的召回结果，供真实轮在预测未命中时复用。 */
+  readonly warmRecall = new WarmRecallCache();
   /**
    * Push an arbitrary server message to the connected WS client.
    * Set by the session bootstrap; used by async capabilities (video generation)
@@ -377,6 +380,7 @@ export class RemiSessionContext {
     this.lastResponsePolicy = null;
     this.analysisSource = null;
     this.analysisLatencyMs = null;
+    this.warmRecall.clear();
     this.emotion.setEmotion("neutral");
     resetPersonaLiveState(this.persona);
     this.cancelSlowBrain();

@@ -2058,6 +2058,7 @@ export class ConnectionSession {
       carryForwardHint: buildCarryForwardHint(
         interruptionType,
         interruptedReply,
+        userText,
       ),
     };
   }
