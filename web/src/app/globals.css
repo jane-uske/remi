@@ -398,18 +398,15 @@ body {
     sans-serif;
 }
 
-/* 全页壳：与 body 同一背景图，内容区透明叠在上方 */
+/* 全页壳：固定高度分屏布局，上半立绘 / 下半聊天 */
 .remi-app-shell {
-  min-height: 100dvh;
-  min-height: 100svh;
+  height: 100dvh;
   width: 100%;
 }
 
-/* iOS Safari: keep momentum scroll + stop rubber-band chaining. The chat now
-   scrolls at the document level (mobile appShell is min-height:100dvh +
-   overflow:visible), so the Safari toolbar collapses on natural scroll — the
-   old large-viewport near-fullscreen workaround and the fixed chat-dock hack
-   are gone, replaced by the document-flow layout + .remi-mobile-composer. */
+/* iOS Safari: keep momentum scroll + stop rubber-band chaining on the inner
+   chat scroller. The app uses a fixed-height split layout (h-dvh overflow-hidden),
+   so overscroll chaining would bounce the outer shell. */
 html[data-ios-safari="true"] body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: none;

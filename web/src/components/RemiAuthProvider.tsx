@@ -10,6 +10,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -26,6 +27,24 @@ import {
   resolveIsDefaultDevUser,
 } from "@/hooks/useRemiChatHelpers";
 import { isLegacyTokenUsable } from "@/lib/browserIdentity";
+
+async function clearSwCaches(): Promise<void> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    reg.active?.postMessage({ type: "CLEAR_CACHES" });
+  } catch {
+    // SW not available or message blocked
+  }
+}
+
+function forceSignOutNavigation(): void {
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem("remi_signing_out", "1");
+  }
+  void clearSwCaches();
+  window.location.replace("/sign-in");
+}
 
 type RemiWebAuthContextValue = {
   clerkEnabled: boolean;
@@ -79,6 +98,12 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const legacyToken = getQueryTokenFromWindow();
   const { isLoaded, isSignedIn, userId, getToken } = useAuth();
   const clerk = useClerk();
+  // Tracks consecutive getToken() null returns while isSignedIn=true.
+  // When the Clerk session is dead server-side, getToken() keeps returning
+  // null; after MAX_TOKEN_FAILURES consecutive failures we force a hard
+  // sign-out instead of looping forever with 404 token-refresh requests.
+  const getTokenFailRef = useRef(0);
+  const MAX_TOKEN_FAILURES = 3;
 
   // A `?token=` in the address bar is only meaningful for the legacy/desktop
   // (clerk-disabled) flow. In clerk mode it's spurious — a stale one hijacks
@@ -120,13 +145,37 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
         // a stale one must never shadow Clerk — a dead `?token=` otherwise gets
         // handed to the WebSocket forever, causing a permanent 401 → reconnect
         // loop even though the Clerk session is alive.
-        if (isSignedIn) return getToken();
+        if (isSignedIn) {
+          const token = await getToken();
+          if (!token) {
+            // Fix A: getToken() returned null while isSignedIn=true — the
+            // session is dead server-side (404 on /tokens endpoint). Count
+            // consecutive failures; after MAX_TOKEN_FAILURES force a hard
+            // sign-out so the 404-retry loop stops immediately.
+            getTokenFailRef.current += 1;
+            if (getTokenFailRef.current >= MAX_TOKEN_FAILURES) {
+              getTokenFailRef.current = 0;
+              void clerk.signOut().catch(() => {});
+              forceSignOutNavigation();
+            }
+            return null;
+          }
+          getTokenFailRef.current = 0;
+          return token;
+        }
         if (isLegacyTokenUsable(legacyToken)) return legacyToken;
         return getToken();
       },
+      // Fix B: signOut always navigates to /sign-in, regardless of
+      // canSignOut. When the Clerk session is already dead server-side,
+      // canSignOut is false (clerkSignedIn flipped to false) but the user
+      // still needs a way out. We fire clerk.signOut() for cleanup and use
+      // forceSignOutNavigation() as the guaranteed escape hatch — it sets the
+      // remi_signing_out sessionStorage flag (Fix C guard) and clears SW
+      // caches (Fix D) before navigating.
       signOut: async () => {
-        if (!authCapabilities.canSignOut) return;
-        await clerk.signOut({ redirectUrl: "/sign-in" });
+        void clerk.signOut().catch(() => {});
+        forceSignOutNavigation();
       },
     }),
     [authCapabilities.canSignOut, authCapabilities.signedIn, clerk, getToken, isLoaded, isSignedIn, legacyToken, userId],

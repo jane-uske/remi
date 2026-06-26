@@ -12,7 +12,6 @@ import { VoiceIndicator } from "@/components/VoiceIndicator";
 
 import { useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { remiChatLayoutForNsfw } from "@/components/remiChatLayout";
-import { useIsNarrow } from "@/lib/mobile/useIsNarrow";
 import { useVisualViewportCssVars } from "@/lib/mobile/useVisualViewportCssVars";
 import { useElementHeightCssVar } from "@/lib/mobile/useElementHeightCssVar";
 import { useRemiChat, type RemiConnectionPhase } from "@/hooks/useRemiChat";
@@ -167,11 +166,11 @@ export function RemiChatApp() {
   const emotionLabel = getEmotionLabel(emotion);
   const layout = remiChatLayoutForNsfw(nsfwEnabled);
 
-  // Mobile immersive chat: body/document is the scroller (so iOS Safari can
-  // collapse its toolbar), the avatar is a fixed background, and the composer
-  // is fixed above the keyboard. Desktop / NSFW keep the inner-scroll layout.
-  const isNarrow = useIsNarrow();
-  const documentScroll = !nsfwEnabled && isNarrow;
+  // Mobile chat is a top/bottom split: the stage owns the top half and the
+  // chat list owns the bottom half with its own inner overflow scroll, while
+  // the composer stays in-flow pinned to the bottom. So we use the inner-scroll
+  // path everywhere (no document-scroll / fixed-composer immersive mode).
+  const documentScroll = false;
   const composerRef = useRef<HTMLDivElement>(null);
   useVisualViewportCssVars();
   useElementHeightCssVar(composerRef, "--remi-composer-height");
@@ -327,7 +326,7 @@ export function RemiChatApp() {
                 statusModel={chatWindowStatus}
                 performanceModel={performanceModel}
                 awaitingAssistantReply={awaitingAssistantReply}
-                immersive={nsfwEnabled}
+                immersive={true}
                 documentScroll={documentScroll}
               />
             </div>

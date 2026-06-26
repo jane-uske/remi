@@ -1,5 +1,5 @@
 // Bump this on shell-strategy changes so the activate handler purges old caches.
-const CACHE_NAME = "remi-shell-v5";
+const CACHE_NAME = "remi-shell-v6";
 const SHELL_ASSETS = [
   "/assets/remi/brand/remi-favicon-32.png",
   "/assets/remi/brand/remi-icon-192.png",
@@ -24,6 +24,19 @@ self.addEventListener("activate", (event) => {
     ),
   );
   self.clients.claim();
+});
+
+// Fix D: allow the app to clear all SW caches during sign-out, so stale
+// assets don't outlive the user's session. Posted by forceSignOutNavigation()
+// and clearSwCaches() in RemiAuthProvider.
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "CLEAR_CACHES") {
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(keys.map((key) => caches.delete(key))),
+      ),
+    );
+  }
 });
 
 self.addEventListener("fetch", (event) => {

@@ -352,7 +352,7 @@ export function ChatWindow({
             : `remi-chat-scroll-fade pointer-events-auto flex flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-2 outline-none md:flex-1 md:gap-2 md:px-4 md:pb-4 md:pt-4 focus-visible:ring-2 focus-visible:ring-[var(--remi-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${
                 immersive
                   ? "max-h-none min-h-0 flex-1"
-                  : "max-h-[min(34svh,19rem)] min-[480px]:max-h-[min(36svh,20rem)] md:max-h-none"
+                  : "min-h-0 flex-1 md:max-h-none"
               }`
         }
       >

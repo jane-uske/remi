@@ -58,11 +58,27 @@ function SignInPageInner() {
   const [exchangeError, setExchangeError] = useState<string | null>(null);
   const handedOff = useRef(false);
 
+  // Fix C: if we arrived here from a signOut() or from the dead-session
+  // force-navigation, a remi_signing_out flag is set in sessionStorage.
+  // Read it once on mount: while this flag is live we must NOT redirect even
+  // if auth.signedIn is still true (Clerk hasn't cleared its local state yet).
+  // The flag is consumed on first read so it can't survive a subsequent
+  // deliberate sign-in.
+  const [blockAutoRedirect] = useState<boolean>(() => {
+    if (typeof sessionStorage === "undefined") return false;
+    const flag = sessionStorage.getItem("remi_signing_out") === "1";
+    if (flag) sessionStorage.removeItem("remi_signing_out");
+    return flag;
+  });
+
   useEffect(() => {
     if (!isClerkWebAuthEnabled()) {
       router.replace("/");
       return;
     }
+    // Fix C: block the "already signed in → redirect" path while Clerk is
+    // still clearing its local state after a signOut/force-navigation.
+    if (blockAutoRedirect) return;
     if (!auth.ready || !auth.signedIn) return;
 
     if (!desktop) {
@@ -113,7 +129,7 @@ function SignInPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [auth, desktop, handoffPort, handoffState, router]);
+  }, [auth, blockAutoRedirect, desktop, handoffPort, handoffState, router]);
 
   if (!isClerkWebAuthEnabled()) {
     return null;
