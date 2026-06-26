@@ -69,7 +69,8 @@ Remi 不是通用 AI 助手。她是一个以**活人感、人格连续性、存
 | `docs/design/ARCHITECTURE.md` | 要改模块边界或理解分层 |
 | `docs/design/PIPELINE.md` | 要改实时链路或调试延迟 |
 | `docs/design/MEMORY_V2_DESIGN.md` | 要改记忆系统 |
-| `docs/design/VOICE_ROADMAP.md` | 要改语音链路 |
+| `docs/design/VOICE_ROADMAP.md` | 要改语音链路（方向 / 路线图） |
+| `docs/guides/VOICE_BEST_PRACTICES.md` | 改语音前要守的工程规则（首音 / turn-taking / fast path） |
 | `docs/guides/PLUGIN_GUIDE.md` | 要写插件 |
 | `docs/guides/TEST_MAP.md` | 改目录后先跑什么测试 |
 | `docs/guides/LOCAL_LLM.md` | 本地 Ollama / LM Studio 部署 |

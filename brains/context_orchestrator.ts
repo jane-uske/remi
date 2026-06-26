@@ -850,32 +850,54 @@ export async function* routeMessage(
               }
             }
           })();
-    const memoryPromise = (async () => {
-      if (latencyTracer && traceId) {
-        latencyTracer.mark("memory_recall_start", traceId);
-      }
-      try {
-        return await retrievePromptMemory(ctx.memory, {
-          userId: ctx.userId,
-          userMessage,
-          slowBrainSnapshot,
-          maxEntries: preliminaryPromptMemoryMaxEntries,
-          diagnostics: (meta) => {
+    // 预热召回（VOICE_BEST_PRACTICES 杠杆1）：partial 预测已跑过的召回，若新鲜且
+    // 主题接近本轮 userMessage，就复用，把召回从首 token 关键路径上拿掉。
+    // 未命中 / 过期 / 主题漂移 / flag 关 → warmRecallMemory 为 null，回落到实时召回。
+    const warmRecallEnabled = getConfig().REMI_WARM_RECALL_ENABLED;
+    const warmRecallMemory = warmRecallEnabled
+      ? ctx.warmRecall.take(userMessage, {
+          ttlMs: getConfig().REMI_WARM_RECALL_TTL_MS,
+          minOverlap: 0.5,
+        })
+      : null;
+    if (warmRecallEnabled && latencyTracer && traceId) {
+      latencyTracer.annotateTrace(traceId, { warmRecallApplied: Boolean(warmRecallMemory) });
+    }
+    const memoryPromise = warmRecallMemory
+      ? (async () => {
+          if (latencyTracer && traceId) {
+            const now = Date.now();
+            latencyTracer.set("memory_recall_start", now, traceId);
+            latencyTracer.set("memory_recall_end", now, traceId);
+          }
+          return warmRecallMemory;
+        })()
+      : (async () => {
+          if (latencyTracer && traceId) {
+            latencyTracer.mark("memory_recall_start", traceId);
+          }
+          try {
+            return await retrievePromptMemory(ctx.memory, {
+              userId: ctx.userId,
+              userMessage,
+              slowBrainSnapshot,
+              maxEntries: preliminaryPromptMemoryMaxEntries,
+              diagnostics: (meta) => {
+                if (latencyTracer && traceId) {
+                  latencyTracer.annotateTrace(traceId, {
+                    episodeRecallSource: meta.episodeRecallSource,
+                    episodeRecallIds: meta.episodeRecallIds,
+                    episodeReferenceApplied: meta.episodeReferenceApplied,
+                  });
+                }
+              },
+            });
+          } finally {
             if (latencyTracer && traceId) {
-              latencyTracer.annotateTrace(traceId, {
-                episodeRecallSource: meta.episodeRecallSource,
-                episodeRecallIds: meta.episodeRecallIds,
-                episodeReferenceApplied: meta.episodeReferenceApplied,
-              });
+              latencyTracer.mark("memory_recall_end", traceId);
             }
-          },
-        });
-      } finally {
-        if (latencyTracer && traceId) {
-          latencyTracer.mark("memory_recall_end", traceId);
-        }
-      }
-    })();
+          }
+        })();
     [memory, analysis] = await Promise.all([memoryPromise, analysisPromise]);
   }
   if (analysis) {

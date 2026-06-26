@@ -77,6 +77,8 @@ export interface LatencyTraceContext {
   generationId?: number;
   source?: "voice" | "text" | "silence_nudge";
   episodeRecallSource?: "episode_store" | "snapshot" | "none";
+  /** 本轮召回是否复用了 partial 预热缓存（VOICE_BEST_PRACTICES 杠杆1）。 */
+  warmRecallApplied?: boolean | null;
   episodeRecallIds?: string[];
   episodeReferenceApplied?: boolean | null;
   episodeRecallFallback?: boolean | null;
@@ -486,8 +488,10 @@ export class LatencyTracer {
         trace.context?.finalTranscript ||
         trace.context?.rejectedTranscript ||
         trace.context?.interruptionType ||
+        trace.context?.warmRecallApplied != null ||
         trace.context?.turnStateTransitions?.length
           ? {
+              warmRecallApplied: trace.context?.warmRecallApplied ?? null,
               utteranceSeq: trace.context?.utteranceSeq ?? null,
               sttJobSeq: trace.context?.sttJobSeq ?? null,
               ingressSampleRate: trace.context?.ingressSampleRate ?? null,

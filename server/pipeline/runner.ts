@@ -606,13 +606,51 @@ async function ttsSend(
     if (allowStreamingTransport) {
       let firstChunkSent = false;
       let streamedLipSource: TtsLipSyncChunk["source"] = "provider_word_boundary_derived";
+      // 首音看门狗（VOICE_BEST_PRACTICES 杠杆2）：仅作用于首句。若流式在超时内吐不出
+      // 第一个 PCM chunk（Edge MP3→PCM 首包 stall 等），abort 流式尝试并回退 buffered，
+      // 给 llm_first→tts_first 的 p95 设上界。需把"watchdog 触发"与"真实用户打断"区分：
+      // 前者落 buffered 兜底，后者继续抛出走中断语义。0 = 关闭，happy path 完全不变。
+      const firstAudioTimeoutMs = isFirstSentence
+        ? getConfig().REMI_TTS_FIRST_AUDIO_TIMEOUT_MS
+        : 0;
+      const watchdogAc = firstAudioTimeoutMs > 0 ? new AbortController() : null;
+      let watchdogFired = false;
+      let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+      let forwardParentAbort: (() => void) | null = null;
+      let streamSignal = signal;
+      if (watchdogAc) {
+        if (signal?.aborted) {
+          watchdogAc.abort();
+        } else if (signal) {
+          forwardParentAbort = () => watchdogAc.abort();
+          signal.addEventListener("abort", forwardParentAbort, { once: true });
+        }
+        streamSignal = watchdogAc.signal;
+        watchdogTimer = setTimeout(() => {
+          if (!firstChunkSent) {
+            watchdogFired = true;
+            watchdogAc.abort();
+          }
+        }, firstAudioTimeoutMs);
+      }
+      const clearWatchdog = () => {
+        if (watchdogTimer) {
+          clearTimeout(watchdogTimer);
+          watchdogTimer = null;
+        }
+        if (signal && forwardParentAbort) {
+          signal.removeEventListener("abort", forwardParentAbort);
+          forwardParentAbort = null;
+        }
+      };
       try {
         await streamTextToSpeech(
           sentence,
           ({ pcm, sampleRate, channels, bitsPerSample }) => {
-            if (signal?.aborted) return;
+            if (streamSignal?.aborted) return;
             if (!firstChunkSent) {
               firstChunkSent = true;
+              clearWatchdog();
               if (isFirstSentence && latencyTracer) {
                 latencyTracer.mark("tts_first_audio", traceId);
               }
@@ -626,10 +664,10 @@ async function ttsSend(
               generationId,
             });
           },
-          signal,
+          streamSignal,
           emotion as any,
           (chunk) => {
-            if (signal?.aborted) return;
+            if (streamSignal?.aborted) return;
             streamedLipSource = chunk.source;
             if (chunk.cues.length > 0 || chunk.complete) {
               sendTtsLipSync(sink, generationId, chunk);
@@ -641,6 +679,7 @@ async function ttsSend(
             usage: "reply",
           },
         );
+        clearWatchdog();
         if (!signal?.aborted) {
           sendTtsLipSync(sink, generationId, {
             source: streamedLipSource,
@@ -651,14 +690,26 @@ async function ttsSend(
         }
         return;
       } catch (err) {
-        if ((err as Error).name === "AbortError") throw err;
-        if (firstChunkSent) {
+        clearWatchdog();
+        if ((err as Error).name === "AbortError") {
+          // watchdog 触发（首句首包超时，且非真实用户打断）→ 落 buffered 兜底；
+          // 其余 AbortError（真打断）→ 继续抛出。
+          if (!(watchdogFired && !firstChunkSent && !signal?.aborted)) {
+            throw err;
+          }
+          logger.warn("[TTS] first-audio watchdog fired, fallback to buffered synth", {
+            connId: ctx.connId,
+            generationId,
+            timeoutMs: firstAudioTimeoutMs,
+          });
+        } else if (firstChunkSent) {
           throw err;
+        } else {
+          logger.warn("[TTS] stream failed, fallback to buffered synth", {
+            error: (err as Error).message,
+            ttsTransport,
+          });
         }
-        logger.warn("[TTS] stream failed, fallback to buffered synth", {
-          error: (err as Error).message,
-          ttsTransport,
-        });
       }
     }
 

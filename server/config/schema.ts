@@ -104,6 +104,10 @@ export const envSchema = z.object({
   TTS_EAGER_THRESHOLD: z.coerce.number().int().positive().optional(),
   TTS_EAGER_LOOKAHEAD_CHARS: z.coerce.number().int().nonnegative().optional(),
   TTS_EAGER_SOFT_BREAK_MIN_CHARS: z.coerce.number().int().positive().optional(),
+  // 首音看门狗（VOICE_BEST_PRACTICES 杠杆2）：首句流式 TTS 若在该毫秒数内仍未吐出
+  // 第一个 PCM chunk（Edge MP3→PCM 首包 stall 等），放弃流式、回退 buffered 合成，
+  // 给 llm_first→tts_first 的 p95 设上界。0 = 关闭（默认，happy path 完全不变）。
+  REMI_TTS_FIRST_AUDIO_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(0),
 
   // ── STT ──────────────────────────────────────────────────────────────────
   REMI_STT_PROVIDER: z
@@ -354,6 +358,10 @@ export const envSchema = z.object({
     .nonnegative()
     .default(520),
   REMI_THINKING_FILLER: booleanString("0"),
+  // 打断 carry-forward V2（VOICE_BEST_PRACTICES 杠杆3）：更丰富的承接行为
+  // ——mid-reply 提问先答再问、切话题先挂起旧线、情绪打断留可续上下文。
+  // 默认关闭，开启时只改 carry-forward 提示文本，不改打断判定与 fast path。
+  REMI_CARRY_FORWARD_V2: booleanString("0"),
   REMI_TEXT_DELIBERATE_PROMPT_MEMORY_ENTRIES: z.coerce
     .number()
     .int()
@@ -584,6 +592,12 @@ export const envSchema = z.object({
   STT_PARTIAL_PREDICTION_ENABLED: booleanString("0"),
   STT_PREDICTION_PUSH_ENABLED: booleanString("0"),
   STT_PREDICTION_DEBOUNCE_MS: z.coerce.number().nonnegative().default(300),
+  // 预热召回（VOICE_BEST_PRACTICES 杠杆1）：复用 partial 预测时已跑的记忆召回，
+  // 即使回复预测未命中，也把召回从 stt_final→llm_first 关键路径上拿掉（压 pre_llm_overhead）。
+  // 依赖 partial 预测先跑（STT_PARTIAL_PREDICTION_ENABLED）。默认关闭。
+  REMI_WARM_RECALL_ENABLED: booleanString("0"),
+  // 预热召回新鲜度上限（毫秒）：超过则真实轮回落到实时召回。
+  REMI_WARM_RECALL_TTL_MS: z.coerce.number().int().nonnegative().default(8000),
 
   // ── Voice ───────────────────────────────────────────────────────────────
   // Swappable realtime voice shell (docs/voice/VOICE_NATIVE_MODE.md §6/§7).
