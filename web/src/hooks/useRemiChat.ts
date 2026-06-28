@@ -40,6 +40,12 @@ type DevStatus = {
   message: string;
 };
 
+type PersonaPackState = {
+  packId: string;
+  name: string;
+  displayName: string;
+} | null;
+
 export function useRemiChat() {
   const remiAuth = useRemiWebAuth();
 
@@ -58,6 +64,7 @@ export function useRemiChat() {
   const [typing, setTyping] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [personaPreset, setPersonaPreset] = useState<string | null>(null);
+  const [personaPack, setPersonaPack] = useState<PersonaPackState>(null);
   const [nsfwEnabled, setNsfwEnabled] = useState(false);
   const [ttsEnabled, setTtsEnabledState] = useState(true);
   const [devStatus, setDevStatus] = useState<DevStatus>({ tone: "idle", message: "" });
@@ -179,7 +186,10 @@ export function useRemiChat() {
     const isDefault =
       styleId === "default" && speedIdx === 0 && pitchIdx === 0;
     if (isDefault) return; // nothing to restore
-    const payload: Record<string, unknown> = { type: "set_voice_style" };
+    const payload: Record<string, unknown> = {
+      type: "set_voice_style",
+      source: "stored_restore",
+    };
     if (styleId !== "default") payload.voiceStyleId = styleId;
     if (speedIdx !== 0) payload.speedModifier = SPEED_LEVELS[speedIdx]?.value ?? null;
     if (pitchIdx !== 0) payload.pitchModifier = PITCH_LEVELS[pitchIdx]?.value ?? null;
@@ -304,6 +314,7 @@ export function useRemiChat() {
     setTyping,
     setSttPartialText,
     setPersonaPreset,
+    setPersonaPack,
     setNsfwEnabled,
     pendingDevCommandRef: pendingDevCommandRef as React.MutableRefObject<{ kind: string; scope?: string } | null>,
     setDevStatus: setDevStatus as (v: { tone: string; message: string }) => void,
@@ -405,6 +416,37 @@ export function useRemiChat() {
   });
 
   /* ── Text chat ── */
+  // 纯打断：用户主动停止 Remi 当前回复，不发送新消息。复用 sendText 的打断步骤
+  // （block generation + abort SSE + 回合归位 + 清音频），但不 appendLiveMessage、
+  // 不发新请求。供「回复中发送按钮变停止键」用。
+  const interruptReply = useCallback(() => {
+    markServerTtsStreaming(false);
+    // 用户主动停止 → 立即清音频队列（不像发送时 defer 到下一段播放）
+    clearQueue({ deferUntilNextPlayback: false });
+    turnEngine.clearPendingChatEnd();
+    const interruptedGeneration = turnEngine.activeGenerationRef.current;
+    if (interruptedGeneration != null) {
+      turnEngine.blockGeneration(interruptedGeneration);
+    } else {
+      turnEngine.activeGenerationRef.current = null;
+    }
+    avatar.clearAvatarIntentSchedule();
+    avatar.setAvatarIntentOverride(null);
+    turnEngine.interruptionTypeRef.current = null;
+    turnEngine.setInterruptionType(null);
+    turnEngine.commitTurnState("confirmed_end", "confirmed_end", {
+      preview: null,
+      interruptionType: null,
+      generationId: interruptedGeneration,
+      kind: "system",
+    });
+    // 取消进行中的 SSE 回合：服务端 req close → 中止上一条 pipeline
+    sseAbortRef.current?.abort();
+    sseAbortRef.current = null;
+    setWaiting(false);
+    setTyping(false);
+  }, [markServerTtsStreaming, clearQueue, turnEngine, avatar]);
+
   const sendText = useCallback(
     (text: string, imageOrSituational?: string) => {
       const ws = conn.wsRef.current;
@@ -652,6 +694,21 @@ export function useRemiChat() {
     [conn.wsRef],
   );
 
+  const requestPersonaPack = useCallback(() => {
+    const ws = conn.wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "get_persona_pack" }));
+  }, [conn.wsRef]);
+
+  const updatePersonaPack = useCallback(
+    (packId: string) => {
+      const ws = conn.wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "set_persona_pack", packId }));
+    },
+    [conn.wsRef],
+  );
+
   /* ── Derived values ── */
   const { isDefaultDevUser, currentUserId, wsTargetLabel } = conn.browserIdentity;
 
@@ -700,6 +757,7 @@ export function useRemiChat() {
     recording: voice.recording,
     duplex: voice.duplex,
     personaPreset,
+    personaPack,
     nsfwEnabled,
     userSpeaking: voice.userSpeaking,
     awaitingSpeechCommit: voice.awaitingSpeechCommit,
@@ -714,12 +772,15 @@ export function useRemiChat() {
     currentUserId,
     wsTargetLabel,
     sendText,
+    interruptReply,
     sendWorldEvent,
     setVoiceStyle,
     ttsEnabled,
     setTtsEnabled,
     requestPersonaPreset,
     updatePersonaPreset,
+    requestPersonaPack,
+    updatePersonaPack,
     loadMoreHistory,
     applyDevPreset,
     applyDevVolcVoiceType,

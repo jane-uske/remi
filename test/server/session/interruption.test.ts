@@ -117,7 +117,7 @@ describe("interruption handling", () => {
     assert.equal(chunks.join(""), "我刚才说到：我刚才说到语音真人感最重要的是接话时机。");
   });
 
-  it("keeps interrupted partials out of history and slow brain", async () => {
+  it("advances history with the interrupted partial but skips slow brain (BC-001 复读机根因)", async () => {
     let releasePending = () => {};
     const pending = new Promise((resolve) => {
       releasePending = resolve;
@@ -145,7 +145,16 @@ describe("interruption handling", () => {
       }
 
       assert.deepEqual(chunks, ["我先说一半"]);
-      assert.equal(ctx.history.length, 0);
+      // BC-001 复读机根因修复：被打断轮必须推进历史（user + 已生成的非空回复），
+      // 否则连发时下一轮拿到冻结的陈旧 prompt → provider 对相同 prompt 返回逐字
+      // 相同补全 → 复读。注意慢脑仍**不**对半截内容跑（昂贵、易抽错记忆）。
+      assert.deepEqual(
+        ctx.history.map((m) => [m.role, m.content]),
+        [
+          ["user", "请继续"],
+          ["assistant", "我先说一半"],
+        ],
+      );
       assert.equal(slowBrainCalls.length, 0);
       assert.equal(ctx.lastInterruptedReply, "我先说一半");
       assert.equal(ctx.persona.liveState.wasInterrupted, true);

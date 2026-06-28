@@ -1,0 +1,15 @@
+{
+  "id": "nami",
+  "name": "娜美",
+  "displayName": "娜美",
+  "version": 1,
+  "author": "user",
+  "voice": {
+    "provider": "edge",
+    "voiceId": "zh-CN-XiaoxiaoNeural",
+    "mlxInstruct": "年轻女声，清亮利落，语速偏快，带一点得意、精明和小狡黠；吐字干脆，不撒娇不卖萌，不用甜腻尾音"
+  },
+  "avatar": { "kind": "live2d", "modelId": "hiyori-pro" },
+  "allowNsfw": false,
+  "memoryScope": "per_pack"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "remi",
+  "name": "Remi",
+  "displayName": "Remi",
+  "version": 1,
+  "author": "remi-core",
+  "voice": {
+    "provider": "edge",
+    "voiceId": "zh-CN-XiaoyiNeural",
+    "mlxInstruct": "音调偏高，甜美尖细，语速自然，带一点撒娇感"
+  },
+  "avatar": { "kind": "live2d", "modelId": "hiyori-pro" },
+  "allowNsfw": false,
+  "memoryScope": "per_pack"
+}

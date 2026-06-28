@@ -219,6 +219,23 @@ export const envSchema = z.object({
   REMI_TIME_CAPABILITY_ENABLED: booleanString("1"),
   REMI_DATE_RECAP_CAPABILITY_ENABLED: booleanString("1"),
 
+  // ── Persona Pack（角色卡 · flag 默认关，零回归）─────────────────────────
+  // On 时人格从 personas/<id>/{IDENTITY,SOUL,EXAMPLES}.md + persona.json 编译，
+  // 经 L0 平台护栏夹层组装；Off 或加载失败时回退内建 buildPersonaPrompt 路径。
+  REMI_PERSONA_PACK_ENABLED: booleanString("0"),
+  // 默认加载哪张角色卡（personas/<id>）。设为 nami 即切到娜美人格。
+  REMI_DEFAULT_PERSONA_PACK: z.string().default("remi"),
+  // 可选：覆盖 personas 根目录（默认 <cwd>/personas）。
+  REMI_PERSONA_PACK_DIR: z.string().optional(),
+  // 慢脑瘦身（角色卡 M5 减法续）：把慢脑从「指令生成器」降为「事实提供者」。
+  // On 时快脑 prompt 只吃慢脑的【事实】（记忆 / 关系阶段 / 未完主线 topicPull /
+  // 对话摘要…），砍掉「本轮该怎么回复」的指令块——语气合同 toneContract、回复合同
+  // responseShape、响应策略 responsePolicy、主动提起 proactivePosture——人格与风格
+  // 全交给 pack + few-shot，消除 guidance 与 pack 重复 / 打架。截断点在
+  // brain/prompt_builder.ts 的注入边界。默认关、flag-off 逐字节零回归；保留慢脑的
+  // 记忆 / 关系异步提取，只削 guidance 注入。设计上与 REMI_PERSONA_PACK_ENABLED 配套。
+  REMI_LEAN_SLOW_GUIDANCE: booleanString("0"),
+
   // ── Family Memory ──────────────────────────────────────────────────────
   REMI_FAMILY_MEMORY_ENABLED: booleanString("0"),
   REMI_FAMILY_MEMORY_SERVICE_URL: z.string().default("http://localhost:3456"),
