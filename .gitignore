@@ -26,6 +26,7 @@
 /artifacts/comfyui/
 /artifacts/live/
 /artifacts/*.wav
+/artifacts/nami_voice_eval/
 ws_full_test.cjs
 /data/remi-settings.json
 /desktop/node_modules
