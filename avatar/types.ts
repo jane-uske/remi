@@ -281,6 +281,38 @@ export type RemiServerMessage =
       enabled: boolean;
     }
   | {
+      type: "persona_preset_state";
+      presetId: string;
+    }
+  | {
+      type: "persona_pack_state";
+      packId: string;
+      name: string;
+      displayName: string;
+      voice: {
+        provider?: string;
+        voiceId?: string;
+        mlxInstruct?: string;
+        mlxSpeaker?: string;
+      } | null;
+      avatar: {
+        kind?: "live2d" | "vrm" | "portrait";
+        modelId?: string;
+        url?: string;
+      } | null;
+      memoryScope: "per_pack" | "shared";
+    }
+  | {
+      type: "voice_style_ack";
+      voiceStyleId?: string | null;
+      speedModifier?: string | null;
+      pitchModifier?: string | null;
+      ttsEnabled?: boolean;
+      source?: string;
+      ignored?: boolean;
+      activePersonaPackId?: string;
+    }
+  | {
       // Ack for the WS `set_voice_engine` override (realtime voice shell).
       // `engine` is the id that actually took effect; `fellBack` is true when it
       // differs from `requested` (unknown id / non-brain authority → legacy).

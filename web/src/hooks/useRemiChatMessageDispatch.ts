@@ -127,6 +127,7 @@ export interface MessageDispatchCtx {
   setTyping: (v: boolean) => void;
   setSttPartialText: (v: string | ((prev: string) => string)) => void;
   setPersonaPreset: (v: string | null) => void;
+  setPersonaPack: (v: { packId: string; name: string; displayName: string } | null) => void;
   setNsfwEnabled: (v: boolean) => void;
 
   pendingDevCommandRef: Ref<{ kind: string; scope?: string } | null>;
@@ -852,6 +853,27 @@ export function createMessageDispatch(
             ? data.presetId.trim()
             : null;
         ctx.setPersonaPreset(presetId);
+        break;
+      }
+
+      case "persona_pack_state": {
+        const packId =
+          typeof data.packId === "string" && data.packId.trim()
+            ? data.packId.trim()
+            : null;
+        if (!packId) {
+          ctx.setPersonaPack(null);
+          break;
+        }
+        const name =
+          typeof data.name === "string" && data.name.trim()
+            ? data.name.trim()
+            : packId;
+        const displayName =
+          typeof data.displayName === "string" && data.displayName.trim()
+            ? data.displayName.trim()
+            : name;
+        ctx.setPersonaPack({ packId, name, displayName });
         break;
       }
 

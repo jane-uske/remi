@@ -25,6 +25,8 @@ export type RemiChatComposerProps = {
   voiceStyleOpen: boolean;
   onVoiceStyleToggle: () => void;
   onVoiceStyleClose: () => void;
+  isReplying?: InputBarProps["isReplying"];
+  onStop?: InputBarProps["onStop"];
 };
 
 export function RemiChatComposer({
@@ -40,6 +42,8 @@ export function RemiChatComposer({
   voiceStyleOpen,
   onVoiceStyleToggle,
   onVoiceStyleClose,
+  isReplying,
+  onStop,
 }: RemiChatComposerProps) {
   // SSR-safe voice style: render "default" on both server and first client
   // frame (avoid hydration mismatch from reading localStorage during render),
@@ -74,6 +78,8 @@ export function RemiChatComposer({
           micDisabled={micDisabled}
           recording={recording}
           placeholder={placeholder}
+          isReplying={isReplying}
+          onStop={onStop}
           voiceStyleControl={{
             open: voiceStyleOpen,
             onToggle: onVoiceStyleToggle,

@@ -390,6 +390,39 @@ async function persistContinuityCueState(ctx: RemiSessionContext): Promise<void>
   }
 }
 
+/**
+ * BC-001 复读机根因修复：被打断的轮次原本在 `signal.aborted` 时直接 return，
+ * 跳过正常路径里的 `ctx.history.push`，导致这一轮在 prompt 的唯一来源
+ * `ctx.history` 里**零痕迹**。线上连发时（用户在上一条仍在生成 / 合成 TTS、
+ * SSE 请求还开着时发新消息 → 前端 abort → 服务端 `req.on("close")` →
+ * `interrupt()`）下一轮便拿到与上一轮几乎相同的**陈旧历史**，prompt 近乎一致，
+ * 上游 provider 对相同 prompt 返回逐字相同补全 → 逐字复读。
+ *
+ * 这里让被打断轮也把 user（以及已生成的非 fallback 回复）推进历史，保证对话
+ * 始终向前、prompt 逐轮变化。沿用与正常路径一致的 fallback 守卫：绝不把
+ * "出错了/未连上大脑"等兜底串写进历史污染后续 prompt；systemTriggered（沉默
+ * 搭话）轮用占位 user 文案。仅动内存历史，不改 DB 持久化行为（runner 仍按
+ * `!signal.aborted` 守卫，被打断的回复不入库）。
+ */
+function advanceHistoryOnInterrupt(
+  ctx: RemiSessionContext,
+  userContent: string,
+  partialReply: string,
+  imageContext?: string,
+): void {
+  ctx.history.push({ role: "user", content: userContent });
+  const trimmed = partialReply.trim();
+  if (trimmed && !isFallbackAssistantReply(trimmed)) {
+    ctx.history.push({
+      role: "assistant",
+      content: stripImageMarkdownForHistory(partialReply, imageContext),
+    });
+  }
+  while (ctx.history.length > maxHistoryEntries()) {
+    ctx.history.shift();
+  }
+}
+
 function finalizeDirectReply(input: {
   ctx: RemiSessionContext;
   userMessage: string;
@@ -407,6 +440,18 @@ function finalizeDirectReply(input: {
     if (!input.systemTriggered && reply.trim()) {
       ctx.lastInterruptedReply = reply;
     }
+    // BC-001 复读机根因修复：同 streaming 路径，被打断也推进历史（含能力直答的
+    // 图片上下文），避免连发时下一轮 prompt 冻结复读。
+    const interruptImageContext =
+      input.capabilityId === "image_generation"
+        ? getSessionLastImage(ctx.connId)?.subject
+        : undefined;
+    advanceHistoryOnInterrupt(
+      ctx,
+      input.systemTriggered ? "［你主动开口陪对方聊天］" : userMessage,
+      reply,
+      interruptImageContext,
+    );
     ctx.updateLiveState(emotion);
     if (!input.systemTriggered) {
       ctx.markInterrupted();
@@ -1158,6 +1203,13 @@ export async function* routeMessage(
     if (!opts?.systemTriggered && fullReply.trim()) {
       ctx.lastInterruptedReply = fullReply;
     }
+    // BC-001 复读机根因修复：被打断也推进历史，否则下一轮拿到冻结的陈旧 prompt
+    // → provider 对相同 prompt 返回逐字相同补全 → 复读。详见 advanceHistoryOnInterrupt。
+    advanceHistoryOnInterrupt(
+      ctx,
+      opts?.systemTriggered ? "［你主动开口陪对方聊天］" : effectiveUserMessage,
+      fullReply,
+    );
     ctx.updateLiveState(emotion);
     if (!opts?.systemTriggered) {
       ctx.markInterrupted();

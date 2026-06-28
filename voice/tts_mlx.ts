@@ -3,6 +3,8 @@ import { isNsfwEnabled } from "../brains/nsfw_mode";
 import { createLogger } from "../infra/logger";
 import { getMlxInstruct, type Emotion } from "./tts_emotion";
 import { getSessionTtsRuntimeOverride } from "./tts_runtime_overrides";
+import { getActivePersonaPackId } from "../brains/persona_pack_mode";
+import { loadPersonaPack } from "../persona/pack/loader";
 import { buildVoiceStyleInstruct } from "../capabilities/voice_style/voice_style_presets";
 import type { TtsPcmChunk } from "./tts";
 
@@ -59,6 +61,20 @@ export function isMlxConfigured(): boolean {
   return Boolean(getConfig().REMI_TTS_MLX_URL);
 }
 
+/** 随 active pack 走的 MLX instruct（语气与声音一致）；缺省返回 null → 用全局。 */
+export function resolvePackMlxInstruct(connId?: string | null): string | null {
+  if (!connId || !getConfig().REMI_PERSONA_PACK_ENABLED) return null;
+  const v = loadPersonaPack(getActivePersonaPackId(connId))?.manifest.voice;
+  return v?.mlxInstruct?.trim() || null;
+}
+
+/** 随 active pack 走的 MLX speaker；缺省返回 null → 用全局 REMI_TTS_MLX_SPEAKER。 */
+export function resolvePackMlxSpeaker(connId?: string | null): string | null {
+  if (!connId || !getConfig().REMI_PERSONA_PACK_ENABLED) return null;
+  const v = loadPersonaPack(getActivePersonaPackId(connId))?.manifest.voice;
+  return v?.mlxSpeaker?.trim() || null;
+}
+
 function resolveMlxInstruct(
   text: string,
   emotion: Emotion | undefined,
@@ -81,10 +97,12 @@ function resolveMlxInstruct(
       instruct = nsfwInstruct;
       profile = "nsfw";
     } else {
+      // Priority 2.5: per-pack instruct（语气与声音一致，随 active pack 走）
+      const packInstruct = resolvePackMlxInstruct(connId);
       // Priority 3: env static override → Priority 4: per-emotion default
       const envInstruct = getConfig().REMI_TTS_MLX_INSTRUCT?.trim();
-      instruct = envInstruct || getMlxInstruct(emotion ?? "neutral", text);
-      profile = nsfwActive ? "nsfw_missing_instruct" : "default";
+      instruct = packInstruct || envInstruct || getMlxInstruct(emotion ?? "neutral", text);
+      profile = packInstruct ? "pack" : nsfwActive ? "nsfw_missing_instruct" : "default";
     }
   }
 
@@ -106,7 +124,7 @@ function buildRequestBody(
   const body: Record<string, unknown> = {
     model: getConfig().REMI_TTS_MLX_MODEL,
     input: text,
-    voice: getConfig().REMI_TTS_MLX_SPEAKER,
+    voice: resolvePackMlxSpeaker(connId) || getConfig().REMI_TTS_MLX_SPEAKER,
     instruct: resolveMlxInstruct(text, emotion, connId),
     language: getConfig().REMI_TTS_MLX_LANGUAGE,
     response_format: "wav",

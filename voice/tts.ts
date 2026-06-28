@@ -17,6 +17,8 @@ import { isMlxConfigured, speakWithMlx, streamMlxPcm } from "./tts_mlx";
 import type { TtsRequestContext } from "./tts_request_context";
 import { createLogger } from "../infra/logger";
 import { getConfig } from "../server/config";
+import { getActivePersonaPackId } from "../brains/persona_pack_mode";
+import { loadPersonaPack } from "../persona/pack/loader";
 import { withRetry } from "../utils/retry";
 import {
   deriveCanonicalLipCuesFromWordBoundaries,
@@ -93,6 +95,19 @@ export type TtsSynthesisResult = {
   lipSync?: TtsLipSyncChunk | null;
 };
 
+/**
+ * M3: per-pack voice override. flag-on 且 active pack 钉了 voiceId 时，TTS 用它
+ * 替代全局 REMI_TTS_VOICE。返回 null → 调用方回退全局 voice（默认 remi pack 的
+ * voice 与全局一致，故默认零变化）。只在当前 provider 内换音色；跨 provider 切换
+ * 是 follow-up。pack 加载有缓存，开销 O(1)，不阻塞 fast path。
+ */
+export function resolvePackVoiceOverride(connId?: string | null): string | null {
+  if (!connId || !getConfig().REMI_PERSONA_PACK_ENABLED) return null;
+  const pack = loadPersonaPack(getActivePersonaPackId(connId));
+  const voiceId = pack?.manifest.voice?.voiceId?.trim();
+  return voiceId || null;
+}
+
 /** 短句 TTS 内存缓存（S10）：同 provider + 情绪 + 正文命中则跳过合成 */
 const TTS_CACHE_MAX_CHARS = getConfig().tts_cache_max_chars;
 const TTS_CACHE_MAX_ENTRIES = getConfig().tts_cache_max_entries;
@@ -111,7 +126,8 @@ function getTtsCacheVariant(
           cfg.VOLC_TTS_VOICE_TYPE ||
           cfg.REMI_TTS_VOICE ||
           "zh_female_lingling_uranus_bigtts"
-        : cfg.REMI_TTS_VOICE || (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
+        : (resolvePackVoiceOverride(context?.connId) ?? cfg.REMI_TTS_VOICE) ||
+          (provider === "openai" ? "alloy" : "zh-CN-XiaoyiNeural"),
     lang:
       provider === "volc"
         ? resolveVolcTtsConfig(emotion, undefined, context)?.resourceId ||
@@ -218,6 +234,7 @@ async function speakWithOpenAI(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  voiceOverride?: string | null,
 ): Promise<Buffer> {
   const openai = getClient();
   if (!openai) {
@@ -225,7 +242,7 @@ async function speakWithOpenAI(
   }
 
   const model = getConfig().tts_model;
-  const voice = getConfig().REMI_TTS_VOICE;
+  const voice = voiceOverride ?? getConfig().REMI_TTS_VOICE;
   const { speed } = getEmotionVoiceParams(emotion ?? "neutral");
 
   const response = await openai.audio.speech.create({
@@ -770,11 +787,12 @@ async function speakWithEdgeResult(
   text: string,
   signal?: AbortSignal,
   emotion?: Emotion,
+  voiceOverride?: string | null,
 ): Promise<TtsSynthesisResult> {
   throwIfAborted(signal);
   const t0 = Date.now();
 
-  const voice = getConfig().REMI_TTS_VOICE;
+  const voice = voiceOverride ?? getConfig().REMI_TTS_VOICE;
   const lang = getConfig().tts_lang;
   const fmt = EDGE_MP3_FORMAT;
 
@@ -887,7 +905,13 @@ async function speakWithProviderResult(
   emotion?: Emotion,
   context?: TtsRequestContext,
 ): Promise<TtsSynthesisResult> {
-  if (provider === "edge") return speakWithEdgeResult(text, signal, emotion);
+  if (provider === "edge")
+    return speakWithEdgeResult(
+      text,
+      signal,
+      emotion,
+      resolvePackVoiceOverride(context?.connId),
+    );
   return {
     audio: await speakWithProvider(provider, text, signal, emotion, context),
     lipSync: null,
@@ -973,7 +997,12 @@ async function speakWithProvider(
   if (provider === "piper") return speakWithPiper(text, signal, emotion);
   if (provider === "volc") return speakWithVolc(text, signal, emotion, context);
   if (provider === "mlx") return speakWithMlx(text, signal, emotion, context?.connId);
-  return speakWithOpenAI(text, signal, emotion);
+  return speakWithOpenAI(
+    text,
+    signal,
+    emotion,
+    resolvePackVoiceOverride(context?.connId),
+  );
 }
 
 type EdgeStreamChunkHandler = (chunk: TtsPcmChunk) => void;
@@ -984,6 +1013,7 @@ function streamEdgePcm(
   emotion: Emotion | undefined,
   onChunk: EdgeStreamChunkHandler,
   onLipSyncChunk?: (chunk: TtsLipSyncChunk) => void,
+  voiceOverride?: string | null,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -991,7 +1021,7 @@ function streamEdgePcm(
       return;
     }
 
-    const voice = getConfig().REMI_TTS_VOICE;
+    const voice = voiceOverride ?? getConfig().REMI_TTS_VOICE;
     const lang = getConfig().tts_lang;
 
     const resolved = emotion ?? "neutral";
@@ -1278,7 +1308,15 @@ export async function streamTextToSpeech(
       await streamMlxPcm(ttsText, signal, emotion, onChunk, context?.connId);
     } else {
       await withRetry(
-        () => streamEdgePcm(ttsText, signal, emotion, onChunk, onLipSyncChunk),
+        () =>
+          streamEdgePcm(
+            ttsText,
+            signal,
+            emotion,
+            onChunk,
+            onLipSyncChunk,
+            resolvePackVoiceOverride(context?.connId),
+          ),
         { retries: 1, label: "streamTextToSpeech(edge)" },
       );
       markEdgeStreamHealthy();

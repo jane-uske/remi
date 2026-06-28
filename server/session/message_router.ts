@@ -86,6 +86,8 @@ export function attachSessionMessageHandlers(input: {
   runDevResetState: (data: any) => void;
   handleGetPersonaPreset: () => void;
   handleSetPersonaPreset: (data: any) => void;
+  handleGetPersonaPack: () => void;
+  handleSetPersonaPack: (data: any) => void;
   handleDuplexStart: (data: any) => void;
   handleDuplexStop: () => void;
   handleAudioStream: (data: any) => void;
@@ -166,6 +168,12 @@ export function attachSessionMessageHandlers(input: {
         break;
       case "set_persona_preset":
         input.handleSetPersonaPreset(data);
+        break;
+      case "get_persona_pack":
+        input.handleGetPersonaPack();
+        break;
+      case "set_persona_pack":
+        input.handleSetPersonaPack(data);
         break;
       case "duplex_start":
         input.handleDuplexStart(data);

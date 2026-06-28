@@ -107,6 +107,7 @@ export function RemiChatApp({
     currentUserId,
     wsTargetLabel,
     sendText,
+    interruptReply,
     loadMoreHistory,
     applyDevPreset,
     resetDevState,
@@ -360,6 +361,10 @@ export function RemiChatApp({
               <div className={layout.chatComposerDock}>
                 <RemiChatComposer
                   onSend={wrappedSendText}
+                  onStop={interruptReply}
+                  isReplying={
+                    typing || waiting || runtimeState.assistant.playbackActive
+                  }
                   onMicToggle={toggleMic}
                   disabled={inputDisabled}
                   micDisabled={micDisabled}

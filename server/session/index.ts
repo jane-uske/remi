@@ -69,6 +69,12 @@ import { attachSessionMessageHandlers } from "./message_router";
 import { getConfig } from "../config";
 import { isPersonaPresetId } from "../../persona/presets";
 import { saveUserPersonaPreset } from "../../storage/repositories/user_persona_preset_repository";
+import { loadPersonaPack } from "../../persona/pack/loader";
+import {
+  clearActivePersonaPack,
+  getActivePersonaPackId,
+  setActivePersonaPack,
+} from "../../brains/persona_pack_mode";
 import {
   duplexAssistantNoPreviewInterruptMinSpeechMs,
   duplexIdleGuardAfterMs,
@@ -537,6 +543,7 @@ export class ConnectionSession {
     // 静默 no-op。fire-and-forget，不 await。
     void loadAndApplyRemiSelf(this.brain, this.brain.userId);
     this.sendPersonaPresetState();
+    this.sendPersonaPackState();
     // Re-enable adult mode if this user dropped while in it and reconnected
     // within the restore window (crash / network blip / redeploy). New sessions
     // past the window stay off. Must run before announcing the state below.
@@ -2971,6 +2978,8 @@ export class ConnectionSession {
           send(this.ws, { type: "error", content: "保存 persona preset 失败，请稍后重试" });
         });
       },
+      handleGetPersonaPack: () => this.handleGetPersonaPack(),
+      handleSetPersonaPack: (data) => this.handleSetPersonaPack(data),
       handleDuplexStart: (data) => this.handleDuplexStart(data),
       handleDuplexStop: () => this.handleDuplexStop(),
       handleAudioStream: (data) => this.handleAudioStream(data),
@@ -3000,19 +3009,30 @@ export class ConnectionSession {
    */
   private handleSetVoiceStyle(data: any): void {
     const connId = this.connId;
-    if (data.voiceStyleId !== undefined) {
-      setSessionMlxVoiceStyle(connId, data.voiceStyleId ?? null);
-    }
-    if (data.speedModifier !== undefined) {
-      setSessionMlxSpeedModifier(connId, data.speedModifier ?? null);
-    }
-    if (data.pitchModifier !== undefined) {
-      setSessionMlxPitchModifier(connId, data.pitchModifier ?? null);
+    const activePackId = getActivePersonaPackId(connId);
+    const ignoreStoredRestore =
+      data.source === "stored_restore" && activePackId !== "remi";
+
+    if (!ignoreStoredRestore) {
+      if (data.voiceStyleId !== undefined) {
+        setSessionMlxVoiceStyle(connId, data.voiceStyleId ?? null);
+      }
+      if (data.speedModifier !== undefined) {
+        setSessionMlxSpeedModifier(connId, data.speedModifier ?? null);
+      }
+      if (data.pitchModifier !== undefined) {
+        setSessionMlxPitchModifier(connId, data.pitchModifier ?? null);
+      }
     }
     if (data.ttsEnabled !== undefined) {
       setSessionTtsEnabled(connId, data.ttsEnabled === false ? false : true);
     }
-    send(this.ws, { type: "voice_style_ack", ...data });
+    send(this.ws, {
+      ...data,
+      type: "voice_style_ack",
+      ignored: ignoreStoredRestore || undefined,
+      activePersonaPackId: activePackId,
+    });
   }
 
   /**
@@ -3685,6 +3705,47 @@ export class ConnectionSession {
     this.sendPersonaPresetState();
   }
 
+  private sendPersonaPackState(): void {
+    const packId = getActivePersonaPackId(this.connId);
+    const pack = loadPersonaPack(packId);
+    send(this.ws, {
+      type: "persona_pack_state",
+      packId,
+      name: pack?.manifest.name ?? packId,
+      displayName: pack?.manifest.displayName ?? pack?.manifest.name ?? packId,
+      voice: pack?.manifest.voice ?? null,
+      avatar: pack?.manifest.avatar ?? null,
+      memoryScope: pack?.manifest.memoryScope ?? "per_pack",
+    });
+  }
+
+  private handleGetPersonaPack(): void {
+    this.sendPersonaPackState();
+  }
+
+  private handleSetPersonaPack(data: any): void {
+    if (!getConfig().REMI_PERSONA_PACK_ENABLED) {
+      send(this.ws, { type: "error", content: "persona pack is disabled" });
+      return;
+    }
+
+    const packId = typeof data?.packId === "string" ? data.packId.trim() : "";
+    if (!packId) {
+      send(this.ws, { type: "error", content: "packId is required" });
+      return;
+    }
+    if (!setActivePersonaPack(this.connId, packId)) {
+      send(this.ws, { type: "error", content: `invalid persona pack: ${packId}` });
+      return;
+    }
+
+    setSessionMlxVoiceStyle(this.connId, null);
+    setSessionMlxSpeedModifier(this.connId, null);
+    setSessionMlxPitchModifier(this.connId, null);
+    logger.info("[PersonaPack] active pack changed", { connId: this.connId, packId });
+    this.sendPersonaPackState();
+  }
+
   private async handleSetPersonaPreset(data: any): Promise<void> {
     if (!this.personaPresetBootstrapReady) {
       send(this.ws, {
@@ -3761,7 +3822,10 @@ export class ConnectionSession {
       setDuplexActive: (active) => {
         this.duplexActive = active;
       },
-      clearDevRuntimeOverrides: () => clearSessionTtsRuntimeOverride(this.connId),
+      clearDevRuntimeOverrides: () => {
+        clearSessionTtsRuntimeOverride(this.connId);
+        clearActivePersonaPack(this.connId);
+      },
       resetVad: () => this.vad.reset(),
       clearPendingUtteranceTimer: () => this.clearPendingUtteranceTimer(),
       clearSilenceNudgeTimer: () => this.clearSilenceNudgeTimer(),

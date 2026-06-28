@@ -17,6 +17,10 @@ export type InputBarProps = {
   placeholder: string;
   variant?: "unified" | "legacy";
   voiceStyleControl?: VoiceStyleControl;
+  /** Remi 是否正在回复（生成 / 播放 TTS）。用于把发送按钮切成停止键。 */
+  isReplying?: boolean;
+  /** 点击停止键 → 打断当前回复（不发新消息）。 */
+  onStop?: () => void;
 };
 
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4 MB
@@ -55,6 +59,20 @@ function SendIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+    </svg>
+  );
+}
+
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2.5" />
     </svg>
   );
 }
@@ -190,6 +208,8 @@ export function InputBar({
   placeholder,
   variant = "legacy",
   voiceStyleControl,
+  isReplying,
+  onStop,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -197,6 +217,9 @@ export function InputBar({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canSend = (value.trim().length > 0 || imagePreview != null) && !disabled;
+  // 回复进行中且输入框为空 → 发送按钮变「停止」，点击纯打断当前回复；
+  // 输入框有内容时仍是发送（sendText 自带打断，不必先停）。
+  const showStop = Boolean(isReplying) && onStop != null && !canSend;
 
   const clearImage = useCallback(() => {
     setImagePreview(null);
@@ -386,14 +409,19 @@ export function InputBar({
 
             <button
               type="button"
-              disabled={disabled || !canSend}
-              onClick={submit}
-              title="发送"
-              aria-label="发送"
-              data-ready={canSend ? "true" : "false"}
+              disabled={showStop ? false : disabled || !canSend}
+              onClick={showStop ? () => onStop?.() : submit}
+              title={showStop ? "停止" : "发送"}
+              aria-label={showStop ? "停止" : "发送"}
+              data-ready={showStop || canSend ? "true" : "false"}
+              data-mode={showStop ? "stop" : "send"}
               className="remi-input-send flex shrink-0 items-center justify-center rounded-full transition active:scale-[0.97] disabled:cursor-default"
             >
-              <ArrowUpIcon className="h-4 w-4" />
+              {showStop ? (
+                <StopIcon className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowUpIcon className="h-4 w-4" />
+              )}
             </button>
           </div>
         </div>
@@ -477,20 +505,27 @@ export function InputBar({
 
         <button
           type="button"
-          disabled={disabled || !canSend}
-          onClick={submit}
-          title="发送"
-          data-ready={canSend ? "true" : "false"}
+          disabled={showStop ? false : disabled || !canSend}
+          onClick={showStop ? () => onStop?.() : submit}
+          title={showStop ? "停止" : "发送"}
+          data-ready={showStop || canSend ? "true" : "false"}
+          data-mode={showStop ? "stop" : "send"}
           className="remi-input-send flex h-10 min-w-[4.5rem] shrink-0 items-center justify-center gap-1 rounded-full px-3 text-[var(--remi-send-button-fg)] shadow-[var(--remi-send-button-shadow)] transition hover:brightness-110 disabled:cursor-default disabled:opacity-40"
         >
-          <span className="sr-only">发送</span>
-          <SendIcon className="h-[1.05rem] w-[1.05rem] md:hidden" />
-          <span
-            aria-hidden
-            className="hidden text-[11px] font-semibold uppercase tracking-[0.12em] md:inline"
-          >
-            send
-          </span>
+          <span className="sr-only">{showStop ? "停止" : "发送"}</span>
+          {showStop ? (
+            <StopIcon className="h-[1.05rem] w-[1.05rem]" />
+          ) : (
+            <>
+              <SendIcon className="h-[1.05rem] w-[1.05rem] md:hidden" />
+              <span
+                aria-hidden
+                className="hidden text-[11px] font-semibold uppercase tracking-[0.12em] md:inline"
+              >
+                send
+              </span>
+            </>
+          )}
         </button>
       </div>
     </div>

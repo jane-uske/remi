@@ -8,6 +8,9 @@ import { buildPersonaPrompt } from "../persona";
 import { getPromptInjectionHooks, anyPluginWantsLeanPersona } from "../plugin/registry";
 import { REMI_DEFAULT_PERSONA, traitsToGuidance } from "../persona/remi_default";
 import { isNsfwEnabled } from "../brains/nsfw_mode";
+import { loadPersonaPack } from "../persona/pack/loader";
+import { composePersonaPrompt } from "../persona/pack/compose";
+import { getActivePersonaPackId } from "../brains/persona_pack_mode";
 
 /**
  * High-salience override that REPLACES the normal persona prompt while a
@@ -118,6 +121,23 @@ const PRIORITY_SLOT_HEADINGS = [
   "反助手味",
 ] as const;
 
+/**
+ * REMI_LEAN_SLOW_GUIDANCE：慢脑「怎么回复」的指令 heading，lean 时额外从
+ * priorityContext 剥掉。语气合同 / 回复合同已是 PRIORITY_SLOT_HEADINGS 里的 slot，
+ * 由 toneContract/replyShapeContract 置空削掉；这里补的是落在【优先参考】块里、
+ * 不走 slot 的指令——响应策略、主动提起、共同经历提醒（proactive）、关系表达风格。
+ *
+ * 刻意**不**列入【事实】与 turn-taking 状态块：关系阶段 / 当前未完主线（topicPull）/
+ * 对话摘要 / 长期关系主线 / 话题边界（用户否决事实）/ 场景承接 / 实时连续性——它们
+ * 与 pack 人格正交、不重复，lean 时保留。
+ */
+const LEAN_SLOW_GUIDANCE_HEADINGS = [
+  "响应策略",
+  "主动提起候选",
+  "共同经历提醒",
+  "关系表达风格",
+] as const;
+
 function trimTextByChars(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
@@ -224,10 +244,19 @@ function buildSystemPrompt(
     maxPriorityChars - (trimmedCurrentContext?.length ?? 0),
   );
 
+  // REMI_LEAN_SLOW_GUIDANCE：lean 时把慢脑「怎么回复」的指令也从注入里剥掉，
+  // 只留【事实】（记忆 / 关系阶段 / 未完主线 / 摘要…），人格与风格交给 pack + few-shot。
+  // 语气合同 / 回复合同走 slot（下面置空），其余指令块从 priorityContext 多剥一层。
+  // flag-off 时下面两处分支均退化为原行为，逐字节零回归。
+  const leanSlowGuidance = getConfig().REMI_LEAN_SLOW_GUIDANCE;
+  const slotHeadingsToStrip = leanSlowGuidance
+    ? [...PRIORITY_SLOT_HEADINGS, ...LEAN_SLOW_GUIDANCE_HEADINGS]
+    : PRIORITY_SLOT_HEADINGS;
+
   // Use new persona system if provided
   if (persona) {
     const slots = extractPrioritySlots(priorityContext);
-    const reducedPriorityContext = stripPriorityBlocks(priorityContext, PRIORITY_SLOT_HEADINGS);
+    const reducedPriorityContext = stripPriorityBlocks(priorityContext, slotHeadingsToStrip);
     const memoryStr = memory.length > 0
       ? memory
           .slice(0, maxMemoryEntries)
@@ -240,32 +269,56 @@ function buildSystemPrompt(
     const pluginLean = anyPluginWantsLeanPersona(connId);
     const useBuiltinNsfwBlock = nsfwActive && pluginSections.length === 0;
     const leanPersona = pluginLean || useBuiltinNsfwBlock;
-    const personaPrompt = leanPersona
-      ? (useBuiltinNsfwBlock ? NSFW_PERSONA_BLOCK : `你是 Remi，一个 20 出头的女生。口语化、短句多、有语气词。用中文回复。`)
-      : buildPersonaPrompt(persona, {
-      userMessage,
-      currentContext: trimmedCurrentContext,
-      priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
-        ? trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars)
-        : undefined,
-      relationshipStageLabel: slots.relationshipStageLabel
-        ? trimTextByChars(slots.relationshipStageLabel, 120)
-        : undefined,
-      replyShapeContract: slots.replyShapeContract
-        ? trimTextByChars(slots.replyShapeContract, 520)
-        : undefined,
-      toneContract: slots.toneContract
-        ? trimTextByChars(slots.toneContract, 320)
-        : trimTextByChars(
-            buildToneContract({
-              relationshipStage: slots.relationshipStageLabel,
-              userMessage: "",
-            }),
-            320,
-          ),
-      memoryStr,
-      emotionSpeechGuidance: buildEmotionSpeechGuidance(emotion),
-    });
+    const activePack = getConfig().REMI_PERSONA_PACK_ENABLED
+      ? loadPersonaPack(getActivePersonaPackId(connId))
+      : null;
+    let personaPrompt: string;
+    if (leanPersona) {
+      personaPrompt = pluginLean && activePack
+        ? composePersonaPrompt(activePack, {
+            currentContext: trimmedCurrentContext,
+            priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
+              ? trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars)
+              : undefined,
+          })
+        : useBuiltinNsfwBlock
+        ? NSFW_PERSONA_BLOCK
+        : `你是 Remi，一个 20 出头的女生。口语化、短句多、有语气词。用中文回复。`;
+    } else {
+      const personaOptions = {
+        userMessage,
+        currentContext: trimmedCurrentContext,
+        priorityContext: remainingPriorityChars > 0 && reducedPriorityContext?.trim()
+          ? trimTextByChars(reducedPriorityContext.trim(), remainingPriorityChars)
+          : undefined,
+        relationshipStageLabel: slots.relationshipStageLabel
+          ? trimTextByChars(slots.relationshipStageLabel, 120)
+          : undefined,
+        // lean 时砍掉「怎么回复」的 responseShape；非 lean 保留 slot 提取值。
+        replyShapeContract: !leanSlowGuidance && slots.replyShapeContract
+          ? trimTextByChars(slots.replyShapeContract, 520)
+          : undefined,
+        // lean 时砍掉语气合同（含静态兜底合成），人格语气交给 pack；非 lean 维持原逻辑。
+        toneContract: leanSlowGuidance
+          ? undefined
+          : slots.toneContract
+          ? trimTextByChars(slots.toneContract, 320)
+          : trimTextByChars(
+              buildToneContract({
+                relationshipStage: slots.relationshipStageLabel,
+                userMessage: "",
+              }),
+              320,
+            ),
+        memoryStr,
+        emotionSpeechGuidance: buildEmotionSpeechGuidance(emotion),
+      };
+      // Persona Pack：flag-on 且加载成功 → 新分层 compose（L0 夹层 + md 人格 +
+      // few-shot）；flag-off 或加载失败 → 回退内建 buildPersonaPrompt（零回归）。
+      personaPrompt = activePack
+        ? composePersonaPrompt(activePack, personaOptions)
+        : buildPersonaPrompt(persona, personaOptions);
+    }
     const emotionAnnotation =
       "\n\n在你的回复最末尾，用 <emotion>xxx</emotion> 标注你此刻的情绪状态。可选值：neutral, happy, curious, shy, sad, concerned, playful, thoughtful。这个标签不会展示给用户。";
 
@@ -277,7 +330,9 @@ function buildSystemPrompt(
 
   // Fallback to original system prompt logic
   const sections: string[] = [];
-  const reducedPriorityContext = stripPriorityBlocks(priorityContext, PRIORITY_SLOT_HEADINGS);
+  // lean 同样从【优先参考】里剥掉慢脑指令块（此路径的静态【语气合同】是 legacy
+  // 无-pack 人格基线、非慢脑输出，不在本 flag scope 内，保持原样）。
+  const reducedPriorityContext = stripPriorityBlocks(priorityContext, slotHeadingsToStrip);
 
   if (trimmedCurrentContext) {
     sections.push(trimmedCurrentContext);

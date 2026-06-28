@@ -65,6 +65,7 @@ COPY --from=frontend-build /app/web/public ./web/public
 COPY storage/schema.sql ./storage/schema.sql
 COPY avatar/assets ./avatar/assets
 COPY capabilities/image_generation/workflows ./capabilities/image_generation/workflows
+COPY personas/ ./personas/
 EXPOSE 3000
 ENV NODE_ENV=production
 CMD ["node", "dist/server/server.js"]

@@ -42,6 +42,12 @@ describe("session persona preset protocol", function () {
       handleSetPersonaPreset: (data) => {
         calls.push({ type: "set", data });
       },
+      handleGetPersonaPack: () => {
+        calls.push({ type: "get_pack" });
+      },
+      handleSetPersonaPack: (data) => {
+        calls.push({ type: "set_pack", data });
+      },
       handleDuplexStart: () => {
         throw new Error("unexpected duplex start");
       },
@@ -73,11 +79,108 @@ describe("session persona preset protocol", function () {
 
     ws.emitMessage(JSON.stringify({ type: "get_persona_preset" }));
     ws.emitMessage(JSON.stringify({ type: "set_persona_preset", presetId: "playful_attached" }));
+    ws.emitMessage(JSON.stringify({ type: "get_persona_pack" }));
+    ws.emitMessage(JSON.stringify({ type: "set_persona_pack", packId: "nami" }));
 
     assert.deepEqual(calls, [
       { type: "get" },
       { type: "set", data: { type: "set_persona_preset", presetId: "playful_attached" } },
+      { type: "get_pack" },
+      { type: "set_pack", data: { type: "set_persona_pack", packId: "nami" } },
     ]);
+  });
+
+  it("applies a persona pack, resets stale voice style, and emits persona_pack_state", async () => {
+    const { ws, session, restore } = loadSessionHarness();
+    const {
+      getActivePersonaPackId,
+      clearActivePersonaPack,
+    } = require("../../../brains/persona_pack_mode.ts");
+    const {
+      setSessionMlxVoiceStyle,
+      getSessionTtsRuntimeOverride,
+    } = require("../../../voice/tts_runtime_overrides.ts");
+    const { resolvePackMlxInstruct } = require("../../../voice/tts_mlx.ts");
+    const { resetConfig } = require("../../../server/config");
+
+    const originalEnabled = process.env.REMI_PERSONA_PACK_ENABLED;
+    try {
+      process.env.REMI_PERSONA_PACK_ENABLED = "1";
+      resetConfig();
+      clearActivePersonaPack(session.connId);
+      setSessionMlxVoiceStyle(session.connId, "luoli");
+
+      ws.emitMessage(JSON.stringify({ type: "set_persona_pack", packId: "nami" }));
+
+      await waitFor(
+        () =>
+          ws
+            .parsedMessages()
+            .some(
+              (msg) =>
+                msg?.type === "persona_pack_state" &&
+                msg.packId === "nami" &&
+                msg.name === "娜美",
+            ),
+        SESSION_EVENT_TIMEOUT_MS,
+      );
+
+      assert.equal(getActivePersonaPackId(session.connId), "nami");
+      assert.equal(getSessionTtsRuntimeOverride(session.connId)?.mlxVoiceStyleId, undefined);
+      assert.match(resolvePackMlxInstruct(session.connId) ?? "", /利落|狡黠/);
+    } finally {
+      clearActivePersonaPack(session.connId);
+      if (originalEnabled === undefined) delete process.env.REMI_PERSONA_PACK_ENABLED;
+      else process.env.REMI_PERSONA_PACK_ENABLED = originalEnabled;
+      resetConfig();
+      restore();
+    }
+  });
+
+  it("ignores stored voice-style restore for non-Remi persona packs", async () => {
+    const { ws, session, restore } = loadSessionHarness();
+    const {
+      clearActivePersonaPack,
+      setActivePersonaPack,
+    } = require("../../../brains/persona_pack_mode.ts");
+    const {
+      clearSessionTtsRuntimeOverride,
+      getSessionTtsRuntimeOverride,
+    } = require("../../../voice/tts_runtime_overrides.ts");
+
+    try {
+      setActivePersonaPack(session.connId, "nami");
+
+      ws.emitMessage(
+        JSON.stringify({
+          type: "set_voice_style",
+          source: "stored_restore",
+          voiceStyleId: "luoli",
+          speedModifier: "，语速偏慢",
+          pitchModifier: "，语调偏高",
+        }),
+      );
+
+      await waitFor(
+        () =>
+          ws
+            .parsedMessages()
+            .some((msg) => msg?.type === "voice_style_ack" && msg.ignored === true),
+        SESSION_EVENT_TIMEOUT_MS,
+      );
+      assert.equal(getSessionTtsRuntimeOverride(session.connId)?.mlxVoiceStyleId, undefined);
+
+      ws.emitMessage(JSON.stringify({ type: "set_voice_style", voiceStyleId: "luoli" }));
+
+      await waitFor(
+        () => getSessionTtsRuntimeOverride(session.connId)?.mlxVoiceStyleId === "luoli",
+        SESSION_EVENT_TIMEOUT_MS,
+      );
+    } finally {
+      clearActivePersonaPack(session.connId);
+      clearSessionTtsRuntimeOverride(session.connId);
+      restore();
+    }
   });
 
   it("emits the current persona preset when requested", async () => {
