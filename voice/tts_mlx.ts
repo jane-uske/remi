@@ -12,9 +12,14 @@ const logger = createLogger("tts_mlx");
 
 const WAV_HEADER_SIZE = 44;
 
-// MLX TTS can produce looping audio for very short moaning text (e.g. "嗯啊"
-// → 6 seconds instead of ~0.5s). Cap output duration to prevent this.
-const MAX_AUDIO_SEC_PER_CHAR = 1.5;
+// MLX TTS can produce looping/"singing" audio when the model hits a
+// token-repeat failure mode — worst for NSFW moaning text (needs genuine
+// headroom for breaths/trembles) but also happens on plain dialogue with a
+// stylized instruct. Cap output duration to prevent runaway generation;
+// normal dialogue gets a tight cap close to natural speaking pace, NSFW
+// keeps the wider budget it actually needs.
+const MAX_AUDIO_SEC_PER_CHAR_NSFW = 1.5;
+const MAX_AUDIO_SEC_PER_CHAR_NORMAL = 0.6;
 const MIN_MAX_AUDIO_SEC = 2.0;
 const MLX_SAMPLE_RATE = 24000;
 const MLX_BYTES_PER_SAMPLE = 2; // 16-bit mono
@@ -24,15 +29,16 @@ function speakableCharCount(text: string): number {
   return text.replace(/[，,。！？!?、；;：:\s~～…\-.—–\n]/g, "").length;
 }
 
-function maxAudioBytes(textLength: number): number {
-  const maxSec = Math.max(MIN_MAX_AUDIO_SEC, textLength * MAX_AUDIO_SEC_PER_CHAR);
+function maxAudioBytes(textLength: number, nsfw: boolean): number {
+  const perChar = nsfw ? MAX_AUDIO_SEC_PER_CHAR_NSFW : MAX_AUDIO_SEC_PER_CHAR_NORMAL;
+  const maxSec = Math.max(MIN_MAX_AUDIO_SEC, textLength * perChar);
   return Math.ceil(maxSec * MLX_SAMPLE_RATE * MLX_BYTES_PER_SAMPLE);
 }
 
-function truncateWavIfNeeded(wav: Buffer, textLength: number): Buffer {
+function truncateWavIfNeeded(wav: Buffer, textLength: number, nsfw: boolean): Buffer {
   if (wav.length < WAV_HEADER_SIZE + 4) return wav;
   const dataSize = wav.readUInt32LE(40);
-  const cap = maxAudioBytes(textLength);
+  const cap = maxAudioBytes(textLength, nsfw);
   if (dataSize <= cap) return wav;
 
   const truncatedDataSize = cap - (cap % MLX_BYTES_PER_SAMPLE);
@@ -129,6 +135,9 @@ function buildRequestBody(
     language: getConfig().REMI_TTS_MLX_LANGUAGE,
     response_format: "wav",
     stream,
+    // Lets the server give plain dialogue a tight max_tokens budget and
+    // reserve the wide (loop-prone) budget for NSFW moaning/panting text.
+    nsfw: Boolean(connId && isNsfwEnabled(connId)),
   };
   if (temperature !== undefined) body.temperature = temperature;
   return body;
@@ -167,7 +176,8 @@ export async function speakWithMlx(
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  const audio = truncateWavIfNeeded(Buffer.from(arrayBuffer), speakableCharCount(text));
+  const nsfw = Boolean(connId && isNsfwEnabled(connId));
+  const audio = truncateWavIfNeeded(Buffer.from(arrayBuffer), speakableCharCount(text), nsfw);
   logger.info("mlx 合成完成", { duration: Date.now() - t0, bytes: audio.length });
   return audio;
 }
@@ -209,7 +219,7 @@ export async function streamMlxPcm(
   let headerSkipped = false;
   let buffer = Buffer.alloc(0);
   let totalPcmBytes = 0;
-  const pcmByteCap = maxAudioBytes(speakableCharCount(text));
+  const pcmByteCap = maxAudioBytes(speakableCharCount(text), Boolean(connId && isNsfwEnabled(connId)));
   let capReached = false;
 
   try {

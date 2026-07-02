@@ -29,6 +29,7 @@ class SpeechRequest(BaseModel):
     response_format: str = "wav"
     stream: bool = False
     temperature: float | None = None
+    nsfw: bool = False
 
 
 def make_wav_header(sample_rate: int = 24000, bits: int = 16, channels: int = 1) -> bytes:
@@ -61,18 +62,25 @@ def pcm_to_wav(pcm: np.ndarray, sample_rate: int = 24000) -> bytes:
     return buf.getvalue()
 
 
-def _estimate_max_tokens(text: str) -> int:
-    """Generous max_tokens for short expressive text (moaning, panting).
+def _estimate_max_tokens(text: str, nsfw: bool = False) -> int:
+    """Bound how many audio tokens the model may generate for one line.
 
-    mlx-audio defaults to ``max(75, n_text_tokens * 6)`` which caps a 10-token
-    moan line at 75 audio tokens → ~6 s at 12 Hz.  That's fine for normal
-    speech but moaning/panting needs 2-3× more time per character (breaths,
-    trembles, pauses).  We use ``min(500, max(150, n_chars * 10))`` giving
-    12.5–40 s for typical lines, capped to prevent runaway loops.  The Remi
-    TTS pipeline has its own ``MAX_AUDIO_SEC_PER_CHAR`` guard downstream to
-    truncate model-looping audio, so some overshoot is safe.
+    Plain dialogue stays close to the mlx-audio library default
+    (``max(75, n_text_tokens * 6)``, ~6 s for a 10-token line) — that's
+    already enough for normal speech, and a tight cap matters because a
+    stylized instruct (e.g. "甜美尖细带撒娇感") can still trigger the
+    model's token-loop failure mode ("一直嗯"/singing) even outside NSFW
+    mode; capping tightly bounds how long a loop can run before generation
+    just stops.
+
+    NSFW moaning/panting text genuinely needs 2-3× more time per character
+    (breaths, trembles, pauses), so it keeps the wider historical budget.
+    The Remi TTS pipeline also has its own ``MAX_AUDIO_SEC_PER_CHAR`` guard
+    downstream to truncate model-looping audio as a second line of defense.
     """
-    return min(500, max(150, len(text) * 10))
+    if nsfw:
+        return min(500, max(150, len(text) * 10))
+    return min(200, max(75, len(text) * 6))
 
 
 @app.post("/v1/audio/speech")
@@ -83,7 +91,7 @@ async def speech(req: SpeechRequest):
         kwargs["instruct"] = req.instruct
     if req.temperature is not None:
         kwargs["temperature"] = req.temperature
-    kwargs["max_tokens"] = _estimate_max_tokens(req.input)
+    kwargs["max_tokens"] = _estimate_max_tokens(req.input, req.nsfw)
     # Raise repetition penalty above library default (1.05) — moaning/panting
     # text ("嗯，爸爸，好大") otherwise triggers the model's token-loop failure
     # mode (one token repeated to the max length = "一直嗯"). 1.3 dampens the
