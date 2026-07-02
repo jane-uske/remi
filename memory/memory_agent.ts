@@ -199,7 +199,7 @@ export async function retrievePromptMemory(
     .slice(0, Math.min(MAX_CORE_FACTS, maxEntries));
   for (const entry of coreFacts) {
     seenKeys.add(entry.key);
-    selected.push({ key: entry.key, value: entry.value });
+    selected.push({ key: entry.key, value: entry.value, createdAt: entry.createdAt });
   }
 
   if (isLightTouchTurn(options.userMessage)) {
@@ -252,14 +252,14 @@ export async function retrievePromptMemory(
       const timeoutMs = getConfig().REMI_SEMANTIC_RECALL_TIMEOUT_MS;
       try {
         const hits = await Promise.race([
-          persistentBackend.findSimilar(options.userMessage, maxEntries * 2) as Promise<Array<{ key: string; value: string }>>,
-          new Promise<Array<{ key: string; value: string }>>((resolve) => setTimeout(() => resolve([]), timeoutMs)),
+          persistentBackend.findSimilar(options.userMessage, maxEntries * 2) as Promise<Array<{ key: string; value: string; createdAt?: number }>>,
+          new Promise<Array<{ key: string; value: string; createdAt?: number }>>((resolve) => setTimeout(() => resolve([]), timeoutMs)),
         ]);
         for (const hit of hits) {
           if (selected.length >= maxEntries) break;
           if (seenKeys.has(hit.key) || isSystemMemoryKey(hit.key)) continue;
           seenKeys.add(hit.key);
-          selected.push({ key: hit.key, value: hit.value });
+          selected.push({ key: hit.key, value: hit.value, createdAt: hit.createdAt });
         }
       } catch (err) {
         logger.debug("semantic vector supplement failed", {

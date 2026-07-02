@@ -10,6 +10,10 @@ const logger = createLogger("memory_store");
 export interface Memory {
   key: string;
   value: string;
+  /** 事实首次入库时间（epoch ms）。用于 prompt 渲染时标注"记录于"日期，
+   * 让读到这条记忆的一方知道这是哪天的记录、不是当下状态。可选是因为
+   * episode 派生的合成条目（长期关系主线/当前未完主线）没有单一入库时间。 */
+  createdAt?: number;
 }
 
 export class InMemoryRepository implements MemoryRepository {
@@ -36,7 +40,7 @@ export class InMemoryRepository implements MemoryRepository {
         value,
         importance: importance ?? 0.5,
         accessCount: 0,
-        createdAt: now,
+        createdAt: options?.createdAt ?? now,
         lastAccessedAt: now,
         attributedTo: options?.attributedTo,
         validAt: options?.validAt,

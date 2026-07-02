@@ -6,7 +6,7 @@ import { buildToneContract } from "./tone_policy";
 import type { PersonaState } from "../persona";
 import { buildPersonaPrompt } from "../persona";
 import { getPromptInjectionHooks, anyPluginWantsLeanPersona } from "../plugin/registry";
-import { REMI_DEFAULT_PERSONA, traitsToGuidance } from "../persona/remi_default";
+import { REMI_DEFAULT_PERSONA, traitsToGuidance, MEMORY_USAGE_CONTRACT } from "../persona/remi_default";
 import { isNsfwEnabled } from "../brains/nsfw_mode";
 import { loadPersonaPack } from "../persona/pack/loader";
 import { composePersonaPrompt } from "../persona/pack/compose";
@@ -69,6 +69,9 @@ export interface PromptMessage {
 interface MemoryEntry {
   key: string;
   value: string;
+  /** 事实首次入库时间（epoch ms）。渲染时附带"记录于"日期，避免旧状态类
+   * 记忆被当成实时状态引用（2026-07 生产坏样本：过期的"明天周一"被当日照读）。 */
+  createdAt?: number;
 }
 
 interface BuildPromptInput {
@@ -141,6 +144,30 @@ const LEAN_SLOW_GUIDANCE_HEADINGS = [
 function trimTextByChars(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+/**
+ * 把一条记忆的入库时间格式化成"（6月28日记录）"这样的短后缀，附在渲染行末尾。
+ * 没有 createdAt（如 episode 派生的合成条目）时返回空串，不影响原有渲染。
+ * 2026-07 生产坏样本：过期的状态类记忆（"明天周一需要早起"）被当成当下事实
+ * 复述，根因之一是渲染时完全不带日期——模型没有任何信号判断这条记忆是哪天的。
+ */
+function formatMemoryDateSuffix(createdAt: number | undefined): string {
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) return "";
+  try {
+    const formatted = new Intl.DateTimeFormat("zh-CN", {
+      month: "numeric",
+      day: "numeric",
+    }).format(new Date(createdAt));
+    return `（${formatted}记录）`;
+  } catch {
+    return "";
+  }
+}
+
+function renderMemoryLine(m: MemoryEntry, maxMemoryValueChars: number): string {
+  const dateSuffix = formatMemoryDateSuffix(m.createdAt);
+  return `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}${dateSuffix}`;
 }
 
 const EMOTION_STYLE: Record<Emotion, string> = {
@@ -260,7 +287,7 @@ function buildSystemPrompt(
     const memoryStr = memory.length > 0
       ? memory
           .slice(0, maxMemoryEntries)
-          .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
+          .map((m) => renderMemoryLine(m, maxMemoryValueChars))
           .join("\n")
       : undefined;
     const pluginSections = getPromptInjectionHooks().flatMap((hook) =>
@@ -369,10 +396,10 @@ function buildSystemPrompt(
   if (memory.length > 0) {
     const memoryLines = memory
       .slice(0, maxMemoryEntries)
-      .map((m) => `- ${m.key}：${trimTextByChars(m.value, maxMemoryValueChars)}`)
+      .map((m) => renderMemoryLine(m, maxMemoryValueChars))
       .join("\n");
     sections.push(
-      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说"我记得/你之前/上次"，也不要用它另起旧话题。\n${memoryLines}`,
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说"我记得/你之前/上次"，也不要用它另起旧话题。${MEMORY_USAGE_CONTRACT}\n${memoryLines}`,
     );
     // Inject memory expression rules when memory is present
     sections.push(

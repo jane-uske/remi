@@ -57,5 +57,5 @@ export function buildTimeContext(input: {
   if (input.gapDescriptor) {
     parts.push(`距你上次找我已经过去约 ${input.gapDescriptor}。`);
   }
-  return `${TIME_CONTEXT_MARKER}${parts.join("")}（真实当下时间，自然感知即可，别每句都报时间）`;
+  return `${TIME_CONTEXT_MARKER}${parts.join("")}（真实当下时间，以此为准，自然感知即可，别每句都报时间；和记忆里的旧日期/旧安排冲突时，以这里的当下时间为准，不要用旧记忆去覆盖或推翻它）`;
 }

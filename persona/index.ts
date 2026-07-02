@@ -9,6 +9,7 @@ import {
   type PersonaPresetId,
   type PersonaStylePreset,
 } from "./presets";
+import { MEMORY_USAGE_CONTRACT } from "./remi_default";
 
 const DEFAULT_PERSONA_PRESET_ID: PersonaPresetId = "remi_core";
 
@@ -589,7 +590,7 @@ export function buildPersonaPrompt(
   // 7. 用户信息
   if (options.memoryStr) {
     sections.push(
-      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说“我记得/你之前/上次”，也不要用它另起旧话题。\n${options.memoryStr}`,
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，或未完结的重要压力线需要关心，否则不要显式说“我记得/你之前/上次”，也不要用它另起旧话题。${MEMORY_USAGE_CONTRACT}\n${options.memoryStr}`,
     );
   }
 

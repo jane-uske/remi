@@ -99,7 +99,9 @@ describe("routeMessage with session memory overlay", () => {
       assert.equal(hooks.getAllCalls, 1);
       assert.deepEqual(chunks, ["记住啦"]);
       assert.equal(captured.length, 1);
-      assert.deepEqual(captured[0].memory, [{ key: "名字", value: "小满" }]);
+      // createdAt 现在随记忆一起注入（渲染时用来标注"记录于"日期，见
+      // brain/prompt_builder.ts renderMemoryLine），值应等于种子数据的 createdAt。
+      assert.deepEqual(captured[0].memory, [{ key: "名字", value: "小满", createdAt: 100 }]);
     } finally {
       restore();
     }

@@ -3,6 +3,7 @@ import {
   PERSONA_SYSTEM_LAYER,
   PERSONA_SYSTEM_LAYER_REINFORCE,
 } from "./system_layer";
+import { MEMORY_USAGE_CONTRACT } from "../remi_default";
 
 /**
  * compose 的动态输入。字段刻意与 brain/personality.ts 的 buildPersonaPrompt
@@ -85,7 +86,7 @@ export function composePersonaPrompt(
   // 记忆背景
   if (options.memoryStr?.trim()) {
     parts.push(
-      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，否则不要显式说"我记得/你之前/上次"，也不要用它另起旧话题。\n${options.memoryStr.trim()}`,
+      `【记忆背景】以下内容只作为理解当下的背景依据；除非用户主动问记忆、当前话题直接相关，否则不要显式说"我记得/你之前/上次"，也不要用它另起旧话题。${MEMORY_USAGE_CONTRACT}\n${options.memoryStr.trim()}`,
     );
   }
 

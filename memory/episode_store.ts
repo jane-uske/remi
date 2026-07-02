@@ -58,6 +58,16 @@ export interface MomentInput {
   scope?: EpisodeScope;
 }
 
+/**
+ * 离线回填（scripts/memory_backfill.ts）用的时间戳覆盖。
+ * - 不传时 ingest 行为与线上完全一致（now()）。
+ * - firstSeenAt/lastSeenAt 取该 moment 来源消息批次的真实时间范围。
+ */
+export interface IngestTimestamps {
+  firstSeenAt?: Date;
+  lastSeenAt?: Date;
+}
+
 export interface RankedEpisode {
   episode: DbEpisode;
   score: number;
@@ -317,7 +327,10 @@ function getRecallAnchorStrength(episode: DbEpisode, userMessage: string): {
   };
 }
 
-export async function ingest(moment: MomentInput): Promise<DbEpisode> {
+export async function ingest(
+  moment: MomentInput,
+  timestamps?: IngestTimestamps,
+): Promise<DbEpisode> {
   if (!isDatabaseReady()) {
     throw new Error("Database not available for episode ingest");
   }
@@ -326,21 +339,26 @@ export async function ingest(moment: MomentInput): Promise<DbEpisode> {
   const topEpisode = similarEpisodes[0];
 
   if (!topEpisode) {
-    return createNewEpisode(moment, momentEmbedding);
+    return createNewEpisode(moment, momentEmbedding, timestamps);
   }
 
   const similarity = cosineSimilarity(momentEmbedding, topEpisode.centroid_embedding);
   if (similarity >= MERGE_THRESHOLD && shouldMergeIntoExisting(topEpisode, moment)) {
-    return mergeIntoEpisode(topEpisode, moment, momentEmbedding);
+    return mergeIntoEpisode(topEpisode, moment, momentEmbedding, timestamps);
   }
 
-  return createNewEpisode(moment, momentEmbedding);
+  return createNewEpisode(moment, momentEmbedding, timestamps);
+}
+
+function toDateMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
 async function mergeIntoEpisode(
   existing: DbEpisode,
   moment: MomentInput,
   momentEmbedding: number[],
+  timestamps?: IngestTimestamps,
 ): Promise<DbEpisode> {
   const originMomentSummaries = clampOriginMomentSummaries([
     ...(existing.origin_moment_summaries ?? []),
@@ -373,6 +391,15 @@ async function mergeIntoEpisode(
       origin_moment_summaries: originMomentSummaries,
     }),
   );
+  // 回填时间语义：last_seen_at 只向前走（不被更早的历史批次回退）；
+  // first_seen_at 只向更早回拨（该主题其实更早就出现过）。默认路径不变。
+  const mergedLastSeenAt = timestamps?.lastSeenAt
+    ? new Date(Math.max(toDateMs(timestamps.lastSeenAt), toDateMs(existing.last_seen_at)))
+    : new Date();
+  const backdatedFirstSeenAt =
+    timestamps?.firstSeenAt && toDateMs(timestamps.firstSeenAt) < toDateMs(existing.first_seen_at)
+      ? timestamps.firstSeenAt
+      : undefined;
   const updated = await updateEpisode(existing.id, {
     summary: buildEpisodeSummary(moment),
     topics: mergedTopics,
@@ -381,7 +408,8 @@ async function mergeIntoEpisode(
     recurrenceCount: existing.recurrence_count + 1,
     unresolved: status === "active",
     status,
-    lastSeenAt: new Date(),
+    ...(backdatedFirstSeenAt ? { firstSeenAt: backdatedFirstSeenAt } : {}),
+    lastSeenAt: mergedLastSeenAt,
     centroidEmbedding,
     originMomentSummaries,
     relationshipWeight: Math.max(existing.relationship_weight, inferRelationshipWeight(moment)),
@@ -405,6 +433,7 @@ async function mergeIntoEpisode(
 async function createNewEpisode(
   moment: MomentInput,
   momentEmbedding: number[],
+  timestamps?: IngestTimestamps,
 ): Promise<DbEpisode> {
   const summary = buildEpisodeSummary(moment);
   const titleSource = moment.topic || moment.summary;
@@ -445,6 +474,8 @@ async function createNewEpisode(
     v3EventSummary: v3Fields.v3EventSummary,
     v3EvidenceTurns: v3Fields.v3EvidenceTurns,
     v3LastUserPosition: v3Fields.v3LastUserPosition,
+    firstSeenAt: timestamps?.firstSeenAt,
+    lastSeenAt: timestamps?.lastSeenAt,
   });
 }
 

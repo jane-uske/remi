@@ -20,6 +20,12 @@ export interface MemoryEntry {
 export interface UpsertOptions {
   attributedTo?: "user" | "assistant";
   validAt?: number;
+  /**
+   * 覆盖新建条目的首次入库时间（epoch ms）。仅用于从别处搬运既有记忆时
+   * 保留原始记录日期（如 session overlay 从持久层水合到本地副本），不传时
+   * 按正常新建逻辑取当前时间。对已存在的 key 更新时不生效（不改写历史）。
+   */
+  createdAt?: number;
 }
 
 export interface MemoryRepository {

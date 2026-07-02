@@ -50,7 +50,11 @@ export class SessionMemoryOverlayRepository implements MemoryRepository {
         .slice(0, limit);
 
       for (const entry of selected) {
-        await this.local.upsert(entry.key, entry.value, entry.importance);
+        // 保留持久层的原始入库时间：prompt 渲染靠 createdAt 标注"X月X日记录"，
+        // 水合若不透传，所有旧事实都会顶着"今天"的日期，时效标注就失真了。
+        await this.local.upsert(entry.key, entry.value, entry.importance, {
+          createdAt: entry.createdAt,
+        });
       }
     })()
       .catch((err) => {

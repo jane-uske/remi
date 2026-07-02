@@ -59,6 +59,19 @@ export const REMI_DEFAULT_PERSONA = {
 export type RemiPersona = typeof REMI_DEFAULT_PERSONA;
 
 /**
+ * 记忆区块（【记忆背景】）的使用合同：三条短规则，防止状态类旧记录被当成
+ * 此刻的事实脑补（2026-07 生产坏样本：KV 里存的"明天周一需要早起上班"是
+ * 几天前记的，被当天照读成"明天"；"堵在高架/等红灯"式脑补是同一根因——
+ * 凭长期属性类记忆猜测用户此刻正在做什么）。
+ * 三处渲染【记忆背景】的地方（brain/prompt_builder.ts 的新旧两条路径、
+ * persona/pack/compose.ts）共用这一句，避免各自措辞逐渐漂移。
+ * 独立于 memory_expression_rules（那是"怎么自然提起记忆"，这条是"记忆的
+ * 时效边界"，关注点不同，不合并）。
+ */
+export const MEMORY_USAGE_CONTRACT =
+  "这些是历史记录不是实时状态：状态类旧记录（身体/日程/情绪）不代表此刻，除非他主动提起，不要当成现在的事实说；含相对时间的按记录日期换算到今天；记忆只用于自然回指，说不准就不提，绝不基于记忆猜测他此刻正在做什么。";
+
+/**
  * 将 traits 数值转换为 prompt 可用的行为指令
  */
 export function traitsToGuidance(traits: RemiPersona["traits"]): string {

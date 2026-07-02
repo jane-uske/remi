@@ -92,6 +92,12 @@ export async function insertEpisode(params: {
   v3EventSummary?: string;
   v3EvidenceTurns?: string[];
   v3LastUserPosition?: string;
+  /**
+   * 离线回填用：覆盖 episode 的首见/末见时间为历史消息的真实时间。
+   * 不传时保持原行为（数据库 now()）。运行时写路径不应传这两个字段。
+   */
+  firstSeenAt?: Date;
+  lastSeenAt?: Date;
 }): Promise<DbEpisode> {
   try {
     const res = await query(
@@ -115,9 +121,12 @@ export async function insertEpisode(params: {
          v3_unresolved_level,
          v3_event_summary,
          v3_evidence_turns,
-         v3_last_user_position
+         v3_last_user_position,
+         first_seen_at,
+         last_seen_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+               COALESCE($21::timestamptz, now()), COALESCE($22::timestamptz, now()))
        RETURNING ${EPISODE_COLUMNS}`,
       [
         params.userId,
@@ -140,6 +149,8 @@ export async function insertEpisode(params: {
         params.v3EventSummary ?? null,
         params.v3EvidenceTurns ?? [],
         params.v3LastUserPosition ?? null,
+        params.firstSeenAt ?? null,
+        params.lastSeenAt ?? null,
       ]
     );
     return mapRow(res.rows[0] as Record<string, unknown>);
@@ -158,6 +169,8 @@ export async function updateEpisode(
     salience?: number;
     recurrenceCount?: number;
     unresolved?: boolean;
+    /** 离线回填用：合并时把首见时间向更早的历史时间回拨。运行时路径不应传。 */
+    firstSeenAt?: Date;
     lastSeenAt?: Date;
     lastReferencedAt?: Date;
     centroidEmbedding?: number[];
@@ -201,6 +214,10 @@ export async function updateEpisode(
     if (params.unresolved !== undefined) {
       values.push(params.unresolved);
       updates.push(`unresolved = $${values.length}`);
+    }
+    if (params.firstSeenAt !== undefined) {
+      values.push(params.firstSeenAt);
+      updates.push(`first_seen_at = $${values.length}`);
     }
     if (params.lastSeenAt !== undefined) {
       values.push(params.lastSeenAt);

@@ -58,6 +58,12 @@ export interface SlowBrainInput {
   /** M3-P2: bi-temporal 事实仓库（可选，无 DB 时为 InMemory 实现或 undefined） */
   temporalFactsRepo?: TemporalFactsRepository;
   signal?: AbortSignal;
+  /**
+   * 观察日期覆盖（YYYY-MM-DD）。仅供离线回填（scripts/memory_backfill.ts）
+   * 重放历史批次时传入消息的原始日期，让"明天/昨晚"这类相对时间换算和
+   * 状态类事实的日期标注都锚在事发当天而不是回填执行日。线上不传，取当天。
+   */
+  observationDateOverride?: string;
 }
 
 // ── Public API ──
@@ -88,6 +94,7 @@ export async function runSlowBrain(input: SlowBrainInput): Promise<void> {
         input.connId,
         input.temporalFactsRepo,
         input.userId,
+        input.observationDateOverride,
       );
     } catch (err) {
       if ((err as Error).name === "AbortError") {
@@ -253,6 +260,11 @@ const ANALYSIS_PROMPT = `你是一个对话分析引擎，不是对话参与者�
 - user_facts 只提取用户明确提到的事实（姓名、年龄、职业、住所等），不要猜测
 - user_facts confidence 表示事实可靠程度（0.0–1.0），用户直接说"我叫X"给0.9+，推测性的给0.5以下
 - user_facts source 标注事实来源："user" 表示用户直接陈述，"assistant" 表示助手推断
+- user_facts 的 value 严禁出现指示性时间词（明天/昨天/上次/最近/现在/这周/今晚等）：这些词的所指会随日期漂移，一旦入库就永久失真。提到这类词时，必须参照【观察日期】换算成绝对表述再写入 value，例如"明天要早起"→"周一（2026-06-24）要早起"，"昨晚没睡好"→"6月28日晚没睡好"
+- user_facts 按性质分两类，写法不同：
+  1. 属性类（车辆/城市/职业/口味/关系称呼等长期不变的事实）：直接写值，不需要带日期，如 {"key": "交通工具", "value": "Tesla"}
+  2. 状态类（身体状况/情绪/作息/临时安排等会过期的快照）：value 必须附带【观察日期】换算出的具体日期，如 {"key": "身体状况", "value": "胃痛、失眠（2026-06-28记）"}，让后续读到这条记忆的人知道这是哪天的状态、不是现状
+- 纯瞬时的状态（刚睡醒、今晚困、正在通勤等只在本轮对话当下成立、脱离对话即无意义的表述）不要写进 user_facts——那不是可复用的长期记忆，写进去只会污染记忆库
 - interests 只提取用户表现出兴趣的事物
 - conversation_summary 必须在【已有摘要】基础上做增量更新：融入【最新一轮】的新进展，保留仍然重要的旧信息不要丢弃；若本轮无实质进展，就在旧摘要上做最小改动或原样保留。它要累积覆盖整段关系，而不是只概括最近几轮
 - proactive_topics 是未来可以自然聊到的话题，基于用户兴趣
@@ -282,7 +294,7 @@ export function buildAnalysisMessages(input: {
     {
       role: "user",
       content:
-        `观察日期：${input.observationDate}\n\n` +
+        `【观察日期】${input.observationDate}\n\n` +
         `【已有摘要】（在此基础上增量更新，保留仍然重要的旧信息）：\n${priorBlock}\n\n` +
         `最近对话（仅本轮新增上下文，不要因为它没出现就丢弃已有摘要里更早的信息）：\n${historyText}\n\n` +
         `最新一轮：\n${currentTurn}`,
@@ -300,8 +312,10 @@ async function llmAnalysis(
   connId?: string,
   temporalFactsRepo?: TemporalFactsRepository,
   userId?: string,
+  observationDateOverride?: string,
 ): Promise<void> {
-  const observationDate = new Date().toISOString().slice(0, 10);
+  const observationDate =
+    observationDateOverride ?? new Date().toISOString().slice(0, 10);
   const messages = buildAnalysisMessages({
     userMessage,
     assistantReply,
@@ -684,8 +698,12 @@ function estimateSharedMomentSalience(
 
 function buildSharedMomentSummary(userMessage: string, topic: string): string {
   const clipped = clipText(userMessage, 38);
+  // 不在这里拼 topic 前缀：episode_store.buildEpisodeSummary 和
+  // background_analysis_store 的 snapshot 渲染（长期关系主线/当前未完主线/
+  // 共同经历锚点）都会各自拼一次 `${topic}：${summary}`。这里若也拼一次，
+  // 两层各拼一次就产生 "工作：工作：..." 的重复前缀（2026-07 生产坏样本实证）。
   if (topic) {
-    return `${topic}：用户围绕这个主题提到「${clipped}」。`;
+    return `用户围绕这个主题提到「${clipped}」。`;
   }
   return `用户提到「${clipped}」。`;
 }
