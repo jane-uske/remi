@@ -163,9 +163,9 @@ export function RemiChatApp({
   // state is irrelevant for text — users can chat immediately on page load.
   const inputDisabled = runtimeState.user.recording;
   const wrappedSendText = useCallback(
-    (text: string) => {
+    (text: string, image?: string) => {
       if (onBeforeSend && !onBeforeSend(text)) return;
-      sendText(text);
+      sendText(text, image);
     },
     [onBeforeSend, sendText],
   );
