@@ -1,5 +1,5 @@
 """MLX TTS server with streaming support for M5 Max."""
-import io, struct, time
+import io, os, struct, time
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -152,4 +152,5 @@ if __name__ == "__main__":
     import uvicorn
     get_model()
     print(f"MLX TTS server ready — model: {MODEL_ID}")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 端口默认对齐 .env.local-prod 的 REMI_TTS_MLX_URL(:3555)；可用 MLX_PORT 覆盖。
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("MLX_PORT", "3555")))
