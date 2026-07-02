@@ -27,6 +27,7 @@ import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
 import { isNsfwEnabled } from "./nsfw_mode";
 import { runProjectMemoryAnalysis } from "./project_memory_analysis";
+import { normalizeExtractedFact } from "./fact_postprocess";
 import type { TemporalFactsRepository } from "../storage/repositories/temporal_facts_repository";
 
 const logger = createLogger("background_analysis");
@@ -351,7 +352,17 @@ async function llmAnalysis(
         logger.debug("跳过瞬时 fact 持久化", { key: k });
         continue;
       }
-      store.addFact(k, v);
+      // 构造性校验层：key 时间词剥离/超长截断、状态类 fact 自动补观察日期、
+      // 残留指示性时间词兜底、低置信度推断过滤。null 表示这条 fact 不值得
+      // 保留——store.addFact（会话内存）和 memoryRepo.upsert（长期持久化）
+      // 两条消费路径共用同一次归一化结果，一起跳过（不是只挡 DB 写入）。
+      const normalized = normalizeExtractedFact({ key: k, value: v, confidence, source }, observationDate);
+      if (!normalized) {
+        logger.debug("fact 后处理校验未通过，跳过", { key: k, value: v.slice(0, 60) });
+        continue;
+      }
+      const { key: nk, value: nv } = normalized;
+      store.addFact(nk, nv);
       // NSFW 模式下仍在内存保留 fact（当前会话可用），但不写入 DB，
       // 避免 NSFW 对话上下文产生的 fact（如角色扮演角色名）污染长期记忆。
       if (nsfwActive) continue;
@@ -361,15 +372,15 @@ async function llmAnalysis(
       };
       try {
         await memoryRepo.upsert(
-          normalizeMemoryKey(k),
-          v,
+          normalizeMemoryKey(nk),
+          nv,
           typeof confidence === "number" && confidence >= 0 && confidence <= 1
             ? confidence
             : 0.55,
           upsertOpts,
         );
       } catch (err) {
-        logger.warn("记忆同步失败", { key: k, error: (err as Error).message });
+        logger.warn("记忆同步失败", { key: nk, error: (err as Error).message });
       }
     }
   }
@@ -698,16 +709,30 @@ function estimateSharedMomentSalience(
   return clamp01(score);
 }
 
-function buildSharedMomentSummary(userMessage: string, topic: string): string {
+function buildSharedMomentSummary(userMessage: string, _topic: string): string {
   const clipped = clipText(userMessage, 38);
-  // 不在这里拼 topic 前缀：episode_store.buildEpisodeSummary 和
-  // background_analysis_store 的 snapshot 渲染（长期关系主线/当前未完主线/
-  // 共同经历锚点）都会各自拼一次 `${topic}：${summary}`。这里若也拼一次，
-  // 两层各拼一次就产生 "工作：工作：..." 的重复前缀（2026-07 生产坏样本实证）。
-  if (topic) {
-    return `用户围绕这个主题提到「${clipped}」。`;
-  }
-  return `用户提到「${clipped}」。`;
+  // 不在这里点名具体 topic（连"聊到${topic}时"这种叙事化嵌入也不行）：
+  // episode_store.buildEpisodeSummary 和 background_analysis_store 的两处
+  // snapshot 渲染（长期关系主线/当前未完主线）都会各自在外层拼一次
+  // `${topic}：${summary}`。旧版直接把 topic 又拼了一次，两层各拼一次产生
+  // "工作：工作：..." 的重复前缀（2026-07 生产坏样本实证）；把 topic 具名
+  // 嵌进叙事句同样会撞上这个坑，只是变成更隐蔽的 "工作：聊到工作时，用户
+  // 提到…"——踩了同一个坑的换皮版本，本次改造过程中曾经引入又发现（同一
+  // 会话内自查修正）。topic 参数保留形参签名（调用方传，未来可能要用），
+  // 但 body 就是不点名它，统一交给外层 caller 拼一次。
+  //
+  // 叙事化框架（而不是「」裸引语）：这条 pipeline 是纯本地模板，没有 LLM
+  // 可用来"概括"clip 原文——概括=编造改写的风险，不能本地做。能改的只有
+  // 叙述外壳：不再把 clip 摆成"字段: 值"式的记录腔（"用户提到「xxx」。"
+  // 读起来像机器人念数据库字段），而是嵌进一句有主语的陈述里（"用户提到
+  // …"）。clip 内容 100% 保真不变，只是不再用引号把它 crop 出来当"证据
+  // 展示"，读起来像在转述一件事而不是转储一条记录。
+  const body = `用户提到${clipped}`;
+  return endsWithTerminalPunct(body) ? body : `${body}。`;
+}
+
+function endsWithTerminalPunct(text: string): boolean {
+  return /[。！？…]$/.test(text);
 }
 
 function buildSharedMomentHook(

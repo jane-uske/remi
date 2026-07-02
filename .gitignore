@@ -29,6 +29,7 @@
 /artifacts/nami_voice_eval/
 ws_full_test.cjs
 /data/remi-settings.json
+/datasets
 /desktop/node_modules
 /dist
 /models

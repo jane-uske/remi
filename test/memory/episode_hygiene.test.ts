@@ -104,4 +104,48 @@ describe("episode_hygiene", () => {
     assert.equal(judgment.shouldArchive, false);
     assert.deepEqual(judgment.reasons, []);
   });
+
+  // brains/background_analysis.ts 的 buildSharedMomentSummary（2026-07 起）改叙事化
+  // 框架后不再产出「」裸引语（"用户提到X" 而不是 "用户提到「X」"）。下面几条锁定
+  // extractQuotedFragments 对新格式的兜底提取——不还原出用户原始片段的话，低价值
+  // filler / dev-probe 分类器会因为锚定 ^...$ 的模式再也匹配不到孤立片段而永久失效。
+  it("still archives low-value filler episodes in the new narrative format (no quotes)", () => {
+    const judgment = classifyEpisodeForHygiene(makeEpisode({
+      title: "感情",
+      recurrence_count: 1,
+      relationship_weight: 0.38,
+      summary: "感情：用户提到哈哈哈。",
+      origin_moment_summaries: ["用户提到哈哈哈。"],
+    }));
+
+    assert.equal(judgment.shouldArchive, true);
+    assert.equal(judgment.reasons.some((reason) => reason.id === "zh_low_value_filler"), true);
+  });
+
+  it("still archives strong dev-probe episodes in the new narrative format (no quotes)", () => {
+    const judgment = classifyEpisodeForHygiene(makeEpisode({
+      title: "工作",
+      recurrence_count: 1,
+      relationship_weight: 0.38,
+      summary: "工作：用户提到idle send test。",
+      origin_moment_summaries: ["用户提到idle send test。"],
+    }));
+
+    assert.equal(judgment.shouldArchive, true);
+    assert.equal(judgment.reasons.some((reason) => reason.id === "zh_dev_probe"), true);
+  });
+
+  it("does not misfire on genuine content in the new narrative format (no quotes)", () => {
+    const judgment = classifyEpisodeForHygiene(makeEpisode({
+      title: "工作",
+      topics: ["工作"],
+      recurrence_count: 3,
+      relationship_weight: 0.68,
+      summary: "工作：用户提到我最近压力很大，经常加班到很晚。",
+      origin_moment_summaries: ["用户提到我最近压力很大，经常加班到很晚。"],
+    }));
+
+    assert.equal(judgment.shouldArchive, false);
+    assert.deepEqual(judgment.reasons, []);
+  });
 });

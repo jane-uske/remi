@@ -86,14 +86,29 @@ function clip(text: string, maxLength: number = 80): string {
   return `${trimmed.slice(0, maxLength - 1)}…`;
 }
 
+// brains/background_analysis.ts 的 buildSharedMomentSummary（2026-07 起）不再用
+// 「」把用户原话包起来展示，而是嵌进"用户提到Y"这类叙事句——Y 才是需要拿去
+// 跟卫生规则（meta-prompt / dev-probe / low-value-filler）比对的用户原始
+// 片段，"用户提到"只是叙述外壳。episode.summary 这一侧还会被
+// episode_store.buildEpisodeSummary 在外层再拼一次 `${topic}：`（moment 自己
+// 不点名 topic，避免和外层拼接重复——见 buildSharedMomentSummary 的注释），
+// 所以外壳前面可能还带一段"话题：" 泛化前缀，一并当作外壳的一部分剥掉。
+// 没有引号可提取时，先尝试剥掉这层外壳把 Y 还原出来，剥不出来才退化成整句
+// 兜底（不炸，只是判定力弱一些）。
+const NARRATIVE_WRAPPER_RE = /^(?:[^：]{1,12}：)?用户提到(.+?)。?$/u;
+
 function extractQuotedFragments(text: string): string[] {
   const matches = [...text.matchAll(/[「“"]([^」”"]+)[」”"]/gu)];
-  if (matches.length === 0) {
-    return [text];
+  if (matches.length > 0) {
+    return matches
+      .map((match) => match[1]?.trim() ?? "")
+      .filter(Boolean);
   }
-  return matches
-    .map((match) => match[1]?.trim() ?? "")
-    .filter(Boolean);
+  const narrativeMatch = NARRATIVE_WRAPPER_RE.exec(text.trim());
+  if (narrativeMatch?.[1]) {
+    return [narrativeMatch[1].trim()].filter(Boolean);
+  }
+  return [text];
 }
 
 function getEpisodeUserFragments(episode: Pick<DbEpisode, "summary" | "origin_moment_summaries">): string[] {
