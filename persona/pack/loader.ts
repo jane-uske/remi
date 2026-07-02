@@ -122,16 +122,20 @@ export function loadPersonaPack(
 
   const soulRaw = readFileSafe(dir, "SOUL.md") ?? "";
   const examplesRaw = readFileSafe(dir, "EXAMPLES.md") ?? "";
+  // CANON.md 可选：没提供（如 nami）时留空字符串，compose 侧按 truthy 跳过，行为不变。
+  const canonRaw = readFileSafe(dir, "CANON.md") ?? "";
 
   scanInjection(identityRaw, `${id}/IDENTITY.md`);
   scanInjection(soulRaw, `${id}/SOUL.md`);
   scanInjection(examplesRaw, `${id}/EXAMPLES.md`);
+  if (canonRaw) scanInjection(canonRaw, `${id}/CANON.md`);
 
   const pack: PersonaPack = {
     manifest,
     identity: clip(identityRaw, budget.identity),
     soul: clip(soulRaw, budget.soul),
     examples: clip(examplesRaw, budget.examples),
+    canon: clip(canonRaw, budget.canon ?? DEFAULT_PERSONA_PACK_BUDGET.canon!),
   };
 
   cache.set(cacheKey, pack);

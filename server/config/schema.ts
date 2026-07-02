@@ -334,6 +334,24 @@ export const envSchema = z.object({
   REMI_EPISODE_LIFECYCLE_ENABLED: booleanString("0"),
   REMI_RELATIONSHIP_STYLE_GUIDANCE_ENABLED: booleanString("1"),
   REMI_RELATIONSHIP_STATE_ENABLED: booleanString("1"),
+  // 关系状态周期性保存：过去只在会话优雅销毁（WS 正常断连 / SSE pool 30min TTL
+  // 回收）时写回 persistRelationshipContinuityState，docker restart / 进程被杀
+  // 时会跳过，丢失最近一段对话积累的关系演进。开启后每 N 轮用户消息
+  // （REMI_RELATIONSHIP_PERIODIC_SAVE_TURNS）额外异步写回一次，不阻塞 fast
+  // path。默认 ON——纯增量加固，off 时行为与现状逐字节一致。
+  REMI_RELATIONSHIP_PERIODIC_SAVE_ENABLED: booleanString("1"),
+  REMI_RELATIONSHIP_PERIODIC_SAVE_TURNS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8),
+  // 开场主动语：会话 bootstrap（含 RemiSelf 恢复）完成后，若 RemiSelf.lastSeenAt
+  // 距今 >30 分钟且本会话尚未发过开场语，主动生成一句"她先开口"的问候（走 silence
+  // nudge 同款 systemTriggered 生成+推送路径）。每会话最多一次；触发前会检查最近
+  // 5 分钟内用户没有已发消息，避免抢话；NSFW 模式跳过。默认 ON——前置依赖
+  // REMI_SELF_PERSISTENCE_ENABLED=1（lastSeenAt 唯一来源），该 flag off 时无
+  // lastSeenAt 可比对，本特性自然不触发。
+  REMI_GREETING_OPENER_ENABLED: booleanString("1"),
   REMI_REALTIME_CONTINUITY_HINT_ENABLED: booleanString("1"),
   REMI_PROACTIVE_PROMPT_ENABLED: booleanString("1"),
   REMI_PROACTIVE_LEDGER_ENABLED: booleanString("1"),

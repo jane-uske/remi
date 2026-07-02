@@ -48,9 +48,19 @@ export function buildRelationshipStyleContract(snap: SlowBrainSnapshot): string 
   return `【关系风格合同】按${profile.stage}来：${profile.openingStyle}；${profile.followUpStyle}；${profile.wordingStyle}。${threadHint}`;
 }
 
+// 连续敷衍应答检测：与 shouldOfferProactiveCue 等复用同一条 isLowSignalTurn 判据
+// （"嗯/哦/好吧"这类纯应答词，而不是单纯字数短——避免"为什么呢"这种短但有实质
+// 内容的追问被误判为敷衍）。调用方传入"当前这句 + 最近若干句 user 历史"，只要
+// 其中至少 2 句命中低信号判据，就认为用户已经连续敷衍，可以给"台阶"许可。
+export function hasRecentPerfunctoryStreak(recentUserMessages: string[]): boolean {
+  const lowSignalCount = recentUserMessages.filter((msg) => isLowSignalTurn(msg)).length;
+  return lowSignalCount >= 2;
+}
+
 export function buildRelationshipResponseShapeGuidance(
   snap: SlowBrainSnapshot,
   userMessage: string,
+  recentUserMessages: string[] = [],
 ): string | null {
   const trimmed = userMessage.trim();
   if (!trimmed) return null;
@@ -62,6 +72,14 @@ export function buildRelationshipResponseShapeGuidance(
   }
   if (isSceneImmersionLike(trimmed)) {
     return "【回复结构】如果用户已经把你们放进同一个场景里，第一句直接承接正在发生的动作、距离或氛围；第二句再补一点感受或细节。不要把回复退回成“要不要我陪你想象”“想不想让我陪你”这类重新开场的邀请。";
+  }
+  // 台阶许可：用户此刻这句本身是敷衍应答，且连着好几轮都是这样时，允许 Remi 轻轻
+  // 放一个自己此刻在做的小事或话头，给对方一个台阶——而不是死等对方主导话题。
+  // 措辞与 brain/turn_interpreter.ts buildResponseShapeContract() 的 quiet_presence
+  // 分支保持同一风格（那条走结构化分析路径，这条是非结构化 fallback 路径，两条
+  // 路径职责不同但用户体验应该一致）。
+  if (isLowSignalTurn(trimmed) && hasRecentPerfunctoryStreak([trimmed, ...recentUserMessages])) {
+    return `【回复结构】${buildRelationshipResponseShapeContract(snap)}用户不需要你积极说话，轻回应就好，不要追问；他连着好几轮都这样，可以轻轻放一个你自己此刻在做的小事或一句话头，给他一个台阶，但别追着他接。`;
   }
   return `【回复结构】${buildRelationshipResponseShapeContract(snap)}`;
 }

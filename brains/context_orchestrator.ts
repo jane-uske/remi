@@ -77,6 +77,10 @@ import {
 } from "../brain/turn_interpreter";
 import type { RepairState, WorkingMemoryV2 } from "./background_analysis_store";
 import { resolvePersonaStyleDirective, hasPersistentKeyword } from "../persona/style_override";
+import {
+  buildRelationshipResponseShapeGuidance,
+  hasRecentPerfunctoryStreak,
+} from "./conversation_guidance";
 
 function maxHistoryEntries(): number {
   return getConfig().REMI_MAX_HISTORY;
@@ -233,6 +237,41 @@ function compactPriorityBlock(block: string, heading: string, maxChars: number):
   return `【${heading}】${trimTextByChars(normalized, maxChars)}`;
 }
 
+const RECENT_PERFUNCTORY_LOOKBACK_TURNS = 2;
+
+/**
+ * 非结构化 fallback 路径（analysis?.used === false）下，给"连续敷衍"的用户补一个
+ * 台阶许可：从 ctx.history 里取最近几条 user 消息 + 当前这句，交给
+ * buildRelationshipResponseShapeGuidance() 判断是否命中"连续敷衍"，命中则用带
+ * 台阶许可的版本替换 guidance.hints 里已有的【回复结构】块（若存在）。
+ *
+ * 只在 !analysisUsed 时调用：结构化路径的台阶许可由
+ * brain/turn_interpreter.ts buildResponseShapeContract() 的 quiet_presence 分支
+ * 负责，不重复处理。
+ */
+function applyPerfunctoryStreakStepPermission(
+  hints: string | undefined,
+  ctx: RemiSessionContext,
+  userMessage: string,
+): string | undefined {
+  if (!hints?.trim()) return hints;
+  const recentUserMessages = ctx.history
+    .filter((entry) => entry.role === "user")
+    .slice(-RECENT_PERFUNCTORY_LOOKBACK_TURNS)
+    .map((entry) => entry.content);
+  const patchedShape = buildRelationshipResponseShapeGuidance(
+    ctx.slowBrain.getSnapshot(),
+    userMessage,
+    recentUserMessages,
+  );
+  if (!patchedShape || !hasRecentPerfunctoryStreak([userMessage.trim(), ...recentUserMessages])) {
+    return hints;
+  }
+  const existingBlock = readPriorityBlock(hints, "回复结构");
+  if (!existingBlock) return hints;
+  return hints.replace(existingBlock, patchedShape);
+}
+
 function buildCompactPriorityContext(
   strategyHints: string | undefined,
   slowBrainContext: string | undefined,
@@ -240,6 +279,7 @@ function buildCompactPriorityContext(
   const selectors: Array<{ source: string | undefined; heading: string }> = [
     { source: strategyHints, heading: "话题边界" },
     { source: slowBrainContext, heading: "话题边界" },
+    { source: strategyHints, heading: "关系修复" },
     { source: strategyHints, heading: "场景承接" },
     { source: strategyHints, heading: "响应策略" },
     { source: strategyHints, heading: "本轮回复合同" },
@@ -247,6 +287,16 @@ function buildCompactPriorityContext(
     { source: strategyHints, heading: "语气合同" },
     { source: strategyHints, heading: "主动提起候选" },
     { source: strategyHints, heading: "共同经历提醒" },
+    // "回复结构" 是 buildRelationshipResponseShapeGuidance() 的非结构化 fallback
+    // 路径产出的同类合同标题（"本轮回复合同"是结构化 analysis 路径用的标题，二者
+    // 互斥、同一优先级）。它此前完全没有被白名单收录，导致低信号轮（"嗯/哦/好吧"）
+    // 走 fallback 路径产出的回复合同（含 quiet_presence 的"台阶"许可）被整段丢弃。
+    // 排在"主动提起候选"/"共同经历提醒"之后：这个块在非结构化路径里几乎每轮都非空
+    // （buildRelationshipResponseShapeGuidance 的兜底分支不返回 null），如果排得比
+    // 主动提起候选/共同经历提醒更靠前，会在 COMPACT_PRIORITY_BLOCK_LIMIT=3 的固定
+    // 名额下常年占用一个位置、挤掉这两个更稀疏但更有信息量的信号（同类信号真正存在
+    // 时应该优先展示）；只有在没有主动/共同经历信号可讲时，才轮到它兜底。
+    { source: strategyHints, heading: "回复结构" },
     { source: slowBrainContext, heading: "当前未完主线" },
     { source: slowBrainContext, heading: "长期关系主线" },
     { source: slowBrainContext, heading: "对话摘要" },
@@ -749,7 +799,12 @@ export async function* routeMessage(
     config.REMI_TOOL_USE_ENABLED &&
     toolRouterPrefilter(userMessage)
   ) {
-    const routedToolCalls = await routeMessageTools({ userMessage, ctx, signal });
+    const routedToolCalls = (await routeMessageTools({ userMessage, ctx, signal }))
+      // CIO wired: "look_image" intent → user wants to analyse an uploaded image,
+      // not generate a new one. Strip generate_image from the router's choices so
+      // the turn falls through to the normal reply path (vision sidecar already
+      // injected the description, or acknowledged the image if vision is disabled).
+      .filter((tc) => !(cioSuppressImageGen && tc.name === "generate_image"));
     if (signal?.aborted) return;
     if (routedToolCalls.length > 0) {
       const toolExecCtx: ToolExecutionContext = { ctx, emotion, userMessage, signal };
@@ -1029,6 +1084,9 @@ export async function* routeMessage(
     userMessage,
     analysis?.used ? analysis : null,
   );
+  if (!analysis?.used) {
+    guidance.hints = applyPerfunctoryStreakStepPermission(guidance.hints, ctx, userMessage);
+  }
   const slowBrainContext = ctx.slowBrain.synthesizeContext({
     suppressResponseStyleNotes: Boolean(ctx.persona.liveState.styleOverride),
   });

@@ -46,6 +46,7 @@ import {
   touchSessionUserActivity,
 } from "./continuity";
 import { loadAndApplyRemiSelf } from "./remi_self";
+import { scheduleGreetingOpener } from "./greeting_opener";
 import {
   applyDeveloperPreset,
   applyDeveloperTtsVoiceOverride,
@@ -541,7 +542,13 @@ export class ConnectionSession {
     // DL-P1b: 异步加载 RemiSelf + 漂移 + soft-patch（绝不阻塞握手 / fast path）。
     // 在 bootstrap 之后跑，用最终解析出的 brain.userId；flag off / 无记录 / 失败
     // 静默 no-op。fire-and-forget，不 await。
-    void loadAndApplyRemiSelf(this.brain, this.brain.userId);
+    const remiSelfLoaded = loadAndApplyRemiSelf(this.brain, this.brain.userId);
+    void remiSelfLoaded;
+    // 开场主动语：bootstrap（含上面的 RemiSelf 恢复）完成后，若距上次见面
+    // >30 分钟且本会话尚未发过开场语，主动生成一句"她先开口"的问候。内部已经
+    // 处理延迟等待 / 防打扰 / flag 检查，这里只需 fire-and-forget 触发一次，不
+    // 阻塞握手。见 server/session/greeting_opener.ts。
+    void scheduleGreetingOpener(this.buildContinuityRuntime(), remiSelfLoaded);
     this.sendPersonaPresetState();
     this.sendPersonaPackState();
     // Re-enable adult mode if this user dropped while in it and reconnected

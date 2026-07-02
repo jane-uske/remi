@@ -15,11 +15,17 @@ import { markReferenced as markReferencedEpisode } from "../../memory/episode_st
 import type { InterruptController } from "../../voice/interrupt_controller";
 import { getLatencyTracer } from "../../infra/latency_tracer";
 import { runPipeline } from "../pipeline";
-import { proactivePlannerMainPathEnabled, silenceNudgeMs } from "./runtime_config";
+import {
+  proactivePlannerMainPathEnabled,
+  relationshipPeriodicSaveEnabled,
+  relationshipPeriodicSaveTurns,
+  silenceNudgeMs,
+} from "./runtime_config";
 import {
   remiSelfPersistenceEnabled,
   saveRemiSelfFromLiveState,
 } from "./remi_self";
+import { detectFarewellSignal, deriveFarewellFocus } from "./greeting_opener";
 import type { SessionTtsTransport } from "./tts_transport";
 
 const logger = createLogger("session");
@@ -50,6 +56,74 @@ export interface SessionContinuityRuntime {
   createTraceId(source: TraceSource, generationId?: number): string;
   bindActiveGeneration(generationId: number, traceId: string, source: TraceSource): void;
   getResolvedTtsTransport(): SessionTtsTransport;
+}
+
+// ── 关系状态周期性保存 ────────────────────────────────────────────────
+//
+// persistRelationshipContinuityState 原先只在会话优雅销毁时调用（WS 正常断连
+// /error → cleanupSessionResources；SSE pool 30min TTL 回收 → destroyEntry）。
+// docker restart / 进程被杀会跳过这两条路径，导致最近一段对话积累的关系演进
+// （familiarity/emotionalBond/topicHistory 等）整段丢失。
+//
+// 这里在原有保存点之外，按用户消息轮次计数，每
+// relationshipPeriodicSaveTurns() 轮额外异步写回一次——复用同一个
+// persistRelationshipContinuityState，不新增持久化机制。计数器按 connId 隔离，
+// 在 touchSessionUserActivity（WS 语音 + SSE 文本共用的每轮入口）里递增，写回
+// 本身 fire-and-forget、不 await，绝不阻塞 fast path。flag off 时整段短路，
+// 行为与现状逐字节一致。
+const periodicSaveTurnCounts = new Map<string, number>();
+
+function notePeriodicSaveTurn(
+  runtime: Pick<SessionContinuityRuntime, "brain" | "connId">,
+): void {
+  if (!relationshipPeriodicSaveEnabled()) return;
+  const threshold = relationshipPeriodicSaveTurns();
+  if (!(threshold > 0)) return;
+
+  const nextCount = (periodicSaveTurnCounts.get(runtime.connId) ?? 0) + 1;
+  if (nextCount < threshold) {
+    periodicSaveTurnCounts.set(runtime.connId, nextCount);
+    return;
+  }
+
+  periodicSaveTurnCounts.set(runtime.connId, 0);
+  void persistRelationshipContinuityState(runtime).catch((err) => {
+    logger.warn("[陪伴] 周期性关系状态保存失败", {
+      error: (err as Error).message,
+      connId: runtime.connId,
+    });
+  });
+}
+
+/** 会话结束时清理该 connId 的周期性保存计数器，避免 Map 无界增长。 */
+export function clearPeriodicSaveTurnCount(connId: string): void {
+  periodicSaveTurnCounts.delete(connId);
+}
+
+// ── 收场钩子（活人感闭环，任务 B）────────────────────────────────────────
+//
+// 用户告别时（"拜拜/晚安/回头聊"…）本轮正常回复不受影响——这里只是在
+// touchSessionUserActivity 的每轮入口旁路一个 fire-and-forget 写回，把"下次线头"
+// 存进 RemiSelf.currentFocus。不需要她本轮说"我会记住的"：钩子是暗埋的，下次开场
+// （server/session/greeting_opener.ts 的素材 a）兑现才是惊喜。
+//
+// 复用 saveRemiSelfFromLiveState 的持久化路径 + overrideFocus 顶替它默认派生的
+// currentFocus；gate 条件对齐 persistRemiSelfState（remiSelfPersistenceEnabled()
+// off 时这里也不写，避免在 flag off 时产生现状没有的额外 DB/内存写入）。
+function noteFarewellHook(
+  runtime: Pick<SessionContinuityRuntime, "brain" | "connId">,
+  userMessage: string,
+): void {
+  if (!remiSelfPersistenceEnabled()) return;
+  if (!detectFarewellSignal(userMessage)) return;
+
+  const focus = deriveFarewellFocus(runtime.brain, userMessage);
+  void saveRemiSelfFromLiveState(runtime.brain, new Date(), focus).catch((err) => {
+    logger.warn("[开场] 收场钩子写入失败", {
+      error: (err as Error).message,
+      connId: runtime.connId,
+    });
+  });
 }
 
 export function isContinuousConversation(runtime: SessionContinuityRuntime): boolean {
@@ -92,6 +166,17 @@ export function touchSessionUserActivity(
     ),
   );
   syncSessionVadSilenceThreshold(runtime);
+
+  // 周期性关系状态保存：计数 + 达阈值即 fire-and-forget 写回，不 await、不
+  // 影响本轮任何 fast path 时序（详见上方注释）。
+  notePeriodicSaveTurn(runtime);
+
+  // 收场钩子：命中告别意图即 fire-and-forget 暗埋下次线头，不影响本轮回复
+  // （详见上方注释）。userMessage 可能是 undefined（如打断反应等无文本触发），
+  // 此时直接跳过检测。
+  if (userMessage) {
+    noteFarewellHook(runtime, userMessage);
+  }
 }
 
 export async function persistRelationshipContinuityState(

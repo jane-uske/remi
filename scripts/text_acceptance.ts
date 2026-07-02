@@ -1,5 +1,7 @@
 import path from "path";
 
+import { resetConfig } from "../server/config";
+
 type ReplayCaseId =
   | "greeting_stays_light"
   | "debt_stands_with_user"
@@ -296,7 +298,19 @@ async function captureRouteMessage(args: {
   opts?: Record<string, unknown>;
   env?: Record<string, string | undefined>;
 }): Promise<PromptCapture> {
-  const restoreEnv = applyEnv(args.env ?? {});
+  // capture 类用例只验收 prompt/策略产物，一律不真调 LLM：清空新旧两套
+  // LLM 变量名（防其他测试经 loadEnvFile 泄漏真实 key）。getConfig() 是
+  // 单例缓存，applyEnv 只改 process.env，必须前后各 reset 一次才隔离得住。
+  const restoreEnv = applyEnv({
+    key: undefined,
+    base_url: undefined,
+    model: undefined,
+    REMI_LLM_API_KEY: undefined,
+    REMI_LLM_BASE_URL: undefined,
+    REMI_LLM_MODEL: undefined,
+    ...args.env,
+  });
+  resetConfig();
   const { RemiSessionContext } = require("../brains/remi_session_context");
   const ctx = args.ctx ?? new RemiSessionContext(args.sessionId);
   if (args.history?.length) {
@@ -339,6 +353,7 @@ async function captureRouteMessage(args: {
   } finally {
     restore();
     restoreEnv();
+    resetConfig();
   }
 
   const activeWorkingMemory = ctx.slowBrain.getSnapshot().workingMemory;
@@ -464,6 +479,9 @@ async function buildMemoryCheckEvidence(): Promise<RuntimeEvidence> {
       key: undefined,
       base_url: undefined,
       model: undefined,
+      REMI_LLM_API_KEY: undefined,
+      REMI_LLM_BASE_URL: undefined,
+      REMI_LLM_MODEL: undefined,
     },
     history: [
       { role: "user", content: "我刚才说，点点给谁带了，你忘记啦？" },

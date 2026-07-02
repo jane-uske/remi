@@ -379,6 +379,65 @@ export function useRemiChat() {
     onMessageRef.current(ev);
   }, []);
 
+  // SSE push channel (GET /api/chat/events): delivers system-initiated messages
+  // that arrive before the user has said anything — e.g. the greeting opener
+  // ("she speaks first" when returning after >30min away) — which the request-
+  // scoped POST /api/chat sink cannot carry (it closes as soon as that turn's
+  // reply finishes). Only relevant when text transport is "sse" (the default);
+  // WS mode already gets pushes over the always-open WebSocket. Primes a pool
+  // entry via primeSession() (no pipeline run) to get a token before the user's
+  // first message, then holds the events connection open for the component's
+  // lifetime, feeding frames into the same onMessageRef path WS/send() use so
+  // downstream dispatch (chat_chunk/chat_end/emotion/etc.) is transport-agnostic.
+  useEffect(() => {
+    if (getTextTransport() !== "sse") return;
+    if (!remiAuth.ready) return;
+
+    const ac = new AbortController();
+    let cancelled = false;
+
+    void (async () => {
+      let authToken: string | null = null;
+      try {
+        authToken = await remiAuth.getSessionToken();
+      } catch {
+        /* anonymous / no token */
+      }
+      while (!cancelled) {
+        try {
+          const token = await getSseClient().primeSession({
+            sessionToken: sseSessionTokenRef.current,
+            authToken,
+          });
+          sseSessionTokenRef.current = token;
+          await getSseClient().connectEvents(token, {
+            signal: ac.signal,
+            onEvent: (event) => {
+              onMessageRef.current({ data: JSON.stringify(event) } as MessageEvent);
+            },
+          });
+        } catch (err) {
+          if (ac.signal.aborted) return;
+          pushAvatarDevtoolsLog("system", "chat events connect failed, retrying", {
+            error: (err as Error)?.message,
+          });
+        }
+        if (cancelled) return;
+        // Reconnect after a drop (server TTL sweep, network blip) — fixed
+        // backoff is enough here since this channel only carries pushes, not
+        // user-facing turns; a brief gap in reconnection doesn't lose messages
+        // (nothing is queued server-side for a disconnected sink).
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remiAuth.ready]);
+
   /* ── Connection layer ── */
   const conn = useRemiConnection({
     onOpenExtras: () => {

@@ -20,6 +20,7 @@ import {
 } from "../../memory/remi_self";
 import { getRemiSelfRepository } from "../../storage/repositories/remi_self_repository_factory";
 import { offlineLifeEnabled } from "./runtime_config";
+import { noteRemiSelfLastSeen } from "./greeting_opener";
 import {
   computeReturnNarrative,
   buildReturnNarrativeAnchor,
@@ -71,6 +72,11 @@ export async function loadAndApplyRemiSelf(
     const saved = await repo.load(userId);
     if (!saved) return; // 首次见这个用户 —— 保持默认。
 
+    // 开场主动语（见 greeting_opener.ts）据此算"距上次见面多久"，零额外 DB 读
+    // ——复用同一处已经读到的 lastSeenAt。flag off 分支已在函数顶部 return，不会
+    // 走到这里，故 greeting_opener 侧不需要重复判 REMI_SELF_PERSISTENCE_ENABLED。
+    noteRemiSelfLastSeen(brain.connId, saved.lastSeenAt.getTime());
+
     const drifted = driftRemiSelf(saved, now);
 
     // soft-patch：只覆盖三个同构字段，其余 PersonaLiveState 派生逻辑不动。
@@ -119,17 +125,24 @@ export async function loadAndApplyRemiSelf(
  * 写回时构造记录：从 PersonaLiveState 读 mood/energy/topicPull + 派生 currentFocus
  * + 置 lastSeenAt/lastSavedAt=now。实际持久化在 continuity.persistRemiSelfState
  * （与 persistRelationshipContinuityState 并排）。
+ *
+ * overrideFocus：收场钩子（见 greeting_opener.deriveFarewellFocus）命中告别意图
+ * 时，用它算出的"下次线头"顶替默认的 deriveRemiSelfFocus(brain)——两者都是派生
+ * "她还惦记着什么"，但告别时机的线索（这轮聊到哪）比断连时的慢脑快照更精确。
+ * 不传时行为与现状完全一致。normalizeCurrentFocus(null) 是 null，不会误把"显式
+ * 传了但算不出内容"和"没传"混淆——两种情况都合理回退到 deriveRemiSelfFocus。
  */
 export async function saveRemiSelfFromLiveState(
   brain: RemiSessionContext,
   now: Date = new Date(),
+  overrideFocus?: string | null,
 ): Promise<void> {
   const userId = brain.userId;
   if (!userId) return;
   await getRemiSelfRepository().save(userId, {
     mood: brain.persona.liveState.mood,
     energy: brain.persona.liveState.energy,
-    currentFocus: deriveRemiSelfFocus(brain),
+    currentFocus: normalizeCurrentFocus(overrideFocus) ?? deriveRemiSelfFocus(brain),
     topicPull: brain.persona.liveState.topicPull,
     lastSeenAt: now,
     lastSavedAt: now,

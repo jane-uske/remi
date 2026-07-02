@@ -17,6 +17,15 @@ const RELEVANCE_TOP_K = 5;
 const RECENT_REFERENCE_WINDOW_MS = 6 * 60 * 60 * 1000;
 const RECENT_REFERENCE_BASE_PENALTY = 0.18;
 const RECENT_REFERENCE_STRONG_PENALTY = 0.32;
+/**
+ * P0 反复读修复：当本轮消息与某 episode 的余弦相似度是本批次最高且过阈值时，
+ * 视为用户主动跟进该话题（"对了，上次说的那个事..."），而非闲聊漂移带出的复读。
+ * 此时最近引用惩罚从 STRONG 降到这里（弱惩罚，非全免），保留少量抑制避免同一句话
+ * 秒级反复触发。仅对"结构上可信"的 episode 生效——宽泛/弱锚点 episode 的高余弦
+ * 往往是多话题质心稀释的假象，不豁免（见 isTooWideForCrossTopicMerge/hasWeakAnchor）。
+ */
+const RECENT_REFERENCE_FOLLOWUP_PENALTY = 0.08;
+const FOLLOWUP_COSINE_THRESHOLD = 0.55;
 const WIDE_EPISODE_RELEVANCE_PENALTY = 0.12;
 const MAX_MERGEABLE_TOPICS = 3;
 const WIDE_EPISODE_RECURRENCE_FLOOR = 6;
@@ -52,6 +61,18 @@ export interface MomentInput {
 export interface RankedEpisode {
   episode: DbEpisode;
   score: number;
+  /**
+   * 调参用诊断信息，不参与业务逻辑消费。记录本条 episode 在本轮打分中
+   * 触发了哪种最近引用惩罚路径，便于日后回放/调参时判断豁免是否生效。
+   */
+  diagnostics?: RankedEpisodeDiagnostics;
+}
+
+export interface RankedEpisodeDiagnostics {
+  cosine: number;
+  isBatchTopCosine: boolean;
+  followUpExemptionApplied: boolean;
+  recentReferencePenaltyKind: "none" | "followup" | "base" | "strong";
 }
 
 function buildEmbeddingText(moment: Pick<MomentInput, "summary" | "topic" | "mood">): string {
@@ -437,9 +458,17 @@ export async function findRelevant(
   const episodes = await findSimilarEpisodes(userId, messageEmbedding, topK ?? RELEVANCE_TOP_K);
   const now = Date.now();
 
+  // 先算好本批次每个候选的余弦，取批内最大值：判断"是否本轮最相关候选之一"
+  // 必须相对同批次其他候选定义，不能逐条独立判断。
+  const cosineByEpisodeId = new Map<string, number>();
+  for (const episode of episodes) {
+    cosineByEpisodeId.set(episode.id, cosineSimilarity(messageEmbedding, episode.centroid_embedding));
+  }
+  const batchTopCosine = Math.max(0, ...Array.from(cosineByEpisodeId.values()));
+
   return episodes
     .map((episode) => {
-      const cosine = cosineSimilarity(messageEmbedding, episode.centroid_embedding);
+      const cosine = cosineByEpisodeId.get(episode.id) ?? 0;
       const lastSeenAtMs = episode.last_seen_at instanceof Date
         ? episode.last_seen_at.getTime()
         : new Date(episode.last_seen_at).getTime();
@@ -456,12 +485,35 @@ export async function findRelevant(
         0.12,
         (lexicalOverlap * 0.08) + (topicAnchorHit ? 0.04 : 0),
       );
-      const recentReferencePenalty =
-        lastReferencedAtMs > 0 && now - lastReferencedAtMs < RECENT_REFERENCE_WINDOW_MS
-          ? topicAnchorHit || lexicalOverlap >= 0.34
-            ? RECENT_REFERENCE_BASE_PENALTY
-            : RECENT_REFERENCE_STRONG_PENALTY
-          : 0;
+
+      // "跟进召回" vs "闲聊漂移复读"：本轮消息与该 episode 的余弦是批内最高
+      // 且过绝对阈值，同时该 episode 结构上不是宽泛/弱锚点合集（否则高余弦
+      // 可能只是多话题质心稀释的假象，不构成"用户主动提起"的可信信号）。
+      const isBatchTopCosine = cosine >= FOLLOWUP_COSINE_THRESHOLD && cosine >= batchTopCosine;
+      const isStructurallyTrustworthy =
+        !isTooWideForCrossTopicMerge(episode) && !hasWeakAnchor(episode);
+      const followUpExemptionEligible = isBatchTopCosine && isStructurallyTrustworthy;
+
+      const withinRecentWindow =
+        lastReferencedAtMs > 0 && now - lastReferencedAtMs < RECENT_REFERENCE_WINDOW_MS;
+      const lexicalPathHit = topicAnchorHit || lexicalOverlap >= 0.34;
+
+      let recentReferencePenalty = 0;
+      let recentReferencePenaltyKind: RankedEpisodeDiagnostics["recentReferencePenaltyKind"] = "none";
+      if (withinRecentWindow) {
+        if (followUpExemptionEligible) {
+          // 跟进信号最强，优先生效，即使词面锚点没命中。
+          recentReferencePenalty = RECENT_REFERENCE_FOLLOWUP_PENALTY;
+          recentReferencePenaltyKind = "followup";
+        } else if (lexicalPathHit) {
+          recentReferencePenalty = RECENT_REFERENCE_BASE_PENALTY;
+          recentReferencePenaltyKind = "base";
+        } else {
+          recentReferencePenalty = RECENT_REFERENCE_STRONG_PENALTY;
+          recentReferencePenaltyKind = "strong";
+        }
+      }
+
       const breadthPenalty =
         (isTooWideForCrossTopicMerge(episode) || hasWeakAnchor(episode)) &&
         !topicAnchorHit &&
@@ -476,9 +528,24 @@ export async function findRelevant(
         lexicalBoost -
         recentReferencePenalty -
         breadthPenalty;
+
+      if (process.env.REMI_DEBUG_EPISODE_RECALL === "1") {
+        console.log(
+          `[episode_store] recall diagnostics id=${episode.id} cosine=${cosine.toFixed(3)} ` +
+            `batchTop=${isBatchTopCosine} trustworthy=${isStructurallyTrustworthy} ` +
+            `penaltyKind=${recentReferencePenaltyKind} penalty=${recentReferencePenalty} score=${score.toFixed(3)}`,
+        );
+      }
+
       return {
         episode,
         score,
+        diagnostics: {
+          cosine,
+          isBatchTopCosine,
+          followUpExemptionApplied: recentReferencePenaltyKind === "followup",
+          recentReferencePenaltyKind,
+        },
       };
     })
     .sort((a, b) => b.score - a.score);

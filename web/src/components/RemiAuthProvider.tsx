@@ -26,7 +26,90 @@ import {
   resolveCurrentUserId,
   resolveIsDefaultDevUser,
 } from "@/hooks/useRemiChatHelpers";
-import { isLegacyTokenUsable } from "@/lib/browserIdentity";
+import { getOrCreateLoopbackDeviceId, isLegacyTokenUsable } from "@/lib/browserIdentity";
+
+// ── Loopback identity token cache ───────────────────────────────────────
+//
+// Mirrors GuestTrialGate's localStorage session caching. Exchanges the
+// per-browser device id (getOrCreateLoopbackDeviceId) for a signed legacy JWT
+// via POST /api/loopback-identity, once, then reuses it until it's close to
+// expiry. See loopback_identity.ts / authMode.ts for why this exists.
+const LOOPBACK_TOKEN_CACHE_KEY = "remi_loopback_identity_token";
+const LOOPBACK_TOKEN_REFRESH_MARGIN_MS = 10 * 60 * 1000;
+
+type StoredLoopbackToken = { token: string; expiresAt: number };
+
+function readStoredLoopbackToken(): StoredLoopbackToken | null {
+  try {
+    const raw = localStorage.getItem(LOOPBACK_TOKEN_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredLoopbackToken;
+    if (typeof parsed.token !== "string" || !parsed.token) return null;
+    if (typeof parsed.expiresAt !== "number") return null;
+    if (Date.now() >= parsed.expiresAt - LOOPBACK_TOKEN_REFRESH_MARGIN_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredLoopbackToken(entry: StoredLoopbackToken): void {
+  try {
+    localStorage.setItem(LOOPBACK_TOKEN_CACHE_KEY, JSON.stringify(entry));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function fetchLoopbackToken(deviceId: string): Promise<StoredLoopbackToken> {
+  const res = await fetch("/api/loopback-identity", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId }),
+  });
+  if (!res.ok) throw new Error(`loopback-identity failed: ${res.status}`);
+  const body = (await res.json()) as { token: string; expiresIn: number };
+  return { token: body.token, expiresAt: Date.now() + body.expiresIn * 1000 };
+}
+
+/**
+ * Resolves (and caches) a stable per-browser token when Clerk is disabled by
+ * the live-key-on-loopback safety rail. Returns null while the exchange is
+ * in flight or unavailable — callers fall back to the legacy `?token=` /
+ * DEFAULT_DEV_USER_ID behavior in that window, same as before this existed.
+ */
+function useLoopbackIdentityToken(active: boolean): string | null {
+  const [token, setToken] = useState<string | null>(() =>
+    active ? readStoredLoopbackToken()?.token ?? null : null,
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    const cached = readStoredLoopbackToken();
+    if (cached) {
+      setToken(cached.token);
+      return;
+    }
+    let cancelled = false;
+    const deviceId = getOrCreateLoopbackDeviceId();
+    if (!deviceId) return;
+    fetchLoopbackToken(deviceId)
+      .then((entry) => {
+        if (cancelled) return;
+        writeStoredLoopbackToken(entry);
+        setToken(entry.token);
+      })
+      .catch(() => {
+        // Fails open to the pre-existing shared-dev-id behavior; logged
+        // server-side via loopback_identity.ts's logger on the request path.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
+
+  return token;
+}
 
 async function clearSwCaches(): Promise<void> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -71,20 +154,40 @@ const DEFAULT_CONTEXT: RemiWebAuthContextValue = {
 const RemiWebAuthContext =
   createContext<RemiWebAuthContextValue>(DEFAULT_CONTEXT);
 
-function LegacyAuthBridge({ children }: { children: ReactNode }) {
+function LegacyAuthBridge({
+  children,
+  loopbackBlocked = false,
+}: {
+  children: ReactNode;
+  /**
+   * True when this bridge is active because Clerk was disabled by the
+   * live-key-on-loopback safety rail (resolveClerkRuntimePolicy), not because
+   * auth is genuinely off (REMI_AUTH_MODE=disabled/legacy_jwt). In that case
+   * fall back to a per-browser persisted identity instead of the shared
+   * DEFAULT_DEV_USER_ID placeholder — see useLoopbackIdentityToken above.
+   * Default false preserves exact current behavior for real disabled-mode
+   * dev, where a single shared dev identity is the intended, documented
+   * behavior (no real users to collide).
+   */
+  loopbackBlocked?: boolean;
+}) {
   const legacyToken = getQueryTokenFromWindow();
+  // An explicit `?token=` in the URL (desktop OAuth exchange, or a manually
+  // shared legacy token) always takes priority — unchanged from before.
+  const loopbackToken = useLoopbackIdentityToken(loopbackBlocked && !legacyToken);
+  const effectiveToken = legacyToken ?? loopbackToken;
   const value = useMemo<RemiWebAuthContextValue>(
     () => ({
       clerkEnabled: false,
       ready: true,
       signedIn: true,
       canSignOut: false,
-      currentUserId: resolveCurrentUserId({ legacyToken }),
-      isDefaultDevUser: resolveIsDefaultDevUser({ legacyToken }),
-      getSessionToken: async () => legacyToken,
+      currentUserId: resolveCurrentUserId({ legacyToken: effectiveToken }),
+      isDefaultDevUser: resolveIsDefaultDevUser({ legacyToken: effectiveToken }),
+      getSessionToken: async () => effectiveToken,
       signOut: async () => {},
     }),
-    [legacyToken],
+    [effectiveToken],
   );
 
   return (
@@ -224,7 +327,11 @@ export function RemiAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   if (!runtimePolicy.clerkEnabled) {
-    return <LegacyAuthBridge>{children}</LegacyAuthBridge>;
+    return (
+      <LegacyAuthBridge loopbackBlocked={runtimePolicy.loopbackBlocked}>
+        {children}
+      </LegacyAuthBridge>
+    );
   }
 
   return (

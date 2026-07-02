@@ -25,6 +25,13 @@ describe("persona pack loader", () => {
     assert.ok(pack.identity.includes("我叫 Remi"), "IDENTITY.md content");
     assert.ok(pack.soul.includes("温柔"), "SOUL.md content");
     assert.ok(pack.examples.includes("霓虹"), "EXAMPLES.md few-shot content");
+    assert.ok(pack.canon.includes("百年孤独"), "CANON.md life-facts content");
+  });
+
+  it("returns an empty canon string for a pack without CANON.md (e.g. nami) — no regression", () => {
+    const pack = loadPersonaPack("nami", { noCache: true });
+    assert.ok(pack, "nami pack should load");
+    assert.equal(pack.canon, "", "nami has no CANON.md yet, canon stays empty");
   });
 
   it("returns null (fallback) for a missing pack", () => {
@@ -67,6 +74,31 @@ describe("composePersonaPrompt", () => {
       idIdx < soulIdx && soulIdx < exIdx && exIdx < l0rIdx,
       "layer order: identity < soul < examples < L0'",
     );
+  });
+
+  it("a pack without canon (undefined field, like fakePack) composes unchanged — no regression", () => {
+    const out = composePersonaPrompt(fakePack, {});
+    assert.ok(!out.includes("undefined"), "missing canon must not leak into prompt text");
+  });
+
+  it("injects CANON.md between EXAMPLES and the L0' reinforcement layer", () => {
+    const packWithCanon = { ...fakePack, canon: "CANON_MARKER 生活事实" };
+    const out = composePersonaPrompt(packWithCanon, {});
+    const exIdx = out.indexOf("EXAMPLES_MARKER");
+    const canonIdx = out.indexOf("CANON_MARKER");
+    const l0rIdx = out.indexOf(PERSONA_SYSTEM_LAYER_REINFORCE);
+    assert.ok(canonIdx > -1, "canon must be present");
+    assert.ok(
+      exIdx < canonIdx && canonIdx < l0rIdx,
+      "layer order: examples < canon < L0'",
+    );
+  });
+
+  it("empty canon string (e.g. nami pack) renders nothing extra — behavior unchanged", () => {
+    const packNoCanon = { ...fakePack, canon: "" };
+    const out = composePersonaPrompt(packNoCanon, {});
+    const outWithoutField = composePersonaPrompt(fakePack, {});
+    assert.equal(out, outWithoutField, "empty canon must compose identically to absent canon");
   });
 
   it("injects dynamic options between the layers, still bookended by L0", () => {

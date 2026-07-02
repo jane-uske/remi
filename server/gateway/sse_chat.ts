@@ -7,6 +7,8 @@ import type { MessageSink, ServerMessage } from "./types";
 import {
   textSessionPool,
   buildTextChatRuntime,
+  attachEventsSink,
+  detachEventsSink,
   type PoolEntry,
 } from "../session/pool";
 import { handleSessionTextChat } from "../session/text_chat";
@@ -270,6 +272,37 @@ async function handleHistory(req: IncomingMessage, res: ServerResponse): Promise
   jsonResponse(res, 200, messages[0] ?? { type: "history_page", mode: "replace", messages: [], hasMore: false, nextCursor: null });
 }
 
+// ── GET /api/chat/session (prime a pool entry + token, no pipeline run) ─
+//
+// handleChat 只在用户发第一条消息时才 acquire() 一个 PoolEntry 并把 token
+// 通过 `event: session` 帧带回去——这意味着"用户还没开口"时前端根本不知道
+// token，也就无法提前打开 GET /api/chat/events（该端点要求 token 已存在，
+// 未命中直接 404）。这个端点补上这个缺口：只 acquire（创建或复用现有 entry），
+// 不跑任何 pipeline，返回 token 供前端随后调用 /api/chat/events。
+//
+// 幂等：identity.storageUserId 相同时 acquire() 返回同一个 entry/token（见
+// TextSessionPool.acquire 按 storageUserId 匹配的逻辑），多次调用（如多标签
+// 页、组件重挂载）不会创建重复 entry。
+async function handleSession(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (req.method !== "GET") {
+    jsonError(res, 405, "Method not allowed");
+    return;
+  }
+
+  const identity = resolveRequestUserIdentity(req);
+  const existingToken = extractSessionToken(req);
+
+  let entry: PoolEntry | undefined;
+  if (existingToken) {
+    entry = textSessionPool.get(existingToken);
+  }
+  if (!entry) {
+    entry = await textSessionPool.acquire(identity.storageUserId, identity.authPrincipal);
+  }
+
+  jsonResponse(res, 200, { token: entry.token });
+}
+
 // ── GET /api/chat/events (EventSource for push notifications) ──────
 
 async function handleEvents(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -293,6 +326,15 @@ async function handleEvents(req: IncomingMessage, res: ServerResponse): Promise<
   sseHeaders(res);
   res.write(`event: connected\ndata: ${JSON.stringify({ connId: entry.connId })}\n\n`);
 
+  // 把这条长连接注册为 entry 的持久推送通道——POST /api/chat 的 sink 只活在
+  // 单次请求-响应生命周期内（handleChat 里 pipelineDone 后即 end()），events
+  // 连接是唯一能在用户开口前推送的 sink（开场主动语落地点，见 pool.ts 的
+  // attachEventsSink 注释）。同一份 SseResponseSink 也承载沉默搭话等其他系统
+  // 推送——事件格式与 handleChat 完全一致（`event: <type>\ndata: <json>`），
+  // 前端消费逻辑无需区分来源。
+  const eventsSink = new SseResponseSink(res);
+  attachEventsSink(entry, eventsSink);
+
   const keepAlive = setInterval(() => {
     if (!res.writableEnded) {
       res.write(":keepalive\n\n");
@@ -301,6 +343,7 @@ async function handleEvents(req: IncomingMessage, res: ServerResponse): Promise<
 
   req.on("close", () => {
     clearInterval(keepAlive);
+    detachEventsSink(entry, eventsSink);
   });
 }
 
@@ -328,6 +371,10 @@ export async function handleSseChatApi(
   }
   if (pathname === "/api/chat/history") {
     await handleHistory(req, res);
+    return;
+  }
+  if (pathname === "/api/chat/session") {
+    await handleSession(req, res);
     return;
   }
   if (pathname === "/api/chat/events") {

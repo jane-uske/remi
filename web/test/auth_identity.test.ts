@@ -12,6 +12,12 @@ const {
   appendTokenToWsUrl,
   getRemWsUrl,
 } = require("../src/lib/wsUrl.ts");
+const {
+  getOrCreateLoopbackDeviceId,
+} = require("../src/lib/browserIdentity");
+const {
+  resolveClerkRuntimePolicy,
+} = require("../src/lib/authMode.ts");
 
 function fakeJwt(payload) {
   const encode = (value) =>
@@ -153,6 +159,103 @@ describe("web auth identity helpers", () => {
       } else {
         process.env.NEXT_PUBLIC_WS_URL = previousWsUrl;
       }
+    }
+  });
+
+  // ── Loopback identity (fix for cross-visit storage-user drift) ─────────
+
+  it("disables Clerk without flagging loopbackBlocked when auth mode is genuinely off", () => {
+    expect(
+      resolveClerkRuntimePolicy({
+        mode: "disabled",
+        hostname: "localhost",
+        publishableKey: "pk_live_abc",
+      }),
+    ).to.deep.equal({ clerkEnabled: false, loopbackBlocked: false });
+  });
+
+  it("flags loopbackBlocked when a live Clerk key would apply on a loopback host", () => {
+    expect(
+      resolveClerkRuntimePolicy({
+        mode: "clerk",
+        hostname: "localhost",
+        publishableKey: "pk_live_abc123",
+      }),
+    ).to.deep.equal({ clerkEnabled: false, loopbackBlocked: true });
+
+    expect(
+      resolveClerkRuntimePolicy({
+        mode: "clerk",
+        hostname: "127.0.0.1",
+        publishableKey: "pk_live_abc123",
+      }),
+    ).to.deep.equal({ clerkEnabled: false, loopbackBlocked: true });
+  });
+
+  it("does not flag loopbackBlocked for a test key on loopback (already usable)", () => {
+    expect(
+      resolveClerkRuntimePolicy({
+        mode: "clerk",
+        hostname: "localhost",
+        publishableKey: "pk_test_abc123",
+      }),
+    ).to.deep.equal({ clerkEnabled: true, loopbackBlocked: false });
+  });
+
+  it("does not flag loopbackBlocked for a live key on a real hostname", () => {
+    expect(
+      resolveClerkRuntimePolicy({
+        mode: "clerk",
+        hostname: "ai.remi.run",
+        publishableKey: "pk_live_abc123",
+      }),
+    ).to.deep.equal({ clerkEnabled: true, loopbackBlocked: false });
+  });
+
+  it("persists a stable per-browser loopback device id across calls", () => {
+    const previousWindow = global.window;
+    const previousCrypto = global.crypto;
+    const store: Record<string, string> = {};
+    global.window = {
+      localStorage: {
+        getItem: (key: string) => (key in store ? store[key] : null),
+        setItem: (key: string, value: string) => {
+          store[key] = value;
+        },
+        removeItem: (key: string) => {
+          delete store[key];
+        },
+      },
+    } as any;
+    let counter = 0;
+    // Object.defineProperty (not direct assignment) — Node's global `crypto`
+    // is a getter-only accessor in some runtimes/module contexts, and a plain
+    // `global.crypto = ...` throws "Cannot set property crypto of #<Object>
+    // which has only a getter" there.
+    Object.defineProperty(global, "crypto", {
+      value: { randomUUID: () => `11111111-1111-4111-8111-11111111111${counter++}` },
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const first = getOrCreateLoopbackDeviceId();
+      const second = getOrCreateLoopbackDeviceId();
+      expect(first).to.equal(second);
+      expect(first).to.match(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+    } finally {
+      if (previousWindow === undefined) {
+        delete global.window;
+      } else {
+        global.window = previousWindow;
+      }
+      Object.defineProperty(global, "crypto", {
+        value: previousCrypto,
+        configurable: true,
+        writable: true,
+      });
     }
   });
 });

@@ -109,6 +109,50 @@ export class SseChatClient {
     this.baseUrl = baseUrl;
   }
 
+  /**
+   * Shared SSE-frame pump: reads a fetch() response body stream and parses
+   * `event: <type>\ndata: <json>` frames, invoking onFrame per parsed event.
+   * Used by both send() (POST /api/chat, single-turn) and connectEvents()
+   * (GET /api/chat/events, long-lived push channel) — both are plain HTTP
+   * streaming responses parsed identically, so the loop lives once here
+   * rather than duplicated per caller.
+   */
+  private async pumpSseFrames(
+    res: Response,
+    onFrame: (eventType: string, parsed: SseChatEvent) => void,
+  ): Promise<void> {
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      let eventType = "message";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          if (data === "{}") continue;
+          try {
+            const parsed = JSON.parse(data) as SseChatEvent;
+            parsed.type = parsed.type ?? eventType;
+            onFrame(eventType, parsed);
+          } catch { /* skip malformed */ }
+          eventType = "message";
+        }
+      }
+    }
+  }
+
   async send(content: string, opts: SseSendOptions = {}): Promise<SseSendResult> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -143,43 +187,62 @@ export class SseChatClient {
     let sessionToken = opts.sessionToken ?? "";
     let startedStreaming = false;
 
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("No response body");
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      let eventType = "message";
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          eventType = line.slice(7).trim();
-        } else if (line.startsWith("data: ")) {
-          const data = line.slice(6);
-          if (data === "{}") continue;
-          try {
-            const parsed = JSON.parse(data) as SseChatEvent;
-            if (eventType === "session" && typeof parsed.token === "string") {
-              sessionToken = parsed.token;
-            } else {
-              startedStreaming = true;
-            }
-            parsed.type = parsed.type ?? eventType;
-            opts.onEvent?.(parsed);
-          } catch { /* skip malformed */ }
-          eventType = "message";
-        }
+    await this.pumpSseFrames(res, (eventType, parsed) => {
+      if (eventType === "session" && typeof parsed.token === "string") {
+        sessionToken = parsed.token;
+      } else {
+        startedStreaming = true;
       }
-    }
+      opts.onEvent?.(parsed);
+    });
 
     return { sessionToken, startedStreaming };
+  }
+
+  /**
+   * Prime a pool entry without sending a message. Returns a session token
+   * that fetchHistory/connectEvents can use — needed because the token was
+   * previously only known after the user's first send() reply, which made
+   * it impossible to open connectEvents() (and thus receive the greeting
+   * opener push) before the user had already spoken.
+   */
+  async primeSession(opts: { sessionToken?: string | null; authToken?: string | null } = {}): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (opts.sessionToken) headers["X-Remi-Session"] = opts.sessionToken;
+    if (opts.authToken) headers["Authorization"] = `Bearer ${opts.authToken}`;
+
+    const res = await fetch(`${this.baseUrl}/api/chat/session`, { headers });
+    if (!res.ok) throw new Error(`Session priming failed: ${res.status}`);
+    const body = (await res.json()) as { token: string };
+    return body.token;
+  }
+
+  /**
+   * Long-lived push channel (GET /api/chat/events) — delivers system-initiated
+   * messages that arrive before the user has said anything (e.g. the greeting
+   * opener) or between turns (e.g. silence nudges). Uses fetch()'s streaming
+   * body rather than the native EventSource API because EventSource cannot
+   * set custom request headers, and the endpoint is authenticated via the
+   * X-Remi-Session header (matching every other endpoint in this file).
+   *
+   * Resolves when the connection closes (server-side eviction, network drop,
+   * or the caller aborting via opts.signal) — callers should reconnect with
+   * backoff if they want a persistent channel across drops.
+   */
+  async connectEvents(
+    sessionToken: string,
+    opts: { onEvent?: (event: SseChatEvent) => void; signal?: AbortSignal } = {},
+  ): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/chat/events`, {
+      headers: { "X-Remi-Session": sessionToken },
+      signal: opts.signal,
+    });
+    if (!res.ok) throw new Error(`Events connect failed: ${res.status}`);
+
+    await this.pumpSseFrames(res, (eventType, parsed) => {
+      if (eventType === "connected") return; // connection ack, not a chat event
+      opts.onEvent?.(parsed);
+    });
   }
 
   async fetchHistory(opts: {

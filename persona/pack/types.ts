@@ -5,6 +5,8 @@
  *     IDENTITY.md    ← 她是谁、怎么说话
  *     SOUL.md        ← 内核怎么待你
  *     EXAMPLES.md    ← few-shot 对话范例（可选）
+ *     CANON.md       ← 生活事实库（可选）：住处/日常/在读的书这类可被引用、
+ *                        可被追问细节，但不会无中生有的具体人生事实。
  *
  * 设计取舍见 docs/design/PERSONA_PACK.md。M1 只落地文字层 + 元数据解析；
  * voice/avatar/allowNsfw/memoryScope 字段先解析存下，由后续里程碑接入。
@@ -58,6 +60,11 @@ export interface PersonaPack {
   soul: string;
   /** EXAMPLES.md 正文，可能为空字符串（pack 未提供 few-shot）。 */
   examples: string;
+  /**
+   * CANON.md 正文，可能为空字符串（pack 未提供生活事实库——如 nami，行为不变）。
+   * 放在 IDENTITY/SOUL/EXAMPLES 之后、compose 的系统重申层之前。
+   */
+  canon: string;
 }
 
 /** 加载器对每段 md 的字符预算，防止一个超大 pack 把 L0 挤出注意力窗口。 */
@@ -65,12 +72,15 @@ export interface PersonaPackBudget {
   identity: number;
   soul: number;
   examples: number;
+  /** 可选：未提供时退回 DEFAULT_PERSONA_PACK_BUDGET.canon（兼容旧的自定义 budget 字面量）。 */
+  canon?: number;
 }
 
 export const DEFAULT_PERSONA_PACK_BUDGET: PersonaPackBudget = {
   identity: 1800,
   soul: 1400,
   examples: 2000,
+  canon: 1600,
 };
 
 /** 默认 pack id —— personas/remi。 */

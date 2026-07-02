@@ -31,11 +31,26 @@ export function isLiveClerkPublishableKey(
   return publishableKey?.trim().startsWith("pk_live_") ?? false;
 }
 
+export type ClerkRuntimePolicy = {
+  clerkEnabled: boolean;
+  /**
+   * True only when Clerk was disabled specifically by the live-key-on-loopback
+   * safety rail (not by REMI_AUTH_MODE=disabled/legacy_jwt). Distinguishes "no
+   * auth is configured at all" from "this browser would normally use Clerk but
+   * can't right now because it's on loopback with a live key" — the latter
+   * still identifies a real, distinct user who needs a *stable* per-browser
+   * identity, not the shared DEV_STORAGE_USER_ID placeholder. See
+   * web/src/components/RemiAuthProvider.tsx LegacyAuthBridge and
+   * server/gateway/loopback_identity.ts for how this is consumed.
+   */
+  loopbackBlocked: boolean;
+};
+
 export function resolveClerkRuntimePolicy(input: {
   hostname?: string | null;
   mode?: RemiWebAuthMode;
   publishableKey?: string | null;
-}): { clerkEnabled: boolean } {
+}): ClerkRuntimePolicy {
   const mode = input.mode ?? getRemiWebAuthMode();
   const publishableKey =
     input.publishableKey ?? process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null;
@@ -45,14 +60,15 @@ export function resolveClerkRuntimePolicy(input: {
     publishableKey.trim() !== "";
 
   if (!baseClerkEnabled) {
-    return { clerkEnabled: false };
+    return { clerkEnabled: false, loopbackBlocked: false };
   }
 
   if (isLiveClerkPublishableKey(publishableKey) && isLoopbackHostname(input.hostname)) {
-    return { clerkEnabled: false };
+    return { clerkEnabled: false, loopbackBlocked: true };
   }
 
   return {
     clerkEnabled: true,
+    loopbackBlocked: false,
   };
 }

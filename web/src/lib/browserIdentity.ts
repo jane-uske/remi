@@ -7,6 +7,40 @@ export type ResolvedAuthCapabilities = {
   canSignOut: boolean;
 };
 
+// ── Loopback device identity ────────────────────────────────────────────
+//
+// Fix for the "same browser resolves to a different storage user" bug: when
+// Clerk is disabled specifically by the live-key-on-loopback safety rail
+// (resolveClerkRuntimePolicy's loopbackBlocked), the app used to fall back to
+// the single shared DEV_STORAGE_USER_ID for every such visit/visitor. This
+// generates (once) and persists a random UUID per browser in localStorage —
+// same pattern GuestTrialGate already uses for guest tokens — so repeated
+// loopback visits from this browser always resolve to the same, non-shared
+// storage user. The UUID itself is exchanged server-side for a signed legacy
+// JWT via POST /api/loopback-identity (server/gateway/loopback_identity.ts);
+// it's never used as a credential directly.
+const LOOPBACK_DEVICE_ID_KEY = "remi_loopback_device_id";
+
+/** Reads the persisted per-browser loopback device id, generating and storing one if absent. */
+export function getOrCreateLoopbackDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const existing = window.localStorage.getItem(LOOPBACK_DEVICE_ID_KEY);
+    if (existing && UUID_LIKE_RE.test(existing)) return existing;
+    const fresh = crypto.randomUUID();
+    window.localStorage.setItem(LOOPBACK_DEVICE_ID_KEY, fresh);
+    return fresh;
+  } catch {
+    // localStorage unavailable (private browsing, quota, etc.) — fall back to
+    // a session-only id; identity won't persist across reloads, but at least
+    // won't collide with the shared dev placeholder within this page life.
+    return crypto.randomUUID();
+  }
+}
+
+const UUID_LIKE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length < 2) return null;

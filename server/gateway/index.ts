@@ -25,6 +25,7 @@ import { handleExtApi } from "./rest_api";
 import { handleSseChatApi } from "./sse_chat";
 import { handleDesktopExchangeToken } from "./desktop_auth";
 import { handleGuestToken } from "./guest_token";
+import { handleLoopbackIdentity } from "./loopback_identity";
 import { handleInviteStatus, handleInviteRedeem, handleInviteMyCodes } from "./invite_api";
 import { handleSettingsApi, handleServiceHealth } from "./settings_api";
 import { textSessionPool } from "../session/pool";
@@ -659,6 +660,17 @@ export async function createGateway(config: GatewayConfig): Promise<HttpServer> 
       // visitors. No Bearer token required; rate-limited per IP.
       if (pathname === "/api/guest-token") {
         await handleGuestToken(req, res);
+        return;
+      }
+
+      // Loopback identity — mints a legacy JWT for a client-persisted device
+      // id so a browser hitting a live Clerk key over loopback (Clerk
+      // deliberately disabled there, see resolveClerkRuntimePolicy) gets a
+      // stable per-browser storage user instead of silently sharing
+      // DEV_STORAGE_USER_ID with every other loopback visit. Self-gated to
+      // loopback requests inside the handler.
+      if (pathname === "/api/loopback-identity") {
+        await handleLoopbackIdentity(req, res);
         return;
       }
 

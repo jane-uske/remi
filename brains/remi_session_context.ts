@@ -125,6 +125,7 @@ function deriveProactiveIntent(
   slowBrain: SlowBrainStore,
   interpretation?: TurnInterpretation | null,
   responsePolicy?: ResponsePolicy | null,
+  lastAnyProactiveIntentTurn = -100,
 ): ProactiveIntent {
   const snapshot = slowBrain.getSnapshot();
   const turnCount = snapshot.relationship.turnCount;
@@ -164,10 +165,12 @@ function deriveProactiveIntent(
     }
   }
 
-  // 偏好表达：每 8 轮最多一次，关系足够熟（familiar 以上）
-  const closeness = deriveCloseness(slowBrain);
-  const isClose = closeness === "familiar" || closeness === "relaxed" || closeness === "dependent";
-  if (isClose && turnCount > 0 && turnCount % 8 === 0) {
+  // 偏好表达：有自己的看法是活人最便宜的证据，不需要熟悉度解锁。
+  // 距上次任意主动意图（followup/callback/preference 任一）>=3 轮即可再次触发，
+  // 避免每轮都抢话，但也不再靠"熟到 familiar + 凑够 8 的倍数"这种在闲聊里
+  // 数学上很难触发的双重门槛。turnCount > 0 只是防止刚见面第一句话就急着讲
+  // 自己的看法，不是熟悉度门槛。
+  if (turnCount > 0 && turnCount - lastAnyProactiveIntentTurn >= 3) {
     return "preference";
   }
 
@@ -220,6 +223,12 @@ export class RemiSessionContext {
   lastResponsePolicy: ResponsePolicy | null = null;
   analysisSource: StructuredAnalysisSource | null = null;
   analysisLatencyMs: number | null = null;
+  /**
+   * relationship.turnCount 快照，记录最近一次 Layer 4 主动意图（followup /
+   * callback / preference 任一，"none" 不算）实际触发的轮次。preference 门槛
+   * 用它算"距上次任意主动意图"的轮数间隔，避免每轮都抢话。
+   */
+  private lastProactiveIntentTurn = -100;
   /** 预热召回缓存（VOICE_BEST_PRACTICES 杠杆1）：partial 预测的召回结果，供真实轮在预测未命中时复用。 */
   readonly warmRecall = new WarmRecallCache();
   /**
@@ -380,6 +389,7 @@ export class RemiSessionContext {
     this.lastResponsePolicy = null;
     this.analysisSource = null;
     this.analysisLatencyMs = null;
+    this.lastProactiveIntentTurn = -100;
     this.warmRecall.clear();
     this.emotion.setEmotion("neutral");
     resetPersonaLiveState(this.persona);
@@ -528,8 +538,12 @@ export class RemiSessionContext {
           this.slowBrain,
           this.lastInterpretation,
           this.lastResponsePolicy,
+          this.lastProactiveIntentTurn,
         )
       : "none";
+    if (liveState.proactiveIntent !== "none") {
+      this.lastProactiveIntentTurn = this.slowBrain.getSnapshot().relationship.turnCount;
+    }
 
     // 话题延续检测 & 摘要
     liveState.isContinuingTopic = this.isContinuingPreviousTopic(lastUserMessage);

@@ -38,8 +38,10 @@ function loadEpisodeStore(overrides = {}) {
   const episodeStorePath = require.resolve("../../memory/episode_store");
   const embeddingClientPath = require.resolve("../../llm/embedding_client");
   const episodeRepositoryPath = require.resolve("../../storage/repositories/episode_repository");
+  const databasePath = require.resolve("../../storage/database");
   const originalEmbeddingClient = require.cache[embeddingClientPath];
   const originalEpisodeRepository = require.cache[episodeRepositoryPath];
+  const originalDatabase = require.cache[databasePath];
 
   clearModule(episodeStorePath);
 
@@ -50,6 +52,11 @@ function loadEpisodeStore(overrides = {}) {
     findSimilarEpisodes: async () => [],
     getUnresolvedEpisodes: async () => [],
   });
+  // 只有显式传入 database 覆盖时才 stub storage/database，默认保留真实模块，
+  // 不改变既有用例（依赖真实 isDatabaseReady() 短路为 false）的行为。
+  if (overrides.database) {
+    stubModule(databasePath, overrides.database);
+  }
 
   const episodeStore = require("../../memory/episode_store");
 
@@ -66,6 +73,13 @@ function loadEpisodeStore(overrides = {}) {
         require.cache[episodeRepositoryPath] = originalEpisodeRepository;
       } else {
         clearModule(episodeRepositoryPath);
+      }
+      if (overrides.database) {
+        if (originalDatabase) {
+          require.cache[databasePath] = originalDatabase;
+        } else {
+          clearModule(databasePath);
+        }
       }
     },
   };
@@ -532,6 +546,143 @@ describe("episode_store", () => {
         ["sleep-line", "wide-recent"],
       );
       assert.equal(ranked[0].score > ranked[1].score, true);
+    } finally {
+      Date.now = realDateNow;
+      restore();
+    }
+  });
+
+  it("findRelevant exempts a recently referenced episode from the strong penalty when the user actively follows up on it", async () => {
+    // 场景："对了，上次说的那个岗位后来怎么样了" —— 用户主动跟进面试这条线，
+    // 该 episode 1 小时前刚被引用过（在 6h 复读惩罚窗口内），且查询与其
+    // 词面锚点完全不重叠（topicAnchorHit=false, lexicalOverlap=0，已用
+    // extractKeywords 验证），只有余弦相似度这一个信号能救回它。
+    // episode 本身结构窄（1 个 topic、1 条 origin summary、recurrence 低），
+    // 不是宽泛合集，因此符合"结构上可信"的豁免前提。
+    const realDateNow = Date.now;
+    Date.now = () => new Date("2026-04-12T06:00:00.000Z").getTime();
+    const { episodeStore, restore } = loadEpisodeStore({
+      embeddingClient: {
+        embed: async () => makeVector([1, 0]),
+      },
+      episodeRepository: {
+        insertEpisode: async () => null,
+        updateEpisode: async () => null,
+        findSimilarEpisodes: async () => [
+          makeEpisode({
+            id: "interview-followup",
+            title: "面试",
+            summary: "面试：上周投了简历在等消息",
+            topics: ["面试"],
+            salience: 0.6,
+            recurrence_count: 1,
+            unresolved: true,
+            last_seen_at: new Date("2026-04-12T04:00:00.000Z"),
+            last_referenced_at: new Date("2026-04-12T05:00:00.000Z"),
+            centroid_embedding: makeVector([1, 0]),
+            origin_moment_summaries: ["上周投了简历在等消息"],
+          }),
+          makeEpisode({
+            id: "unrelated-noise",
+            title: "健身",
+            summary: "健身：办了张健身卡",
+            topics: ["健身"],
+            salience: 0.3,
+            recurrence_count: 1,
+            unresolved: false,
+            last_seen_at: new Date("2026-03-01T00:00:00.000Z"),
+            last_referenced_at: null,
+            centroid_embedding: makeVector([0, 1]),
+            origin_moment_summaries: ["办了张健身卡"],
+          }),
+        ],
+        getUnresolvedEpisodes: async () => [],
+      },
+      database: { isDatabaseReady: () => true },
+    });
+
+    try {
+      const ranked = await episodeStore.findRelevant("user-1", "对了那个岗位后来怎么样了");
+
+      const followUp = ranked.find((entry) => entry.episode.id === "interview-followup");
+      assert.ok(followUp, "跟进目标 episode 应该出现在召回结果里");
+      assert.equal(ranked[0].episode.id, "interview-followup");
+      assert.equal(followUp.diagnostics.recentReferencePenaltyKind, "followup");
+      assert.equal(followUp.diagnostics.followUpExemptionApplied, true);
+      assert.equal(followUp.diagnostics.isBatchTopCosine, true);
+    } finally {
+      Date.now = realDateNow;
+      restore();
+    }
+  });
+
+  it("findRelevant keeps the strong penalty on a wide, weakly anchored episode surfaced by chit-chat drift even if its raw cosine is highest", async () => {
+    // 场景：闲聊漂移带出一个宽泛合集 episode（多话题、高 recurrence、
+    // 多条 origin summary），即使它恰好是本批次余弦最高（人为构造成和
+    // query 同向量，cosine=1），也不该被判定为"用户主动跟进"——因为它
+    // isTooWideForCrossTopicMerge()=true，质心早已被多个话题稀释，
+    // 高余弦是漂移带出的假象而非可信的主题命中。应继续吃 STRONG 惩罚，
+    // 排名让位给更窄、更对题、且不在惩罚窗口内的 episode。
+    const realDateNow = Date.now;
+    Date.now = () => new Date("2026-04-12T06:00:00.000Z").getTime();
+    const { episodeStore, restore } = loadEpisodeStore({
+      embeddingClient: {
+        embed: async () => makeVector([1, 0]),
+      },
+      episodeRepository: {
+        insertEpisode: async () => null,
+        updateEpisode: async () => null,
+        findSimilarEpisodes: async () => [
+          makeEpisode({
+            id: "wide-drift",
+            title: "工作",
+            summary: "工作：最近总在继续聊工作",
+            topics: ["工作", "美食", "音乐", "影视动漫", "感情", "游戏"],
+            salience: 0.95,
+            recurrence_count: 12,
+            unresolved: false,
+            last_seen_at: new Date("2026-04-12T05:00:00.000Z"),
+            last_referenced_at: new Date("2026-04-12T05:30:00.000Z"),
+            centroid_embedding: makeVector([1, 0]),
+            origin_moment_summaries: [
+              "最近工作压力还是很大",
+              "昨天又聊到想吃火锅",
+              "今天分享了最近在听的歌",
+              "还提到了最近在追的动漫",
+            ],
+          }),
+          makeEpisode({
+            id: "narrow-untouched",
+            title: "阅读",
+            summary: "阅读：在看一本新小说",
+            topics: ["阅读"],
+            salience: 0.5,
+            recurrence_count: 1,
+            unresolved: false,
+            last_seen_at: new Date("2026-04-11T00:00:00.000Z"),
+            last_referenced_at: null,
+            centroid_embedding: makeVector([0.7, 0.3]),
+            origin_moment_summaries: ["在看一本新小说"],
+          }),
+        ],
+        getUnresolvedEpisodes: async () => [],
+      },
+      database: { isDatabaseReady: () => true },
+    });
+
+    try {
+      const ranked = await episodeStore.findRelevant("user-1", "随便聊聊今天心情还行");
+
+      const drifted = ranked.find((entry) => entry.episode.id === "wide-drift");
+      assert.ok(drifted, "宽泛 episode 仍应作为候选出现（只是被压分）");
+      assert.equal(drifted.diagnostics.recentReferencePenaltyKind, "strong");
+      assert.equal(drifted.diagnostics.followUpExemptionApplied, false);
+      assert.equal(
+        ranked.map((entry) => entry.episode.id).indexOf("narrow-untouched") <
+          ranked.map((entry) => entry.episode.id).indexOf("wide-drift"),
+        true,
+        "更窄、未被惩罚的 episode 应该排在被复读惩罚压制的宽泛 episode 之前",
+      );
     } finally {
       Date.now = realDateNow;
       restore();

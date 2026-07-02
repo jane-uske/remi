@@ -112,6 +112,21 @@ export function silenceNudgeMs(): number {
   return getConfig().REMI_SILENCE_NUDGE_MS;
 }
 
+/**
+ * 关系状态周期性保存开关。默认 ON——在原有"会话优雅销毁时保存"之外，每
+ * relationshipPeriodicSaveTurns() 轮用户消息额外异步写回一次
+ * persistRelationshipContinuityState，防止 docker restart / 进程被杀跳过
+ * 优雅销毁路径导致关系演进丢失。
+ */
+export function relationshipPeriodicSaveEnabled(): boolean {
+  return getConfig().REMI_RELATIONSHIP_PERIODIC_SAVE_ENABLED;
+}
+
+/** 周期性保存的轮次间隔（每 N 轮用户消息保存一次）。 */
+export function relationshipPeriodicSaveTurns(): number {
+  return getConfig().REMI_RELATIONSHIP_PERIODIC_SAVE_TURNS;
+}
+
 export function hesitationHoldMs(): number {
   return getConfig().VAD_UTTERANCE_GAP_HESITATION_MS;
 }

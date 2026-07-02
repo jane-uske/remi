@@ -5,6 +5,8 @@ import { createLogger } from "../../infra/logger";
 import { removeLatencyTracer } from "../../infra/latency_tracer";
 import { endSession } from "../../storage/repositories/session_repository";
 import { clearNsfw, unbindNsfwNotifier } from "../../brains/nsfw_mode";
+import { clearPeriodicSaveTurnCount } from "./continuity";
+import { clearGreetingOpenerState } from "./greeting_opener";
 
 const logger = createLogger("session");
 
@@ -53,6 +55,13 @@ export function cleanupSessionResources(input: {
     input.clearDevRuntimeOverrides();
     clearNsfw(input.connId);
     unbindNsfwNotifier(input.connId);
+
+    // 周期性保存计数器（server/session/continuity.ts）随会话销毁一并清理，
+    // 避免 Map 无界增长；未触发过周期性保存时是无害的 no-op delete。
+    clearPeriodicSaveTurnCount(input.connId);
+
+    // 开场主动语的会话内状态（lastSeenAt / 已发送标记）同理清理。
+    clearGreetingOpenerState(input.connId);
 
     // 断连时保存关系状态（fire-and-forget，不阻塞清理）
     if (input.saveRelationshipState) {

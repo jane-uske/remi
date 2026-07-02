@@ -10,7 +10,7 @@ import {
   detectPracticalDistressSignal,
   detectRelationalRecallSignal,
 } from "./tone_policy";
-import { completeWithOptions, type ChatMessage } from "../llm/qwen_client";
+import { completeWithOptions, hasLlmConfig, type ChatMessage } from "../llm/qwen_client";
 import { createLogger } from "../infra/logger";
 import type { SlowBrainSnapshot } from "../brains/background_analysis_store";
 import type { StyleIntentSignal } from "../persona/style_override";
@@ -195,7 +195,7 @@ const INTERPRETER_PROMPT = `你是一个对话回合解释器，不是聊天角�
 - 用户提到被裁、失业、确诊、被骗等非债务类现实压力时，同样走 practical_judgment，不要误判为 emotional_share 或 small_talk。`;
 
 function configured(): boolean {
-  return Boolean(process.env.key && process.env.base_url && process.env.model);
+  return hasLlmConfig(getConfig().REMI_TURN_INTERPRETER_MODEL);
 }
 
 export function structuredInterpreterMode(): StructuredInterpreterMode {
@@ -916,7 +916,9 @@ async function runInterpreterLlm(input: AnalyzeTurnInput): Promise<PartialTurnIn
   try {
     const raw = await Promise.race([
       completeWithOptions(messages, {
-        maxTokens: 220,
+        // 完整解释 JSON（含 styleIntent 全字段）实测 ~260-340 token；220 会截断导致
+        // JSON.parse 失败 → 静默降级 heuristic_fallback。
+        maxTokens: 420,
         temperature: 0.1,
         model: getConfig().REMI_TURN_INTERPRETER_MODEL,
         signal: timeoutController.signal,
@@ -1108,7 +1110,7 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
     return "这句在补充现实约束。先吸收新信息并更新判断，再给一条关键建议；不要重置成共情或追问。";
   }
   if (policy.openingMove === "quiet_presence") {
-    return "用户不需要你积极说话。一两个字的轻回应就好，不要主动延伸话题，不要追问。";
+    return "用户不需要你积极说话。轻回应就好，不要追问；如果连着好几轮都是这样，可以轻轻放一个你自己此刻在做的小事或一句话头，给他一个台阶，但别追着他接。";
   }
   if (interpretation.userAct === "scene_continue") {
     return "用户已经在共同场景里。第一句直接承接动作或氛围；第二句补一点细节；不要退回邀请开始想象。";
@@ -1124,9 +1126,11 @@ export function buildResponseShapeContract(bundle: TurnAnalysisBundle): string {
       ? "先接住用户当下的感受，再往前推一小步；如果合适，最后只轻轻问一句。"
       : "先接住用户当下的感受，再往前推一小步；不要急着讲道理。";
   }
+  const contributionObligation =
+    "每轮回复里带上一样属于你自己的东西——你此刻/刚才在做的小事、你对这个话题的真实看法、或者你想起的你们之前聊过的事，任选其一，一句话就够，别刻意，像人聊天时自然把自己放进来。问句不是必须的；给出你自己的东西比追问更能延续对话，不要连环追问，也不要用主持人式的抛问题撑场面。";
   return policy.questionBudget > 0
-    ? "优先贴着上下文自然接一句，再决定要不要补一个很轻的问题。"
-    : "优先贴着上下文自然接一句，不要条件反射地追问。";
+    ? `优先贴着上下文自然接一句，再决定要不要补一个很轻的问题。${contributionObligation}`
+    : `优先贴着上下文自然接一句，不要条件反射地追问。${contributionObligation}`;
 }
 
 export function buildPolicyToneContract(

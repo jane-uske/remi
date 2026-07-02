@@ -109,6 +109,25 @@ describe("buildReturnNarrativeAnchor（防编造事实锚）", () => {
     assert.ok(anchor.includes("前后矛盾的时间"));
   });
 
+  it("主动许可措辞：开场/停顿可主动提，不再要求『用户先开口』才能讲", () => {
+    assert.ok(
+      anchor.includes("开场或话题自然停顿时") && anchor.includes("主动"),
+      "应含主动许可措辞",
+    );
+    assert.ok(
+      anchor.includes("用户追问") && anchor.includes("多讲一点"),
+      "应保留用户追问可多讲一点",
+    );
+    assert.ok(
+      !anchor.includes("如果用户先开口提到你不在的这段时间"),
+      "不应再要求用户先开口才能讲",
+    );
+  });
+
+  it("提及以 canon 事实为准，避免活动物件细节脱离人设自行编造", () => {
+    assert.ok(anchor.includes("canon"), "应提示物件细节以 canon 为准");
+  });
+
   it("只包含传入 beat 的 label，不混入其它 BEHAVIOR_SPOTS label", () => {
     const present = new Set(n.beats.map((b) => b.label));
     for (const spot of BEHAVIOR_SPOTS) {

@@ -29,6 +29,7 @@ export interface ComposePersonaOptions {
  *   L1   IDENTITY.md   ← pack
  *   L2   SOUL.md       ← pack
  *   L3   EXAMPLES.md   ← pack（few-shot）
+ *   L4   CANON.md      ← pack（生活事实库，可选——没有该文件时此层不渲染，行为不变）
  *   ──   记忆背景 / 情绪语调（可选）
  *   L0'  平台系统护栏 · 重申（对抗带偏/注入）
  *
@@ -74,6 +75,11 @@ export function composePersonaPrompt(
   // L3 few-shot 示范
   if (pack.examples.trim()) {
     parts.push(pack.examples.trim());
+  }
+
+  // L4 生活事实库（可选）：没有 CANON.md 的 pack（如 nami）此处不渲染，逐字节零回归。
+  if (pack.canon?.trim()) {
+    parts.push(pack.canon.trim());
   }
 
   // 记忆背景
