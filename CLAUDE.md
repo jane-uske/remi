@@ -27,6 +27,23 @@ Remi 不是通用 AI 助手。她是一个以**活人感、人格连续性、存
 终局形态（虚拟世界伴侣）与世界线阶段定义见 `docs/design/REMIWORLD_NORTH_STAR.md`：
 世界（`/world`，RemiWorld）是这条在场感主线的**空间化载体**，不是第二条主线；世界线任务以 `RW-` 前缀挂在 TASKS.md 并行支线。
 
+### 冻结区（FROZEN）
+
+「最小可爱 Remi」收缩执行中，以下区域**只保留代码，不再投入**（不删代码，见白皮书路线 A）：
+
+| 区域 | 范围 |
+|------|------|
+| 三端 | `ios/`（含 watchOS）、`desktop/` 全部 |
+| 语音输入链 | STT 全部 provider、VAD、打断分类、turn-taking、全双工音频（`voice/` 的 `stt_*`；`server/session/voice/`；`server/session/` 里的 duplex/turn_taking/interruption_classifier/prediction 等） |
+| 能力模块 | `capabilities/`（视频生成、家庭记忆、日期回顾、mode_control、voice_style）、`services/`（family-memory 微服务） |
+| 人格包 | `persona/` 下的 nami、jp-coach 包（文件保留，不测试） |
+| 语音输出 | **不冻结**——TTS（`tts_edge`/`tts_mlx`/`tts_volc`/`tts_openai`/`tts_piper` 等）是活跃区 |
+
+规则：
+1. 不为冻结区写代码、不修其测试；解冻需用户明确说"解冻 X"
+2. 不为冻结区新增依赖
+3. 日常测试跑 `npm run test:core`（只跑活跃区）；`npm run test`（全量）仅在改动可能触碰冻结边界时跑
+
 ### 改动优先级
 
 按此顺序决策：

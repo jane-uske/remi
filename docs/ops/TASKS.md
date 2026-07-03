@@ -33,13 +33,13 @@
 | EVAL-01 防御 | memory_polish_eval（五毒率）+ memory_probe_eval（7 探针）+ chat_vitality_eval + memory_backfill | 常驻 |
 | VOICE-01 TTS | MLX TTS 环境重建+端口修复，成为主 TTS | 生产日志 |
 | DOC-01 审计 | MEMORY_ARCHITECTURE_AUDIT_2026-07（六路勘察） | 已提交 |
+| SHRINK-01 | 「最小可爱 Remi」收缩：`test:core` 子集（44 文件排除）+ CLAUDE.md 冻结区标注 | 2026-07-04 执行：全量 1324 测试/118 失败；`test:core` 887 测试/828 通过/59 失败（活跃区真实存量失败，非冻结污染） |
 
 ### ⏳ 当前任务（按序）
 
 | ID | Task | Status | 说明 |
 |---|---|---|---|
 | USE-01 | 真实使用一周攒体感 | `in_progress` | 唯一关键路径；坏样本→探针流水线待命 |
-| SHRINK-01 | 「最小可爱 Remi」收缩：test:core 子集 + CLAUDE.md 冻结区标注 | `todo` | 待用户确认白皮书路线 A |
 | MEM-05 | 对话史边界合同（BC-T6 残留） | `backlog` | 等体感排序 |
 | MEM-06 | CoreMemory rightNow 过期治理 | `backlog` | 时效改造唯一盲区 |
 | MEM-07 | 入库前 LLM 复核（幻觉精化） | `backlog` | 慢脑异步可承受 |
