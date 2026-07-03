@@ -1,8 +1,8 @@
 "use client";
 
-import { SignIn } from "@clerk/nextjs";
+import { SignIn, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { RemiAuthProvider, useRemiWebAuth } from "@/components/RemiAuthProvider";
 import { isClerkWebAuthEnabled } from "@/lib/authMode";
@@ -42,6 +42,49 @@ function readDesktopHandoff(): DesktopHandoff {
 function loopbackCallbackUrl(port: number, token: string, state: string): string {
   const qs = new URLSearchParams({ token, state });
   return `http://127.0.0.1:${port}/callback?${qs.toString()}`;
+}
+
+/**
+ * Rendered when we arrived from a signOut() but Clerk still reports an active
+ * session — the revoke was aborted or timed out (see Fix E in
+ * RemiAuthProvider). Mounting <SignIn> in that state would trigger Clerk's
+ * own already-signed-in redirect back to `/` (which the blockAutoRedirect
+ * guard cannot intercept) and bounce the user straight back to /chat.
+ * Instead, retry the sign-out here; once Clerk's state flips to signed-out
+ * the parent re-renders and the form mounts normally.
+ */
+function SignOutCleanup() {
+  const clerk = useClerk();
+  const [stuck, setStuck] = useState(false);
+  const retry = useCallback(() => {
+    setStuck(false);
+    void clerk.signOut().catch(() => setStuck(true));
+  }, [clerk]);
+  useEffect(() => {
+    void clerk.signOut().catch(() => {});
+    const timer = setTimeout(() => setStuck(true), 6000);
+    return () => clearTimeout(timer);
+  }, [clerk]);
+  return (
+    <main className="flex min-h-screen items-center justify-center px-6 py-10">
+      <div className="max-w-sm text-center text-sm text-neutral-300">
+        {stuck ? (
+          <>
+            <p>退出登录尚未完成，请检查网络后重试。</p>
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-4 rounded-md border border-neutral-600 px-4 py-2 text-neutral-200 transition hover:border-neutral-400"
+            >
+              重试退出
+            </button>
+          </>
+        ) : (
+          <p>正在退出登录…</p>
+        )}
+      </div>
+    </main>
+  );
 }
 
 function SignInPageInner() {
@@ -151,6 +194,21 @@ function SignInPageInner() {
         </div>
       </main>
     );
+  }
+
+  // Fix C (hardened): arriving from a signOut(), never mount <SignIn> until
+  // Clerk has settled as signed-out — with a still-active session the widget
+  // performs its own forceRedirectUrl navigation to `/`, which the effect
+  // guard above cannot block, and the home gate bounces back to /chat.
+  if (blockAutoRedirect && !desktop) {
+    if (!auth.ready) {
+      return (
+        <main className="flex min-h-screen items-center justify-center px-6 py-10">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-white/40" />
+        </main>
+      );
+    }
+    if (auth.signedIn) return <SignOutCleanup />;
   }
 
   // Preserve port & state through Clerk's post-auth redirect so the hand-off

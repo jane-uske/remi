@@ -437,6 +437,11 @@ export const envSchema = z.object({
   // M3-P0: 时间感开关（注入 now + 距上次间隔）。默认开；内容只进 prompt 动态
   // 尾部、缓存断点之后，绝不污染可缓存前缀。
   REMI_TIME_CONTEXT_ENABLED: booleanString("1"),
+  // 历史时段断层标记：跨会话 bootstrap 加载的历史若最后一轮距今 >3h（同
+  // describeGap 阈值），在动态尾部追加提示，避免模型把历史里的旧状态/旧时间词
+  // 当成当下（2026-07 生产坏样本：历史里的"肚子疼/周一"被当日照读）。默认开；
+  // 同样只进 prompt 动态尾部，绝不污染可缓存前缀。
+  REMI_HISTORY_GAP_MARKER_ENABLED: booleanString("1"),
 
   // M3-P2: bi-temporal 长期事实层。默认开；无 DATABASE_URL 时自动降级为内存模式。
   REMI_TEMPORAL_FACTS_ENABLED: booleanString("1"),

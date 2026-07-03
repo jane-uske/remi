@@ -87,6 +87,12 @@ interface BuildPromptInput {
   connId?: string;
   /** M3-P0 时间感：注入 prompt 动态尾部（缓存断点之后），不进可缓存前缀。 */
   timeContext?: string;
+  /**
+   * 历史时段断层提示：跨会话加载的历史若最后一轮距今 >3h，提醒模型别把历史里
+   * 的旧状态/旧时间词当成当下。同为动态尾部，紧邻 timeContext 一起渲染在
+   * 【此刻】块之前，绝不进可缓存前缀。
+   */
+  historyGapMarker?: string;
   /** M3-P1 Core Memory Tier1 块：稳定排序的结构化记忆，放在 system prompt 之后、history 之前。 */
   coreMemoryBlock?: string;
   /** M3-P2 Tier4 时序事实：bi-temporal 召回结果，放在动态尾部（时间块之前）。 */
@@ -432,6 +438,7 @@ export function buildPrompt({
   persona,
   connId,
   timeContext,
+  historyGapMarker,
   coreMemoryBlock,
   timelineFacts,
   backgroundTask,
@@ -495,10 +502,14 @@ export function buildPrompt({
   // M3-P0/P2: 时间上下文 + 时序事实是动态尾部，绝不进可缓存前缀。
   // 合并进 user message 而非独立 system message —— Qwen3 的 tools-aware
   // chat template 不允许 system role 出现在对话中间，拼到 user 前缀既保留
-  // 语义又不破坏 template。
-  const dynamicTailParts = [timelineFacts?.trim(), backgroundTask?.trim(), timeContext?.trim()].filter(
-    (s): s is string => Boolean(s?.trim()),
-  );
+  // 语义又不破坏 template。historyGapMarker 紧邻 timeContext（【此刻】块）之前，
+  // 先声明"上面的历史是旧的"，再声明"现在是几点"，两者共同堵住历史时间穿越。
+  const dynamicTailParts = [
+    timelineFacts?.trim(),
+    backgroundTask?.trim(),
+    historyGapMarker?.trim(),
+    timeContext?.trim(),
+  ].filter((s): s is string => Boolean(s?.trim()));
   const finalUserContent = dynamicTailParts.length > 0
     ? `${dynamicTailParts.join("\n\n")}\n\n${userMessage}`
     : userMessage;

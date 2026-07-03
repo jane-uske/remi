@@ -95,3 +95,8 @@ export function useInviteVerification(): InviteVerificationState {
 export function markInviteVerified(): void {
   try { sessionStorage.setItem(SESSION_KEY, "1"); } catch {}
 }
+
+/** Call on sign-out so the next account in this tab re-checks invite status. */
+export function clearInviteVerified(): void {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}

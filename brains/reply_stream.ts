@@ -102,6 +102,8 @@ export interface FastBrainInput {
   connId?: string;
   /** M3-P0 时间感：透传给 buildPrompt，注入 prompt 动态尾部。 */
   timeContext?: string;
+  /** 历史时段断层提示：透传给 buildPrompt，注入 prompt 动态尾部（紧邻 timeContext）。 */
+  historyGapMarker?: string;
   /** M3-P1 Core Memory Tier1 块：透传给 buildPrompt，放在 system 之后 history 之前。 */
   coreMemoryBlock?: string;
   /** M3-P2 Tier4 时序事实：透传给 buildPrompt，放在动态尾部。 */
@@ -174,6 +176,7 @@ export async function* fastBrainStream(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    historyGapMarker: input.historyGapMarker,
     coreMemoryBlock: input.coreMemoryBlock,
     timelineFacts: input.timelineFacts,
     backgroundTask: input.backgroundTask,
@@ -340,6 +343,7 @@ export async function fastBrainPredictOnly(
     persona: input.persona,
     connId: input.connId,
     timeContext: input.timeContext,
+    historyGapMarker: input.historyGapMarker,
     coreMemoryBlock: input.coreMemoryBlock,
     timelineFacts: input.timelineFacts,
     backgroundTask: input.backgroundTask,

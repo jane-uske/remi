@@ -1238,6 +1238,11 @@ export async function* routeMessage(
       persona: ctx.persona,
       connId: ctx.connId,
       timeContext: ctx.buildTimeContextBlock() ?? undefined,
+      // 历史时段断层提示：ctx.lastHistoryAt 由 hydrateHistoryFromDb（bootstrap
+      // 加载历史时）算一次；WS（server/session/index.ts）和 SSE 池
+      // （server/session/pool.ts）两条路径都经同一个 initializeSessionStorage
+      // → hydrateHistoryFromDb，无需分别接线。flag off / 无历史 / <3h 时为 null。
+      historyGapMarker: ctx.buildHistoryGapMarkerBlock() ?? undefined,
       coreMemoryBlock: ctx.slowBrain?.coreMemory?.render() || undefined,
       timelineFacts,
       backgroundTask: describeActiveVideoTask(ctx.connId),

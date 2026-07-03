@@ -7,7 +7,7 @@ import { SlowBrainStore } from "./background_analysis_store";
 import { WarmRecallCache } from "./warm_recall";
 import { trimHistoryToTokenBudget } from "./history_budget";
 import { getConfig } from "../server/config";
-import { buildTimeContext, describeGap } from "../brain/time_context";
+import { buildHistoryGapMarker, buildTimeContext, describeGap } from "../brain/time_context";
 import { isFallbackAssistantReply } from "./assistant_reply_guard";
 import type { DbMessage } from "../storage/types";
 import {
@@ -204,6 +204,17 @@ export class RemiSessionContext {
    * ENABLED）都 on 且离线 ≥30min 才非空；否则恒 null（行为与现状逐字节一致）。
    */
   offlineReturnAnchor: string | null = null;
+  /**
+   * 历史时间元信息：hydrateHistoryFromDb 用 bootstrap 加载的 DB 历史页计算一次，
+   * 记录该页最后（最新）/首（最旧）一条消息的时间戳。供 buildHistoryGapMarkerBlock
+   * 渲染"历史时段"断层提示——避免模型把 bootstrap 加载的旧对话当成"正在进行"
+   * （2026-07 生产坏样本：历史里的"肚子疼/周一"被当日照读）。只描述"加载进来的
+   * 旧历史"，会话内新增消息不会更新它；resetSessionArtifacts 连同 history 一起清空。
+   * 无历史 / 内存模式（无 DB）时保持 null。
+   */
+  lastHistoryAt: Date | null = null;
+  /** 同上，加载进来的旧历史里最早一条的时间戳（辅助字段，暂不参与断层文案渲染）。 */
+  firstHistoryAt: Date | null = null;
   private clientTimeZone: string | null = null;
   private clientLocale: string | null = null;
   /** 会话创建时刻，用于"距上次对话"的一次性计算。 */
@@ -340,7 +351,36 @@ export class RemiSessionContext {
     });
   }
 
+  /**
+   * 组装"历史时段"断层提示块（动态尾部，紧邻 buildTimeContextBlock 的【此刻】
+   * 一起渲染）。lastHistoryAt 距今 <3h（复用 describeGap 阈值）、无历史，或
+   * REMI_HISTORY_GAP_MARKER_ENABLED 关闭时返回 null。
+   */
+  buildHistoryGapMarkerBlock(now: Date = new Date()): string | null {
+    if (!getConfig().REMI_HISTORY_GAP_MARKER_ENABLED) return null;
+    return buildHistoryGapMarker({
+      now,
+      lastHistoryAt: this.lastHistoryAt,
+      timeZone: this.clientTimeZone,
+      locale: this.clientLocale,
+    });
+  }
+
   hydrateHistoryFromDb(messages: DbMessage[]): void {
+    // 历史时间元信息：不假定入参顺序（虽然目前唯一调用方 bootstrap.ts 传入的
+    // 是 getUserMessagesPage 按 created_at 升序排列的结果），直接取 min/max
+    // 更稳妥。只描述这一页"加载进来的旧历史"，后续会话内新增消息不会改写它。
+    if (messages.length > 0) {
+      let first = messages[0].created_at;
+      let last = messages[0].created_at;
+      for (const m of messages) {
+        if (m.created_at < first) first = m.created_at;
+        if (m.created_at > last) last = m.created_at;
+      }
+      this.firstHistoryAt = first;
+      this.lastHistoryAt = last;
+    }
+
     const rawHistory: PromptMessage[] = messages
       .filter((m) => {
         if (m.role === "user") return true;
@@ -383,6 +423,10 @@ export class RemiSessionContext {
 
   resetSessionArtifacts(): void {
     this.history.splice(0, this.history.length);
+    // history 清空后，"历史最后一轮是多久前"的元信息也随之失效——留着会让
+    // buildHistoryGapMarkerBlock 对着一段已经不存在于 prompt 里的历史报间隔。
+    this.lastHistoryAt = null;
+    this.firstHistoryAt = null;
     this.lastInterruptedReply = null;
     this.currentAssistantDraft = null;
     this.lastInterpretation = null;

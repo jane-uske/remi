@@ -27,6 +27,7 @@ import {
   resolveIsDefaultDevUser,
 } from "@/hooks/useRemiChatHelpers";
 import { getOrCreateLoopbackDeviceId, isLegacyTokenUsable } from "@/lib/browserIdentity";
+import { clearInviteVerified } from "@/hooks/useInviteVerification";
 
 // ── Loopback identity token cache ───────────────────────────────────────
 //
@@ -121,10 +122,18 @@ async function clearSwCaches(): Promise<void> {
   }
 }
 
+// Upper bound on waiting for clerk.signOut()'s network revoke before
+// navigating anyway — a dead session or unreachable Clerk API must not trap
+// the user on the chat page (preserves Fix B's escape-hatch intent).
+const SIGN_OUT_REVOKE_TIMEOUT_MS = 4000;
+
 function forceSignOutNavigation(): void {
   if (typeof sessionStorage !== "undefined") {
     sessionStorage.setItem("remi_signing_out", "1");
   }
+  // The invite flag is per-account state; letting it survive sign-out would
+  // skip the invite check for whichever account signs in next in this tab.
+  clearInviteVerified();
   void clearSwCaches();
   window.location.replace("/sign-in");
 }
@@ -276,12 +285,28 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
       // Fix B: signOut always navigates to /sign-in, regardless of
       // canSignOut. When the Clerk session is already dead server-side,
       // canSignOut is false (clerkSignedIn flipped to false) but the user
-      // still needs a way out. We fire clerk.signOut() for cleanup and use
-      // forceSignOutNavigation() as the guaranteed escape hatch — it sets the
-      // remi_signing_out sessionStorage flag (Fix C guard) and clears SW
-      // caches (Fix D) before navigating.
+      // still needs a way out. forceSignOutNavigation() is the guaranteed
+      // escape hatch — it sets the remi_signing_out sessionStorage flag
+      // (Fix C guard) and clears SW caches (Fix D) before navigating.
+      //
+      // Fix E: the revoke must complete BEFORE the navigation — a full-page
+      // navigation aborts the in-flight clerk.signOut() request, leaving the
+      // server-side session (and cookies) alive; /sign-in then sees an active
+      // session and bounces straight back to /chat, so sign-out silently
+      // no-ops. Bounded by SIGN_OUT_REVOKE_TIMEOUT_MS so a dead session or an
+      // unreachable Clerk API still navigates; the sign-in page's
+      // SignOutCleanup guard finishes the job in that case.
       signOut: async () => {
-        void clerk.signOut().catch(() => {});
+        try {
+          await Promise.race([
+            clerk.signOut(),
+            new Promise((resolve) =>
+              setTimeout(resolve, SIGN_OUT_REVOKE_TIMEOUT_MS),
+            ),
+          ]);
+        } catch {
+          // Revoke failed (dead session / network) — navigate anyway.
+        }
         forceSignOutNavigation();
       },
     }),
