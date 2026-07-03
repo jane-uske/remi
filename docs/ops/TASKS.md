@@ -12,6 +12,42 @@
 
 ---
 
+## 🎯 2026-07-03 当前篇章：使用与收缩期（最新，覆盖以下所有旧篇章的优先级）
+
+> 两天大改造（07-02/03）后项目进入新阶段。全景与复杂度诊断见
+> [STATE_OF_THE_PROJECT_2026-07.md](./STATE_OF_THE_PROJECT_2026-07.md)，
+> 当前唯一北极星：**每周真实聊天的天数与轮数**。
+
+### ✅ 已完成并部署（2026-07-02/03，16 commits，全部在 local-prod :3000 运行）
+
+| 主题 | 内容 | 验证 |
+|---|---|---|
+| LIVE-01 解释器 | 三层死因修复（旧变量名/180ms/220token），llm_structured 首次上线 | 生产日志 |
+| LIVE-02 内容层 | CANON 人生底稿 + 离线人生主动化 + 贡献义务 + 敷衍台阶 | 真机验收 |
+| LIVE-03 开场收场 | greeting_opener（>30min/防抢话/跨通道去重）+ SSE events 通道建活 + 收场钩子 | 真机开场语 |
+| LIVE-04 身份 | loopback 设备身份 + 周期保存；双 Clerk 账号确认为"失忆"主因 | DB 审计 |
+| MEM-01 时效系统 | 提炼归一化 + 渲染带日期 + MEMORY_USAGE_CONTRACT + 时间锚 | 坏样本复测 |
+| MEM-02 构造层 | fact_postprocess（状态补日期/key 去时间词/低置信过滤） | LCCC 200 段 0/528 |
+| MEM-03 边界 | 具身边界 + 追问诚实 + 诱导不顺从 + 问句非陈述 | 探针 PASS |
+| MEM-04 历史层 | 历史时段断层标记 + 脏数据清创（18 消息+10 毒 KV） | BC-T7 PASS |
+| EVAL-01 防御 | memory_polish_eval（五毒率）+ memory_probe_eval（7 探针）+ chat_vitality_eval + memory_backfill | 常驻 |
+| VOICE-01 TTS | MLX TTS 环境重建+端口修复，成为主 TTS | 生产日志 |
+| DOC-01 审计 | MEMORY_ARCHITECTURE_AUDIT_2026-07（六路勘察） | 已提交 |
+
+### ⏳ 当前任务（按序）
+
+| ID | Task | Status | 说明 |
+|---|---|---|---|
+| USE-01 | 真实使用一周攒体感 | `in_progress` | 唯一关键路径；坏样本→探针流水线待命 |
+| SHRINK-01 | 「最小可爱 Remi」收缩：test:core 子集 + CLAUDE.md 冻结区标注 | `todo` | 待用户确认白皮书路线 A |
+| MEM-05 | 对话史边界合同（BC-T6 残留） | `backlog` | 等体感排序 |
+| MEM-06 | CoreMemory rightNow 过期治理 | `backlog` | 时效改造唯一盲区 |
+| MEM-07 | 入库前 LLM 复核（幻觉精化） | `backlog` | 慢脑异步可承受 |
+| OPS-01 | push origin（288 本地提交） | `todo` | 等用户点头 |
+| OPS-02 | 8 个历史身份归并 | `blocked` | SQL 已备，需用户人工确认归属 |
+
+---
+
 ## ✅ 结构性止血（Phase 0 + Phase 1）— 已完成（2026-06-11 按实际代码核对）
 
 **七项结构性技术债已全部落地，本节仅作记录。详见 [STRUCTURAL_DEBT.md](../archive/STRUCTURAL_DEBT.md)。**
