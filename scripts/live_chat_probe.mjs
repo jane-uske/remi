@@ -4,9 +4,37 @@
 // (事实承接错 / 情绪误判 / 场景切换失败 / 严肃时刻轻浮).
 //
 // Usage: node scripts/live_chat_probe.mjs [ws://127.0.0.1:3001/ws]
+//
+// 评测隔离（2026-07 止血）：可以指向任意运行中的实例，包括生产 local-prod
+// 容器（127.0.0.1:3000）。裸 WS 连接无 token 时服务端把 storageUserId 落到
+// 共享的 DEV_STORAGE_USER_ID —— REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 时那正是
+// 真实用户本人的 loopback 身份，这些多轮真实场景对话会直接写入其
+// messages/episodes。换一个评测专用身份（与 scripts/eval_identity.ts 同一
+// EVAL_USER_ID），挂在 WS URL 的 ?token= 上，与生产用户完全隔离。
 
-const WS_URL = process.argv[2] ?? "ws://127.0.0.1:3001/ws";
+let WS_URL = process.argv[2] ?? "ws://127.0.0.1:3001/ws";
 const TURN_TIMEOUT_MS = 120_000;
+const EVAL_USER_ID = "eeeeeeee-0000-4000-8000-00000000feed";
+
+async function attachEvalIdentity() {
+  const httpBase = WS_URL.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:").replace(/\/ws$/, "");
+  const res = await fetch(`${httpBase}/api/loopback-identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: EVAL_USER_ID }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `换取评测身份失败 (${res.status})：确认目标服务端 REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 且请求来自 loopback。`,
+    );
+  }
+  const { token } = await res.json();
+  if (!token) throw new Error("/api/loopback-identity 响应缺少 token 字段");
+  const u = new URL(WS_URL);
+  u.searchParams.set("token", token);
+  WS_URL = u.toString();
+}
+await attachEvalIdentity();
 
 const scenarios = [
   {

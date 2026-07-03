@@ -217,9 +217,34 @@ async function run() {
 }
 
 // ── live latency probe (WS text turns → real llm-first / tts-first) ──────────
+//
+// 评测隔离（2026-07 止血）：--live 会打真实运行中的服务端（默认 ws://127.0.0.1:
+// 3000/ws，即生产 local-prod 容器）发真实 chat 内容。裸连接无 token 时服务端
+// resolveRequestUserIdentity() 落到共享的 DEV_STORAGE_USER_ID —— 本机
+// REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 时那正是真实用户本人的 loopback 身份。
+// 用 POST /api/loopback-identity 换一个评测专用身份（与 scripts/eval_identity.ts
+// 同一 EVAL_USER_ID），挂在 WS URL 的 ?token= 上，与生产用户完全隔离。
+const EVAL_USER_ID = "eeeeeeee-0000-4000-8000-00000000feed";
+
+async function fetchEvalToken(wsUrl: string): Promise<string> {
+  const httpBase = wsUrl.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:").replace(/\/ws$/, "");
+  const res = await fetch(`${httpBase}/api/loopback-identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: EVAL_USER_ID }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `换取评测身份失败 (${res.status})：确认目标服务端 REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 且请求来自 loopback。`,
+    );
+  }
+  const data = (await res.json()) as { token?: string };
+  if (!data.token) throw new Error("/api/loopback-identity 响应缺少 token 字段");
+  return data.token;
+}
 
 async function probeLiveLatency(): Promise<any> {
-  const wsUrl = (() => {
+  const rawWsUrl = (() => {
     const i = process.argv.indexOf("--ws");
     return i >= 0 ? process.argv[i + 1] : "ws://127.0.0.1:3000/ws";
   })();
@@ -228,6 +253,15 @@ async function probeLiveLatency(): Promise<any> {
     WS = require("ws");
   } catch {
     return { error: "ws module unavailable" };
+  }
+  let wsUrl = rawWsUrl;
+  try {
+    const token = await fetchEvalToken(rawWsUrl);
+    const u = new URL(rawWsUrl);
+    u.searchParams.set("token", token);
+    wsUrl = u.toString();
+  } catch (err) {
+    return { error: `eval identity setup failed: ${(err as Error).message}` };
   }
   const samples: any[] = [];
   for (const text of LIVE_PROBE_TEXTS) {
@@ -266,7 +300,8 @@ async function probeLiveLatency(): Promise<any> {
       samples.push({ text, error: String(err) });
     }
   }
-  return { wsUrl, samples };
+  // 报告里回显 rawWsUrl（无 token），避免评测 Bearer token 被打进 console/JSON 输出。
+  return { wsUrl: rawWsUrl, samples };
 }
 
 // ── report ──────────────────────────────────────────────────────────────────

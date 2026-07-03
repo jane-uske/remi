@@ -19,8 +19,9 @@
 // 每个探针独立会话（新 session token），探针间串行。
 
 import { Client } from "pg";
+import { fetchEvalToken, withEvalAuthHeaders, EVAL_USER_ID } from "./eval_identity";
 
-const PROBE_USER_ID = "eeeeeeee-0000-4000-8000-00000000feed"; // 专属探针用户，可随时清空重建
+const PROBE_USER_ID = EVAL_USER_ID; // 专属探针用户，可随时清空重建
 
 interface Probe {
   id: string;
@@ -169,38 +170,35 @@ async function pgClient(): Promise<Client> {
   return c;
 }
 
-async function seedProbeUser(pg: Client, probe: Probe): Promise<void> {
+/**
+ * 评测隔离（2026-07 止血）：探针身份必须与生产真实用户完全隔离。
+ *
+ * 此前的问题（已修复）：本函数曾把 users 行插到 PROBE_USER_ID，但实际聊天请求
+ * （chatOnce）不带任何 Authorization，服务端 resolveRequestUserIdentity() 在无
+ * token 时把 storageUserId 落到共享的 DEV_STORAGE_USER_ID —— 本机
+ * REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 时那正是真实用户本人的 loopback 身份。
+ * seedProbeUser 因此从未在真实聊天路径生效（死代码），facts 种到了 PROBE_USER_ID
+ * 但对话读取的是 DEV_STORAGE_USER_ID 上的记忆——两者对不上，且后者是生产用户。
+ *
+ * 现在 chatOnce 用 eval_identity.fetchEvalToken() 换一个 Bearer token，其
+ * storageUserId 解析结果 = PROBE_USER_ID（= EVAL_USER_ID），种 fact 和真实
+ * 聊天走的是同一个身份，且与生产用户零重叠。
+ */
+async function ensureProbeUser(pg: Client): Promise<void> {
   await pg.query(`INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [PROBE_USER_ID]);
-  // 探针间彻底清空，保证隔离
-  await pg.query(`DELETE FROM memories WHERE user_id = $1`, [PROBE_USER_ID]);
-  await pg.query(`DELETE FROM episodes WHERE user_id = $1`, [PROBE_USER_ID]);
-  for (const f of probe.seedFacts ?? []) {
-    await pg.query(
-      `INSERT INTO memories (user_id, key, value, importance, created_at)
-       VALUES ($1, $2, $3, 0.9, $4)
-       ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at`,
-      [PROBE_USER_ID, f.key, f.value, new Date(f.createdAt)],
-    );
-  }
 }
-
-/** 走 legacy_jwt/loopback 不可行时的兜底：直接用 SSE 池 + X-Remi-User 头？
- * 简化：探针用户经 REMI_PROBE_USER 头无从注入——改走【探针专用轻通道】：
- * 直接 POST /api/chat，服务端 loopback 匿名解析到 DEV_STORAGE_USER_ID。
- * 因此 seed 要种到 DEV 用户上；PROBE_USER_ID 仅在显式支持时使用。
- * 这里取实际策略：seed 到 resolveProbeStorageUser() 返回的用户。 */
-const DEV_STORAGE_USER_ID = "00000000-0000-4000-8000-000000000001";
 
 function resolveProbeStorageUser(): string {
-  return process.env.PROBE_STORAGE_USER_ID || DEV_STORAGE_USER_ID;
+  return PROBE_USER_ID;
 }
 
-async function chatOnce(base: string, message: string): Promise<string> {
-  const sessRes = await fetch(`${base}/api/chat/session`);
-  const { token } = (await sessRes.json()) as { token: string };
+async function chatOnce(base: string, token: string, message: string): Promise<string> {
+  const authHeaders = withEvalAuthHeaders(token, { "Content-Type": "application/json" });
+  const sessRes = await fetch(`${base}/api/chat/session`, { headers: authHeaders });
+  const { token: sessionToken } = (await sessRes.json()) as { token: string };
   const res = await fetch(`${base}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Remi-Session": token },
+    headers: { ...authHeaders, "X-Remi-Session": sessionToken },
     body: JSON.stringify({ content: message }),
   });
   const raw = await res.text();
@@ -228,7 +226,7 @@ interface ProbeResult {
   hits: string[];
 }
 
-async function runProbe(base: string, pg: Client, probe: Probe): Promise<ProbeResult> {
+async function runProbe(base: string, token: string, pg: Client, probe: Probe): Promise<ProbeResult> {
   const userId = resolveProbeStorageUser();
   await pg.query(`DELETE FROM memories WHERE user_id = $1 AND key = ANY($2)`, [
     userId,
@@ -243,7 +241,7 @@ async function runProbe(base: string, pg: Client, probe: Probe): Promise<ProbeRe
     );
   }
 
-  const reply = await chatOnce(base, resolveProbeMessage(probe));
+  const reply = await chatOnce(base, token, resolveProbeMessage(probe));
   const hits: string[] = [];
   let verdict: ProbeResult["verdict"] = "PASS";
 
@@ -279,11 +277,13 @@ async function runProbe(base: string, pg: Client, probe: Probe): Promise<ProbeRe
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const pg = await pgClient();
+  const token = await fetchEvalToken(args.base);
+  await ensureProbeUser(pg);
   const results: ProbeResult[] = [];
   try {
     for (const probe of PROBES) {
       if (args.only && !args.only.has(probe.id)) continue;
-      const r = await runProbe(args.base, pg, probe);
+      const r = await runProbe(args.base, token, pg, probe);
       results.push(r);
       if (!args.json) {
         console.log(`\n[${r.verdict}] ${r.id} — ${r.title}`);

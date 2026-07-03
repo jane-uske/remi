@@ -53,11 +53,40 @@ const env = { ...fileEnv, ...process.env };
 
 const hostFix = (u) => (u ?? "").replace("host.docker.internal", "127.0.0.1");
 
-const WS_URL = arg("--ws", env.PROBE_WS_URL ?? "ws://127.0.0.1:3000/ws");
+let WS_URL = arg("--ws", env.PROBE_WS_URL ?? "ws://127.0.0.1:3000/ws");
 const JUDGE_BASE_URL = hostFix(env.JUDGE_BASE_URL ?? env.REMI_LLM_BASE_URL ?? "http://127.0.0.1:1234/v1");
 const JUDGE_MODEL = env.JUDGE_MODEL ?? env.REMI_LLM_MODEL ?? "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive";
 const JUDGE_API_KEY = env.JUDGE_API_KEY ?? env.REMI_LLM_API_KEY ?? "lm-studio";
 const ONLY = (arg("--only", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+// ── 评测隔离（2026-07 止血）──────────────────────────────────────────────────
+// 此脚本默认打 --env .env.local-prod → ws://127.0.0.1:3000/ws，即生产 local-prod
+// 容器。裸 WS 连接无 token 时服务端 resolveRequestUserIdentity() 落到共享的
+// DEV_STORAGE_USER_ID —— REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 时那正是真实用户
+// 本人的 loopback 身份，多轮真实场景对话会直接写入其 messages/episodes。
+// 用 POST /api/loopback-identity 换一个评测专用身份（EVAL_USER_ID，与
+// scripts/eval_identity.ts 同一常量），把 token 挂在 WS_URL 的 ?token= 上，
+// 此后所有 new WebSocket(WS_URL) 调用自动携带评测身份，与生产用户完全隔离。
+const EVAL_USER_ID = "eeeeeeee-0000-4000-8000-00000000feed";
+async function attachEvalIdentity() {
+  const httpBase = WS_URL.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:").replace(/\/ws$/, "");
+  const res = await fetch(`${httpBase}/api/loopback-identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: EVAL_USER_ID }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `换取评测身份失败 (${res.status})：确认目标服务端 REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 且请求来自 loopback。`,
+    );
+  }
+  const { token } = await res.json();
+  if (!token) throw new Error("/api/loopback-identity 响应缺少 token 字段");
+  const u = new URL(WS_URL);
+  u.searchParams.set("token", token);
+  WS_URL = u.toString();
+}
+await attachEvalIdentity();
 
 const TURN_TIMEOUT_MS = 150_000;
 const JUDGE_TIMEOUT_MS = 90_000;
@@ -279,7 +308,17 @@ async function judgeScenario(scenario, turns) {
 const picked = ONLY.length ? scenarios.filter((s) => ONLY.includes(s.id)) : scenarios;
 const report = [];
 
-process.stderr.write(`[eval] WS=${WS_URL}\n[eval] judge=${JUDGE_MODEL} @ ${JUDGE_BASE_URL}\n[eval] ${picked.length} scenarios\n\n`);
+// 日志里不回显 token（避免评测 Bearer token 落进 console/CI 日志）。
+const redactedWsUrl = (() => {
+  try {
+    const u = new URL(WS_URL);
+    if (u.searchParams.has("token")) u.searchParams.set("token", "<redacted>");
+    return u.toString();
+  } catch {
+    return WS_URL;
+  }
+})();
+process.stderr.write(`[eval] WS=${redactedWsUrl}\n[eval] judge=${JUDGE_MODEL} @ ${JUDGE_BASE_URL}\n[eval] ${picked.length} scenarios\n\n`);
 
 for (const scenario of picked) {
   process.stderr.write(`[eval] ▶ ${scenario.id} (${scenario.label}) ...\n`);

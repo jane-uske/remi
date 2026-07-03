@@ -5,9 +5,35 @@ import { WebSocket } from "ws";
 
 const repoRoot = process.cwd();
 const baseUrl = process.env.BASE_URL ?? "http://127.0.0.1:3000";
-const wsUrl =
+let wsUrl =
   process.env.WS_URL ??
   baseUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:") + "/ws";
+
+// ── 评测隔离（2026-07 止血）──────────────────────────────────────────────────
+// 默认 baseUrl 就是生产 local-prod 容器（127.0.0.1:3000）。裸 WS 连接无 token
+// 时服务端把 storageUserId 落到共享的 DEV_STORAGE_USER_ID —— 本机
+// REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 时那正是真实用户本人的 loopback 身份，
+// 下面这些 prompt 会真实写入其 messages/episodes。换一个评测专用身份（与
+// scripts/eval_identity.ts 同一 EVAL_USER_ID），挂在 wsUrl 的 ?token= 上。
+const EVAL_USER_ID = "eeeeeeee-0000-4000-8000-00000000feed";
+async function attachEvalIdentity() {
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/loopback-identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: EVAL_USER_ID }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `换取评测身份失败 (${res.status})：确认目标服务端 REMI_AUTH_ALLOW_LOOPBACK_BYPASS=1 且请求来自 loopback。`,
+    );
+  }
+  const { token } = await res.json();
+  if (!token) throw new Error("/api/loopback-identity 响应缺少 token 字段");
+  const u = new URL(wsUrl);
+  u.searchParams.set("token", token);
+  wsUrl = u.toString();
+}
+await attachEvalIdentity();
 
 const cases = [
   {
@@ -190,7 +216,17 @@ async function runCases() {
 const logPath = latestLiveLogPath();
 const initialSize = fs.statSync(logPath).size;
 
-console.log(`[volc-followup] using ws: ${wsUrl}`);
+// 日志里不回显 token（避免评测 Bearer token 落进 console/CI 日志）。
+const redactedWsUrl = (() => {
+  try {
+    const u = new URL(wsUrl);
+    if (u.searchParams.has("token")) u.searchParams.set("token", "<redacted>");
+    return u.toString();
+  } catch {
+    return wsUrl;
+  }
+})();
+console.log(`[volc-followup] using ws: ${redactedWsUrl}`);
 console.log(`[volc-followup] tailing log: ${logPath}`);
 
 const caseResults = await runCases();
