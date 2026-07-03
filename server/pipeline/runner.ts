@@ -13,6 +13,10 @@ import {
 } from "../../voice/tts";
 import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
 import { EmotionTagParser } from "../../utils/emotion_tag_parser";
+import {
+  checkReplyTimeGuard,
+  type ReplyTimeGuardViolation,
+} from "../../utils/reply_time_guard";
 import { InterruptController } from "../../voice/interrupt_controller";
 import { AvatarController } from "../../avatar/avatar_controller";
 import { createLogger } from "../../infra/logger";
@@ -47,6 +51,44 @@ function avatarIntentEnabled(): boolean {
 
 function ttsSegmentPreview(text: string): string {
   return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+// ── 回复出口时间守卫（2026-07 生产实锤止血）─────────────────────────────
+//
+// 纯规则、纯同步：句子发出前校验星期/时段断言是否与"当下"矛盾（原理见
+// utils/reply_time_guard.ts 顶部注释）。off=不校验；detect=只记 WARN 不拦截；
+// drop=违规句从 TTS 队列和持久化文本里一并丢弃（兜底：整条回复全被丢时放行
+// 原文，只记日志，绝不能让她哑巴）。默认 drop。
+
+type ReplyTimeGuardMode = "off" | "detect" | "drop";
+
+function replyTimeGuardMode(): ReplyTimeGuardMode {
+  return getConfig().REMI_REPLY_TIME_GUARD;
+}
+
+/** 用户时区取不到时的兜底：env REMI_TZ（默认 Asia/Shanghai）。 */
+function resolveGuardTimeZone(ctx: RemiSessionContext): string {
+  return ctx.getClientTimeZone() ?? getConfig().REMI_TZ;
+}
+
+function logReplyTimeGuardHit(
+  connId: string,
+  generationId: number,
+  mode: ReplyTimeGuardMode,
+  sentence: string,
+  violations: ReplyTimeGuardViolation[],
+): void {
+  logger.warn("[ReplyTimeGuard]", {
+    connId,
+    generationId,
+    mode,
+    sentence: ttsSegmentPreview(sentence),
+    violations: violations.map((v) => ({
+      kind: v.kind,
+      token: v.token,
+      expected: v.expected,
+    })),
+  });
 }
 
 function sendTtsLipSync(
@@ -179,6 +221,16 @@ export async function runPipeline(
     let producerDone = false;
     let waitResolve: (() => void) | null = null;
 
+    // 回复出口时间守卫：drop 模式下被丢弃的原句，供 chat_end 前从 `full`
+    // 持久化文本里剔除（详见 pushSentence 内部与函数末尾的剔除逻辑）。
+    // totalSentencesSeen 记录 pushSentence 被调用的总次数（不论后续是否因
+    // 其它原因——图片/nsfw旁白等——被跳过），用来判断"这条回复的全部句子
+    // 是不是都被时间守卫丢了"：只有 totalSentencesSeen > 0 且
+    // droppedByTimeGuard.length === totalSentencesSeen 时才触发兜底（放行
+    // 原文只记日志，不能让她哑巴）。
+    const droppedByTimeGuard: string[] = [];
+    let totalSentencesSeen = 0;
+
     let enqueuedSegmentCount = 0;
     let ttsSuppressed =
       ctx.skipTtsThisTurn || !isSessionTtsEnabled(ctx.connId);
@@ -215,6 +267,26 @@ export async function runPipeline(
         }
         return;
       }
+
+      // ── 回复出口时间守卫：句子发出前的最小切口 ──────────────────────
+      // 注意：主动搭话（silenceNudge）也要过守卫——生产案例②本身就是一次
+      // 凌晨 01:42 的沉默搭话说错了时段，不能把这条路径排除在外。
+      const guardMode = replyTimeGuardMode();
+      if (guardMode !== "off") {
+        totalSentencesSeen += 1;
+        const guardResult = checkReplyTimeGuard(s, {
+          now: new Date(),
+          timeZone: resolveGuardTimeZone(ctx),
+        });
+        if (!guardResult.ok) {
+          logReplyTimeGuardHit(connId, generationId, guardMode, s, guardResult.violations);
+          if (guardMode === "drop") {
+            droppedByTimeGuard.push(s);
+            return;
+          }
+        }
+      }
+
       const speakablePunct = getConfig().REMI_TTS_SPEAKABLE_PUNCT;
       const ttsText = resolveTtsQueueText(s, {
         nsfw: isNsfwEnabled(connId),
@@ -484,6 +556,32 @@ export async function runPipeline(
     }
     ctx.currentAssistantDraft = null;
     const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
+
+    // ── 回复出口时间守卫：持久化前把 drop 掉的句子从 `full` 里剔除 ──────
+    // "存储侧：丢弃的句子不进 messages 持久化"——TTS 侧已经在 pushSentence
+    // 里跳过了，这里对齐处理持久化文本。兜底：如果这条回复的句子被守卫
+    // 判定为"全部丢弃"（totalSentencesSeen > 0 且两者相等），说明整条回复
+    // 都在断言错误的时间，宁可放行原文也不能让她哑巴——只记日志，不剔除。
+    if (
+      replyTimeGuardMode() === "drop" &&
+      droppedByTimeGuard.length > 0 &&
+      droppedByTimeGuard.length < totalSentencesSeen
+    ) {
+      for (const dropped of droppedByTimeGuard) {
+        full = full.split(dropped).join("");
+      }
+      full = full.trim();
+    } else if (
+      replyTimeGuardMode() === "drop" &&
+      droppedByTimeGuard.length > 0 &&
+      droppedByTimeGuard.length >= totalSentencesSeen
+    ) {
+      logger.warn("[ReplyTimeGuard] all sentences flagged, falling back to full reply", {
+        connId,
+        generationId,
+        droppedCount: droppedByTimeGuard.length,
+      });
+    }
 
     for (const guard of getOutputGuardHooks()) {
       const result = guard.review(full, {

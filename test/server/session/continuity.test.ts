@@ -143,8 +143,12 @@ describe("session continuity helpers", () => {
       await currentChain;
 
       assert.equal(pipelineCalls.length, 2);
-      assert.equal(pipelineCalls[0][1], "最近怎么样？");
-      assert.equal(pipelineCalls[1][1], "最近怎么样？");
+      // 2026-07-04 起 fireSessionSilenceNudge 会给 userMessage 补一行时间锚
+      // （见 continuity.ts 的 ensureNudgeMessageHasTimeAnchor，止血生产案例②
+      // "凌晨说黄昏"）——这里改用前缀匹配，不再要求逐字节相等，因为追加的
+      // 锚点文本包含当次运行的实时时钟读数。
+      assert.equal(pipelineCalls[0][1].startsWith("最近怎么样？"), true);
+      assert.equal(pipelineCalls[1][1].startsWith("最近怎么样？"), true);
     } finally {
       for (const timer of activeTimers) {
         clearTimeout(timer);

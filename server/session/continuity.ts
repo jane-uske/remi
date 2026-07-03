@@ -30,6 +30,76 @@ import type { SessionTtsTransport } from "./tts_transport";
 
 const logger = createLogger("session");
 
+// ── 主动搭话时间锚（2026-07 生产实锤止血）───────────────────────────────
+//
+// 生产案例②：凌晨 01:42 的主动搭话说"这会儿已经黄昏了"。system prompt 里
+// 已经有 buildTimeContextBlock() 产出的【此刻】时间块（见 brain/time_context.ts /
+// brains/context_orchestrator.ts），但模型（指令遵循偏弱）会无视——这正是
+// 本任务"回复出口时间守卫"要构造性防御的问题本身。这里再加一层便宜的
+// 前置补丁：主动搭话的 user turn 文本（brains/proactive_planner.ts 的
+// buildSilenceNudgeUserMessage() 输出、以及旧版 legacy plan 的 userMessage）
+// 直接摆在模型即将回应的那一轮里，比系统层的通用时间块更"贴脸"，双重锚点
+// 对指令遵循偏弱的模型更保险。只在文本里检测不到时间/星期/时段词时才追加，
+// 已经带了就不重复处理——不改 brains/ 目录一行代码，只在这里对其输出做
+// 只读的后处理包装。
+const WEEKDAY_OR_PERIOD_HINT_RE =
+  /(周[一二三四五六日]|星期[一二三四五六日]|礼拜[一二三四五六日]|凌晨|清晨|早上|上午|中午|下午|傍晚|黄昏|深夜|半夜|晚上|现在是|此刻是)/;
+
+function safeGuardTimeZone(timeZone: string | null): string {
+  const candidate = timeZone?.trim() || "Asia/Shanghai";
+  try {
+    new Intl.DateTimeFormat("zh-CN", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return "Asia/Shanghai";
+  }
+}
+
+function periodWordForHour(hour: number): string {
+  if (hour < 5) return "凌晨";
+  if (hour < 9) return "早上";
+  if (hour < 11) return "上午";
+  if (hour < 13) return "中午";
+  if (hour < 17) return "下午";
+  if (hour < 19) return "傍晚";
+  return "晚上";
+}
+
+/** 组装一行"现在是 X 星期 Y 时段，HH:mm"的时间锚提示。 */
+function buildNudgeTimeAnchorLine(now: Date, timeZone: string | null): string {
+  const tz = safeGuardTimeZone(timeZone);
+  const weekday = new Intl.DateTimeFormat("zh-CN", { timeZone: tz, weekday: "long" }).format(now);
+  const hourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "numeric",
+    hourCycle: "h23",
+  }).format(now);
+  const hour = Number(hourStr);
+  const period = Number.isFinite(hour) ? periodWordForHour(hour) : "";
+  const clock = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  return `（现在是${weekday}${period}，${clock}——请以此为准开口，不要用记忆里的旧星期/旧时段说话。）`;
+}
+
+/**
+ * 检查一段主动搭话的 user turn 文本是否已经带时间/星期/时段线索；没有就在
+ * 末尾补一行时间锚，已有则原样返回（"有就不动"）。
+ */
+export function ensureNudgeMessageHasTimeAnchor(
+  userMessage: string,
+  timeZone: string | null,
+  now: Date = new Date(),
+): string {
+  if (WEEKDAY_OR_PERIOD_HINT_RE.test(userMessage)) {
+    return userMessage;
+  }
+  return `${userMessage}${buildNudgeTimeAnchorLine(now, timeZone)}`;
+}
+
 type TraceSource = "voice" | "text" | "silence_nudge";
 
 export interface SessionContinuityRuntime {
@@ -290,9 +360,22 @@ export function fireSessionSilenceNudge(runtime: SessionContinuityRuntime): void
         });
       }
       runtime.bindActiveGeneration(generationId, traceId, "silence_nudge");
+      // 主动搭话时间锚补丁（见文件头注释）：不论 nudgePlan.userMessage 来自
+      // proactive planner 还是 legacy plan，发进 pipeline 前统一检查/补上
+      // 一行时间锚——覆盖生产案例②同类问题，且不改 brains/ 一行代码。
+      // 防御性调用 getClientTimeZone()：万一 runtime.brain 是简化 mock/未来
+      // 精简实现、不带这个方法，也绝不能让整条沉默搭话链路因此中断。
+      const nudgeTimeZone =
+        typeof runtime.brain.getClientTimeZone === "function"
+          ? runtime.brain.getClientTimeZone()
+          : null;
+      const nudgeUserMessage = ensureNudgeMessageHasTimeAnchor(
+        nudgePlan.userMessage,
+        nudgeTimeZone,
+      );
       await runPipeline(
         runtime.sink,
-        nudgePlan.userMessage,
+        nudgeUserMessage,
         runtime.interrupt,
         runtime.avatar,
         runtime.sessionId,

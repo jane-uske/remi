@@ -393,6 +393,14 @@ export const envSchema = z.object({
     .nonnegative()
     .default(520),
   REMI_THINKING_FILLER: booleanString("0"),
+  // 回复出口时间守卫（2026-07 生产实锤止血）：句子发出前用纯规则校验星期/时段
+  // 断言是否与当下矛盾（utils/reply_time_guard.ts）。off=不校验；detect=只记
+  // WARN 日志不拦截；drop=违规句丢弃不发送/不持久化（兜底：整条回复全被丢时
+  // 放行原文，只记日志，不能让她哑巴）。默认 drop——这是刚破的生产案的构造性
+  // 防御，不是可选项。
+  REMI_REPLY_TIME_GUARD: z.enum(["off", "detect", "drop"]).default("drop"),
+  // 用户时区取不到时（无 client_context、SSE 未传 timeZone）的兜底时区。
+  REMI_TZ: z.string().default("Asia/Shanghai"),
   // 打断 carry-forward V2（VOICE_BEST_PRACTICES 杠杆3）：更丰富的承接行为
   // ——mid-reply 提问先答再问、切话题先挂起旧线、情绪打断留可续上下文。
   // 默认关闭，开启时只改 carry-forward 提示文本，不改打断判定与 fast path。
