@@ -456,9 +456,15 @@ function loadPatchedRunSlowBrain(
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const originalFactExports = require(factPostprocessPath);
   const originalFactCacheEntry = require.cache[factPostprocessPath];
+  // 第三参数 userMessage（规则 5 身份类高危键第一人称直陈门槛的证据来源）
+  // 必须透传，否则 background_analysis.ts 调用 normalizeExtractedFact() 时
+  // 传的本轮用户消息会在这层拦截包装里被吃掉，规则 5 永远看到空串——所有
+  // 高危键 fact 都会被判"缺少直陈证据"而拒绝，体检产出的 postprocess_rescued
+  // 等指标会失真（把规则 5 的正常放行也算成拦截）。
   const realNormalize: (
     fact: ExtractedFactInput,
     observationDate: string,
+    userMessage?: string,
   ) => NormalizedFact | null = originalFactExports.normalizeExtractedFact;
 
   delete require.cache[backgroundAnalysisPath];
@@ -474,8 +480,8 @@ function loadPatchedRunSlowBrain(
     loaded: true,
     exports: {
       ...originalFactExports,
-      normalizeExtractedFact: (fact: ExtractedFactInput, observationDate: string) => {
-        const result = realNormalize(fact, observationDate);
+      normalizeExtractedFact: (fact: ExtractedFactInput, observationDate: string, userMessage?: string) => {
+        const result = realNormalize(fact, observationDate, userMessage);
         onNormalize(fact, result);
         return result;
       },

@@ -27,7 +27,7 @@ import { createLogger } from "../infra/logger";
 import type { SlowBrainStore } from "./background_analysis_store";
 import { isNsfwEnabled } from "./nsfw_mode";
 import { runProjectMemoryAnalysis } from "./project_memory_analysis";
-import { normalizeExtractedFact } from "./fact_postprocess";
+import { normalizeExtractedFact, normalizeFactKey, identityGateRejectionReason } from "./fact_postprocess";
 import type { TemporalFactsRepository } from "../storage/repositories/temporal_facts_repository";
 
 const logger = createLogger("background_analysis");
@@ -354,12 +354,25 @@ async function llmAnalysis(
         continue;
       }
       // 构造性校验层：key 时间词剥离/超长截断、状态类 fact 自动补观察日期、
-      // 残留指示性时间词兜底、低置信度推断过滤。null 表示这条 fact 不值得
-      // 保留——store.addFact（会话内存）和 memoryRepo.upsert（长期持久化）
-      // 两条消费路径共用同一次归一化结果，一起跳过（不是只挡 DB 写入）。
-      const normalized = normalizeExtractedFact({ key: k, value: v, confidence, source }, observationDate);
+      // 残留指示性时间词兜底、低置信度推断过滤、身份类高危键第一人称直陈门槛
+      // （"阿兵案"根治：虚构叙事场景里的人名/职业不得被当成用户本人事实）。
+      // null 表示这条 fact 不值得保留——store.addFact（会话内存）和
+      // memoryRepo.upsert（长期持久化）两条消费路径共用同一次归一化结果，
+      // 一起跳过（不是只挡 DB 写入）。
+      const normalized = normalizeExtractedFact({ key: k, value: v, confidence, source }, observationDate, userMessage);
       if (!normalized) {
-        logger.debug("fact 后处理校验未通过，跳过", { key: k, value: v.slice(0, 60) });
+        // 身份类高危键门槛（规则 5）拒绝时单独记 INFO 日志，便于观测拦截率；
+        // 其余拒绝原因（规则 1-4）维持原有 debug 级别，避免噪声升级。
+        const identityRejectionReason = identityGateRejectionReason(normalizeFactKey(k), userMessage);
+        if (identityRejectionReason) {
+          logger.info("身份类高危键写入被拒绝", {
+            key: k,
+            value: v.slice(0, 60),
+            reason: identityRejectionReason,
+          });
+        } else {
+          logger.debug("fact 后处理校验未通过，跳过", { key: k, value: v.slice(0, 60) });
+        }
         continue;
       }
       const { key: nk, value: nv } = normalized;
