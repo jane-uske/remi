@@ -34,17 +34,24 @@
 | VOICE-01 TTS | MLX TTS 环境重建+端口修复，成为主 TTS | 生产日志 |
 | DOC-01 审计 | MEMORY_ARCHITECTURE_AUDIT_2026-07（六路勘察） | 已提交 |
 | SHRINK-01 | 「最小可爱 Remi」收缩：`test:core` 子集（44 文件排除）+ CLAUDE.md 冻结区标注 | 2026-07-04 执行：全量 1324 测试/118 失败；`test:core` 887 测试/828 通过/59 失败（活跃区真实存量失败，非冻结污染） |
+| EVAL-02 评测隔离 | 「周一」案根因之一：6 个打真实服务的评测脚本改走替身用户（loopback-identity 机制复用，零服务端改动），根治"每轮回归给记忆喂假人生"循环 | 2026-07-04：实测跑探针后真实用户三表零新增 |
+| MEM-08 清创 v2 | 匿名桶整桶清空（214 msg/34 mem/17 ep，含影视假人设全套）+ 主桶删「姓名=阿兵」（小说角色穿越）与「明天周一」毒 episode；删前全量备份 `~/remi-db-backups/` | 毒残留全库 0 |
+| GUARD-01 出口时间守卫 | 「周一早起/凌晨说黄昏」构造性防御：句级同步正则核对星期/时段断言（`REMI_REPLY_TIME_GUARD` 默认 drop）+ silence_nudge 实时时间锚 | BC-T7/T8 生产实打 PASS |
+| MEM-09 虚构隔离 | 「阿兵」案根治：身份类画像键（33 词根）入库需第一人称直陈证据，虚构语境轮直接拒写（拒绝可观测）；NSFW/小说/扮演不进用户画像 | BC-T9 PASS；polish_eval 对照五毒率持平、拦截 1→18 |
 
 ### ⏳ 当前任务（按序）
 
 | ID | Task | Status | 说明 |
 |---|---|---|---|
-| USE-01 | 真实使用一周攒体感 | `in_progress` | 唯一关键路径；坏样本→探针流水线待命 |
+| USE-01 | 真实使用一周攒体感 | `in_progress` | 唯一关键路径；坏样本→探针流水线待命（探针已 9 根且已隔离，随便跑） |
 | MEM-05 | 对话史边界合同（BC-T6 残留） | `backlog` | 等体感排序 |
 | MEM-06 | CoreMemory rightNow 过期治理 | `backlog` | 时效改造唯一盲区 |
 | MEM-07 | 入库前 LLM 复核（幻觉精化） | `backlog` | 慢脑异步可承受 |
-| OPS-01 | push origin（288 本地提交） | `todo` | 等用户点头 |
-| OPS-02 | 8 个历史身份归并 | `blocked` | SQL 已备，需用户人工确认归属 |
+| MEM-10 | relationship_state 自由文本虚构渗入（conversationSummary 等 blob 路径不受 MEM-09 门槛保护，已实测渗入） | `backlog` | 需自由文本实体处理，另一把刀 |
+| GUARD-02 | chat_chunk 视觉流句级缓冲（坏句当前会在界面闪现一下，但不念不存；缓冲会破流式契约需设计） | `backlog` | 等体感判断值不值 |
+| EVAL-03 | chat_vitality 既有 2 RED（minimal_user / serious_interlude，07-04 确认为遗留非新退化） | `backlog` | 与今晚改动无关，待查 |
+| OPS-01 | push origin | `todo` | 07-04 凌晨新增 5 提交（收缩+隔离+守卫+虚构+探针），等用户点头 |
+| OPS-02 | 8 个历史身份归并 | `blocked` | SQL 已备，需用户人工确认归属（07-04 清创后仍见 42740f8f 等小桶） |
 
 ---
 
