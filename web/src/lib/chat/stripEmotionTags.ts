@@ -39,3 +39,29 @@ export function stripTrailingEmotionWord(
     .replace(new RegExp(`\\s*${escapeRegExp(word)}\\s*$`, "i"), "")
     .trimEnd();
 }
+
+/**
+ * chat_end 定稿文本决策（回复出口时间守卫收口，2026-07-04）。
+ *
+ * 服务端在守卫 drop 过违规句时，会在 chat_end 上携带剔除后的终稿
+ * `finalContent`（见 avatar/types.ts）。坏句在 chat_chunk 流式期间已经
+ * 闪现在屏幕上，这里让定稿消息用终稿覆盖流式累积文本，把它收走；
+ * 不带 finalContent 时走原路（流式累积 buffer），行为与从前逐字节一致。
+ *
+ * finalContent 是服务端持久化用的同一份文本（emotion 标签已在服务端剥过），
+ * 但仍过一遍与累积路径相同的 strip 兜底，两条路径出口格式保持一致。
+ */
+export function resolveChatEndText(
+  streamingBuf: string,
+  finalContent: unknown,
+  emotion: string | null | undefined,
+): string {
+  const guardFinal =
+    typeof finalContent === "string" && finalContent.trim()
+      ? finalContent
+      : null;
+  return stripTrailingEmotionWord(
+    stripEmotionTags(guardFinal ?? streamingBuf).trimEnd(),
+    emotion,
+  );
+}

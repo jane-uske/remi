@@ -187,6 +187,14 @@ export type RemiServerMessage =
       content?: string;
       generationId: number;
       ttsPending?: boolean;
+      /**
+       * 回复出口时间守卫（REMI_REPLY_TIME_GUARD=drop）剔除违规句后的终稿。
+       * 仅在本轮确实 drop 过句子、回复未被打断且剔除后仍有内容时携带；
+       * 前端用它覆盖 chat_chunk 流式累积的文本（坏句在流式期间已闪现，
+       * 定稿时把它收走——2026-07-04 生产两连案："反正周一还远着呢"）。
+       * 不带此字段时前端行为与从前逐字节一致。
+       */
+      finalContent?: string;
     }
   | {
       type: "tts_end";

@@ -89,7 +89,14 @@ function createSseWsAdapter(
           res.write(`data: ${sseEvent}\n\n`);
           fullContent += (msg as any).content ?? "";
         } else if (msg.type === "chat_end") {
-          onEnd(fullContent, (msg as any).emotion ?? "neutral");
+          // 回复出口时间守卫 drop 过句子时，chat_end 携带剔除后的终稿
+          // （finalContent）；外部 API 的最终文本优先用它，与持久化一致，
+          // 避免把守卫拦下的坏句原样交给外部调用方。
+          const guardFinal = (msg as any).finalContent;
+          onEnd(
+            typeof guardFinal === "string" && guardFinal ? guardFinal : fullContent,
+            (msg as any).emotion ?? "neutral",
+          );
         }
       } catch {
         // malformed message — ignore

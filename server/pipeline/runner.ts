@@ -540,12 +540,35 @@ export async function runPipeline(
 
     // ── Post-LLM steps (run while TTS processes in parallel) ──
 
+    // ── 回复出口时间守卫：终稿预计算（chat_end 携带 + 持久化共用）─────
+    // 违规句在 pushSentence 已拦掉 TTS，但 chat_chunk 流式文本早就到了客户
+    // 端屏幕上（2026-07-04 生产两连案："反正周一还远着呢"闪现后留在界面）。
+    // 这里在 chat_end 之前先算好剔除后的终稿：有 drop 时随 chat_end 带给
+    // 前端（finalContent），让界面定稿时用终稿覆盖流式累积文本；真正给
+    // `full` 赋值仍在下方原位置，保证 lastInterruptedReply /
+    // shouldPersistAssistantReply 读到的值与改动前一致。
+    const guardStripApplied =
+      replyTimeGuardMode() === "drop" &&
+      droppedByTimeGuard.length > 0 &&
+      droppedByTimeGuard.length < totalSentencesSeen;
+    let guardFinalContent = full;
+    if (guardStripApplied) {
+      for (const dropped of droppedByTimeGuard) {
+        guardFinalContent = stripSentenceLoose(guardFinalContent, dropped);
+      }
+      guardFinalContent = guardFinalContent.trim();
+    }
+
     send(sink, {
       type: "chat_end",
       emotion: finalReplyEmotion,
       content: signal.aborted ? "[interrupted]" : undefined,
       generationId,
       ttsPending: isTtsEnabled() && !ttsSuppressed && enqueuedSegmentCount > 0,
+      // 无 drop / 被打断 / 剔除后为空 → 不带 finalContent，前端行为不变
+      ...(guardStripApplied && !signal.aborted && guardFinalContent
+        ? { finalContent: guardFinalContent }
+        : {}),
     });
 
     // 保存被打断的回复内容，用于后续查询「刚才说到哪了」
@@ -559,19 +582,13 @@ export async function runPipeline(
     const shouldPersistAssistantReply = !isFallbackAssistantReply(full);
 
     // ── 回复出口时间守卫：持久化前把 drop 掉的句子从 `full` 里剔除 ──────
-    // "存储侧：丢弃的句子不进 messages 持久化"——TTS 侧已经在 pushSentence
-    // 里跳过了，这里对齐处理持久化文本。兜底：如果这条回复的句子被守卫
-    // 判定为"全部丢弃"（totalSentencesSeen > 0 且两者相等），说明整条回复
-    // 都在断言错误的时间，宁可放行原文也不能让她哑巴——只记日志，不剔除。
-    if (
-      replyTimeGuardMode() === "drop" &&
-      droppedByTimeGuard.length > 0 &&
-      droppedByTimeGuard.length < totalSentencesSeen
-    ) {
-      for (const dropped of droppedByTimeGuard) {
-        full = stripSentenceLoose(full, dropped);
-      }
-      full = full.trim();
+    // "存储侧：丢弃的句子不进 messages 持久化"——终稿已在 chat_end 前算好
+    // （guardFinalContent，同一份文本随 chat_end 带给了前端），这里生效到
+    // `full`。兜底：如果这条回复的句子被守卫判定为"全部丢弃"
+    // （totalSentencesSeen > 0 且两者相等），说明整条回复都在断言错误的
+    // 时间，宁可放行原文也不能让她哑巴——只记日志，不剔除。
+    if (guardStripApplied) {
+      full = guardFinalContent;
     } else if (
       replyTimeGuardMode() === "drop" &&
       droppedByTimeGuard.length > 0 &&

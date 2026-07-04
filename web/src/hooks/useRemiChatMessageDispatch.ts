@@ -25,7 +25,7 @@ import {
   parseServerTurnState,
 } from "./useRemiChatProtocol";
 import type { ChatMessage } from "@/types/chat";
-import { stripEmotionTags, stripTrailingEmotionWord } from "@/lib/chat/stripEmotionTags";
+import { resolveChatEndText } from "@/lib/chat/stripEmotionTags";
 
 // ── Video progress ────────────────────────────────────────
 
@@ -210,8 +210,12 @@ function handleChatEnd(
 ) {
   const av = ctx.avatarCallbacksRef.current;
   if (!ctx.allowServerGeneration("chat_end", data.generationId)) return;
-  const text = stripTrailingEmotionWord(
-    stripEmotionTags(ctx.streamingBufRef.current).trimEnd(),
+  // finalContent = 回复出口时间守卫剔除违规句后的终稿（服务端只在确实
+  // drop 过句子时携带）。带了就用它覆盖流式累积文本——坏句在流式期间
+  // 已闪现，定稿把它收走；没带则走流式累积原路，行为不变。
+  const text = resolveChatEndText(
+    ctx.streamingBufRef.current,
+    data.finalContent,
     data.emotion as string | null | undefined,
   );
   ctx.resetStreaming();
