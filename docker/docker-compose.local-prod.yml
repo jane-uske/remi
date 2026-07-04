@@ -17,6 +17,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # 容器时钟对齐用户时区：裸 new Date() 本地化输出曾以 UTC 泄进时间叙事（2026-07-04 案）
+      TZ: ${REMI_TZ:-Asia/Shanghai}
       DATABASE_URL: postgresql://${POSTGRES_USER:-rem}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rem_ai}
       REDIS_URL: redis://redis:6379
     extra_hosts:

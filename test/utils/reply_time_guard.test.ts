@@ -4,6 +4,7 @@ const {
   checkReplyTimeGuardForFullText,
   legalWeekdayCharsForSentence,
   legalPeriodWordsForHour,
+  stripSentenceLoose,
 } = require("../../utils/reply_time_guard");
 
 const TZ = "Asia/Shanghai";
@@ -259,6 +260,44 @@ describe("reply_time_guard", () => {
       assert.doesNotThrow(() => {
         checkReplyTimeGuard("周一早起确实折磨人。", { now, timeZone: "Not/ARealZone" });
       });
+    });
+  });
+
+  describe("stripSentenceLoose（持久化剔除的标点容错）", () => {
+    it("精确匹配时直接剔除", () => {
+      assert.equal(
+        stripSentenceLoose("早点睡吧。周二早起确实折磨人。晚安。", "周二早起确实折磨人。"),
+        "早点睡吧。晚安。",
+      );
+    });
+
+    it("生产实案：chunker 句子丢了逗号也能从原文剔除", () => {
+      const full =
+        "既然醒了就别在床上躺着胡思乱想，起来喝口水，或者去窗边吹吹风？反正周一还远着呢，别急着把自己往床上赶。";
+      const dropped = "反正周一还远着呢别急着把自己往床上赶。";
+      assert.equal(
+        stripSentenceLoose(full, dropped),
+        "既然醒了就别在床上躺着胡思乱想，起来喝口水，或者去窗边吹吹风？",
+      );
+    });
+
+    it("向前不吞：上一句的句尾标点保留", () => {
+      const result = stripSentenceLoose("你要不要听听看？周三见面聊。", "周三见面聊。");
+      assert.equal(result, "你要不要听听看？");
+    });
+
+    it("完全不匹配时原样返回，不误删", () => {
+      const full = "今天天气不错。";
+      assert.equal(stripSentenceLoose(full, "周五去爬山。"), full);
+    });
+
+    it("跨换行的标点差异也能剔除且不破坏其余段落", () => {
+      const full = "嗯…那就别硬撑着了。\n\n周一早起确实折磨人，趁现在还能闭眼，赶紧睡吧。我就在这守着，不打扰你。晚安。";
+      const dropped = "周一早起确实折磨人趁现在还能闭眼赶紧睡吧。";
+      const result = stripSentenceLoose(full, dropped);
+      assert.ok(!result.includes("周一"), `坏句应被剔除，得到: ${result}`);
+      assert.ok(result.includes("我就在这守着"), "后续句子应保留");
+      assert.ok(result.includes("嗯…那就别硬撑着了。"), "前段应保留");
     });
   });
 });

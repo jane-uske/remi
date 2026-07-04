@@ -56,10 +56,12 @@ describe("time capability", () => {
     );
   });
 
-  it("falls back to UTC when timezone is missing", () => {
+  it("falls back to REMI_TZ (Asia/Shanghai) when timezone is missing", () => {
+    // 旧行为 fallback UTC 是 2026-07-04「凌晨四点半」案的病根：SSE 文本会话
+    // 不带 timeZone 时，整个时间锚活在容器 UTC 时钟里。现在缺省回退用户时区。
     assert.equal(
       renderTimeReply("time_now", fixedUtcDate, { timeZone: "", perspective: "server" }),
-      "按我这边现在的时间看，现在是 12:34。",
+      "按我这边现在的时间看，现在是 20:34。",
     );
   });
 });

@@ -318,3 +318,27 @@ export function checkReplyTimeGuardForFullText(
     result: checkReplyTimeGuard(sentence, ctx),
   }));
 }
+
+/**
+ * 从全文中剔除一个句子，容忍标点/空白差异。
+ *
+ * SentenceChunker 输出的句子与 LLM 原文可能有标点差异（软边界标点被移动或丢弃），
+ * 生产实案：守卫 drop 了「反正周一还远着呢别急着把自己往床上赶。」（无逗号），
+ * 但 full 原文是「反正周一还远着呢，别急着把自己往床上赶。」——精确 split 匹配
+ * 失败，坏句原样进了持久化。这里先精确匹配，失败则按"实词序列 + 任意标点空白"
+ * 定位删除；向后吞掉句尾残留标点，向前不吞（句首标点属于上一句）。
+ */
+export function stripSentenceLoose(full: string, sentence: string): string {
+  const exact = full.split(sentence).join("");
+  if (exact !== full) return exact;
+  const core = [...sentence].filter((ch) => /[\p{L}\p{N}]/u.test(ch));
+  if (core.length === 0) return full;
+  const pattern = core
+    .map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[\\s\\p{P}]*");
+  try {
+    return full.replace(new RegExp(`${pattern}[\\s\\p{P}]*`, "u"), "");
+  } catch {
+    return full;
+  }
+}

@@ -15,6 +15,7 @@ import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sen
 import { EmotionTagParser } from "../../utils/emotion_tag_parser";
 import {
   checkReplyTimeGuard,
+  stripSentenceLoose,
   type ReplyTimeGuardViolation,
 } from "../../utils/reply_time_guard";
 import { InterruptController } from "../../voice/interrupt_controller";
@@ -568,7 +569,7 @@ export async function runPipeline(
       droppedByTimeGuard.length < totalSentencesSeen
     ) {
       for (const dropped of droppedByTimeGuard) {
-        full = full.split(dropped).join("");
+        full = stripSentenceLoose(full, dropped);
       }
       full = full.trim();
     } else if (

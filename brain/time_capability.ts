@@ -25,12 +25,15 @@ function timeCapabilityEnabled(): boolean {
 }
 
 function safeTimeZone(timeZone?: string | null): string {
-  const candidate = timeZone?.trim() || "UTC";
+  // fallback 必须是用户时区（REMI_TZ），绝不能是 UTC：生产容器时钟是 UTC，
+  // SSE 文本会话常不带 timeZone，曾导致时间锚整体活在 UTC——凌晨 01:42(CN)
+  // 被锚成"周五黄昏 17:42"，正午 12:27(CN) 被锚成"凌晨 04:27"（2026-07-04 案）。
+  const candidate = timeZone?.trim() || getConfig().REMI_TZ;
   try {
     new Intl.DateTimeFormat("zh-CN", { timeZone: candidate }).format(new Date());
     return candidate;
   } catch {
-    return "UTC";
+    return "Asia/Shanghai";
   }
 }
 
