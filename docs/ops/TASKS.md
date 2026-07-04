@@ -39,6 +39,7 @@
 | GUARD-01 出口时间守卫 | 「周一早起/凌晨说黄昏」构造性防御：句级同步正则核对星期/时段断言（`REMI_REPLY_TIME_GUARD` 默认 drop）+ silence_nudge 实时时间锚 | BC-T7/T8 生产实打 PASS |
 | MEM-09 虚构隔离 | 「阿兵」案根治：身份类画像键（33 词根）入库需第一人称直陈证据，虚构语境轮直接拒写（拒绝可观测）；NSFW/小说/扮演不进用户画像 | BC-T9 PASS；polish_eval 对照五毒率持平、拦截 1→18 |
 | TIME-01 时区总病根 | **全部星期案的上游真凶**：时间锚 fallback UTC（SSE 文本会话不带 timeZone → 时间叙事整体活在容器 UTC：「周一早起」案发时锚=周五傍晚、「凌晨四点半」=UTC 04:27 忠实读锚）。修复：锚 fallback→REMI_TZ + 容器 TZ 对齐 + 守卫持久化删句标点容错（生产实测漏删「反正周一还远着呢」） | 端到端：生产替身问"现在几点"→「星期六，现在是 12:48」✓ |
+| GUARD-02 定稿覆盖 | chat_end 携带守卫终稿 finalContent（仅真 drop 时），web 定稿覆盖流式残影——坏句从"留在屏幕上"变为"只闪现几秒"；/api/ext/chat 同步；历史手术：当日存档 3 句毒「周一」摘除+会话池清空 | 生产复读法实测：流式见坏句→定稿只剩「晚安。」✓ |
 
 ### ⏳ 当前任务（按序）
 
@@ -49,7 +50,8 @@
 | MEM-06 | CoreMemory rightNow 过期治理 | `backlog` | 时效改造唯一盲区 |
 | MEM-07 | 入库前 LLM 复核（幻觉精化） | `backlog` | 慢脑异步可承受 |
 | MEM-10 | relationship_state 自由文本虚构渗入（conversationSummary 等 blob 路径不受 MEM-09 门槛保护，已实测渗入） | `backlog` | 需自由文本实体处理，另一把刀 |
-| GUARD-02 | chat_chunk 视觉流句级缓冲（坏句当前会在界面闪现一下，但不念不存；缓冲会破流式契约需设计） | `backlog` | 等体感判断值不值 |
+| GUARD-03 | 守卫误杀扩大化：守卫粒度=TTS chunk，短坏句（<minTtsChars）与邻句合并后整块陪葬；修法=drop 前按真句边界重判只丢违规子句 | `backlog` | 2026-07-04 实测发现 |
+| MEM-11 | 名字空洞诚实：姓名删除后问"我叫什么"她答自己的名字（应答"你还没告诉过我"）；追问诚实合同没兜住名字类提问 | `backlog` | 2026-07-04 生产坏样本 |
 | EVAL-03 | chat_vitality 既有 2 RED（minimal_user / serious_interlude，07-04 确认为遗留非新退化） | `backlog` | 与今晚改动无关，待查 |
 | OPS-01 | push origin | `todo` | 07-04 凌晨新增 5 提交（收缩+隔离+守卫+虚构+探针），等用户点头 |
 | OPS-02 | 8 个历史身份归并 | `blocked` | SQL 已备，需用户人工确认归属（07-04 清创后仍见 42740f8f 等小桶） |
