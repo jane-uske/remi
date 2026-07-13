@@ -50,7 +50,7 @@
 | MEM-06 | CoreMemory rightNow 过期治理 | `backlog` | 时效改造唯一盲区 |
 | MEM-07 | 入库前 LLM 复核（幻觉精化） | `backlog` | 慢脑异步可承受 |
 | MEM-10 | relationship_state 自由文本虚构渗入（conversationSummary 等 blob 路径不受 MEM-09 门槛保护，已实测渗入） | `backlog` | 需自由文本实体处理，另一把刀 |
-| GUARD-03 | 守卫误杀扩大化：守卫粒度=TTS chunk，短坏句（<minTtsChars）与邻句合并后整块陪葬；修法=drop 前按真句边界重判只丢违规子句 | `backlog` | 2026-07-04 实测发现 |
+| GUARD-03 | 守卫误杀扩大化：守卫粒度=TTS chunk，短坏句（<minTtsChars）与邻句合并后整块陪葬；修法=drop 前按真句边界重判只丢违规子句 | `done` | 2026-07-13 修复：`pushSentence` 改用 `checkReplyTimeGuardForFullText` 按真句（硬标点边界）逐句判定，drop 只丢违规子句、存活子句继续 TTS+持久化；顺带修掉整块判定的跨句污染误杀（A 句"现在"激活对 B 句时段词的审判）。3 根新单测覆盖合并 chunk 场景，且经验证在旧代码上必失败 |
 | MEM-11 | 名字空洞诚实：姓名删除后问"我叫什么"她答自己的名字（应答"你还没告诉过我"）；追问诚实合同没兜住名字类提问 | `backlog` | 2026-07-04 生产坏样本 |
 | EVAL-03 | chat_vitality 既有 2 RED（minimal_user / serious_interlude，07-04 确认为遗留非新退化） | `backlog` | 与今晚改动无关，待查 |
 | OPS-01 | push origin | `todo` | 07-04 凌晨新增 5 提交（收缩+隔离+守卫+虚构+探针），等用户点头 |

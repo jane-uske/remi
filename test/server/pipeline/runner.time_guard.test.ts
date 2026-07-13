@@ -48,7 +48,7 @@ async function withEnv(overrides: Record<string, string | undefined>, fn: () => 
   }
 }
 
-function loadMockedRunner({ chatStream, saveMessage, warnSink }: any) {
+function loadMockedRunner({ chatStream, saveMessage, warnSink, synthCalls }: any) {
   const runnerPath = path.resolve(__dirname, "../../../server/pipeline/runner.ts");
   const conversationAgentPath = path.resolve(__dirname, "../../../agents/conversation_agent.ts");
   const avatarIntentPath = path.resolve(__dirname, "../../../agents/avatar_intent_agent.ts");
@@ -90,7 +90,13 @@ function loadMockedRunner({ chatStream, saveMessage, warnSink }: any) {
   };
   require.cache[ttsStreamPath] = {
     id: ttsStreamPath, filename: ttsStreamPath, loaded: true,
-    exports: { isTtsEnabled: () => true, synthesize: async () => Buffer.from("fake") },
+    exports: {
+      isTtsEnabled: () => true,
+      synthesize: async (text: string) => {
+        synthCalls?.push(text);
+        return Buffer.from("fake");
+      },
+    },
   };
   require.cache[messageRepoPath] = {
     id: messageRepoPath, filename: messageRepoPath, loaded: true,
@@ -130,6 +136,7 @@ interface RunCase {
 async function runGuardCase({ guardMode, replyChunks }: RunCase) {
   const warnLogs: Array<{ message: string; data: any }> = [];
   const savedMessages: Array<{ role: string; content: string }> = [];
+  const synthCalls: string[] = [];
   let result: any = null;
 
   await withEnv({ REMI_REPLY_TIME_GUARD: guardMode, REMI_TZ: "Asia/Shanghai" }, async () => {
@@ -142,6 +149,7 @@ async function runGuardCase({ guardMode, replyChunks }: RunCase) {
         return { id: "m1", session_id: sessionId, role, content, created_at: new Date() };
       },
       warnSink: (message: string, data: any) => warnLogs.push({ message, data }),
+      synthCalls,
     });
     try {
       const ws = new FakeWebSocket();
@@ -158,6 +166,7 @@ async function runGuardCase({ guardMode, replyChunks }: RunCase) {
           .join(""),
         assistantSaved: savedMessages.find((m) => m.role === "assistant"),
         warnLogs,
+        synthCalls,
       };
     } finally {
       restore();
@@ -214,6 +223,89 @@ describe("pipeline time guard chat_end finalContent", () => {
       l.message.includes("all sentences flagged"),
     );
     assert(fallbackWarn, "expected the all-flagged fallback WARN log");
+  });
+
+  // ── GUARD-03：守卫粒度=真句，不再让 TTS chunk 合并的无辜邻句陪葬 ──────
+  //
+  // SentenceChunker 会把 <minTtsChars（默认 16）的短句 hold 进下一块，
+  // 一个 pushSentence 收到的 chunk 可能是「坏短句 + 无辜邻句」。旧行为整块
+  // drop（2026-07-04 实测误杀）；新行为按真句边界重判，只丢违规子句。
+
+  it("GUARD-03: drops only the violating sub-sentence when a short bad sentence merged with an innocent neighbor", async () => {
+    // 9 字坏短句（<16）会被 chunker hold 住并入下一句 → 一个合并 chunk
+    const badShort = `反正周${weekdayCharWithOffset(3)}还远着呢。`;
+    const innocent = "早点睡觉做个好梦明天会更好。";
+    const opener = "今晚就聊到这里吧我们说了很多。";
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: [opener, badShort, innocent],
+    });
+
+    // 终稿与持久化都只剔坏句，无辜邻句保留
+    assert.equal(r.chatEnd.finalContent, `${opener}${innocent}`);
+    assert.equal(r.assistantSaved.content, `${opener}${innocent}`);
+    // TTS 侧：无辜邻句仍然说出口，坏句没有
+    assert(
+      r.synthCalls.some((t: string) => t.includes("早点睡觉")),
+      `innocent neighbor must still reach TTS, got: ${JSON.stringify(r.synthCalls)}`,
+    );
+    assert.equal(
+      r.synthCalls.some((t: string) => t.includes("还远着呢")),
+      false,
+      "violating sentence must not reach TTS",
+    );
+    // WARN 记录的是真句而非整个 chunk
+    const guardWarn = r.warnLogs.find((l: any) => l.message.includes("ReplyTimeGuard"));
+    assert(guardWarn, "expected ReplyTimeGuard WARN log");
+    assert.equal(guardWarn.data.sentence.includes("早点睡觉"), false);
+  });
+
+  it("GUARD-03: a fully-violating merged chunk is still dropped whole while clean chunks survive", async () => {
+    const opener = "今晚就聊到这里吧我们说了很多。";
+    const bad1 = `反正周${weekdayCharWithOffset(3)}还远着呢。`; // 9 字 → hold
+    const bad2 = `今天是周${weekdayCharWithOffset(3)}呀。`; // 合并后 ≥16 → 整块出来
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: [opener, bad1, bad2],
+    });
+
+    assert.equal(r.chatEnd.finalContent, opener);
+    assert.equal(r.assistantSaved.content, opener);
+    assert.equal(
+      r.synthCalls.some((t: string) => t.includes("周")),
+      false,
+      "no weekday sentence may reach TTS",
+    );
+  });
+
+  it("GUARD-03: a now-indicator in sentence A no longer condemns a period word in sentence B (cross-sentence pollution)", async () => {
+    // 运行时挑一个「对当前小时不合法」的时段词，保证旧整块判定必然误杀
+    const { legalPeriodWordsForHour } = require("../../../utils/reply_time_guard");
+    const hourNow = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Shanghai",
+        hour: "numeric",
+        hourCycle: "h23",
+      }).format(new Date()),
+    );
+    const legal = legalPeriodWordsForHour(hourNow);
+    const illegalWord = ["凌晨", "上午", "下午", "晚上"].find((w) => !legal.has(w));
+    assert(illegalWord, "expected at least one illegal period word for any hour");
+
+    // "现在好困呀。"（6 字 <8 eager min）被 hold → 与下一句合成一个 chunk：
+    // 现在时指示词在 A 句、时段词在 B 句（B 句自身无现在时指示词）
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: ["现在好困呀。", `${illegalWord}的街道很安静。`],
+    });
+
+    assert.equal("finalContent" in r.chatEnd, false, "nothing should be dropped");
+    assert.equal(r.assistantSaved.content, `现在好困呀。${illegalWord}的街道很安静。`);
+    assert.equal(
+      r.warnLogs.some((l: any) => l.message.includes("ReplyTimeGuard")),
+      false,
+      "cross-sentence pollution must not trigger the guard",
+    );
   });
 
   it("detect mode: logs the violation but neither drops nor carries finalContent", async () => {

@@ -14,7 +14,7 @@ import {
 import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
 import { EmotionTagParser } from "../../utils/emotion_tag_parser";
 import {
-  checkReplyTimeGuard,
+  checkReplyTimeGuardForFullText,
   stripSentenceLoose,
   type ReplyTimeGuardViolation,
 } from "../../utils/reply_time_guard";
@@ -60,6 +60,8 @@ function ttsSegmentPreview(text: string): string {
 // utils/reply_time_guard.ts 顶部注释）。off=不校验；detect=只记 WARN 不拦截；
 // drop=违规句从 TTS 队列和持久化文本里一并丢弃（兜底：整条回复全被丢时放行
 // 原文，只记日志，绝不能让她哑巴）。默认 drop。
+// 判定粒度是"真句"（硬标点边界），不是 TTS chunk——见 pushSentence 内
+// GUARD-03 注释。
 
 type ReplyTimeGuardMode = "off" | "detect" | "drop";
 
@@ -224,10 +226,11 @@ export async function runPipeline(
 
     // 回复出口时间守卫：drop 模式下被丢弃的原句，供 chat_end 前从 `full`
     // 持久化文本里剔除（详见 pushSentence 内部与函数末尾的剔除逻辑）。
-    // totalSentencesSeen 记录 pushSentence 被调用的总次数（不论后续是否因
-    // 其它原因——图片/nsfw旁白等——被跳过），用来判断"这条回复的全部句子
-    // 是不是都被时间守卫丢了"：只有 totalSentencesSeen > 0 且
-    // droppedByTimeGuard.length === totalSentencesSeen 时才触发兜底（放行
+    // totalSentencesSeen 以"真句"（硬标点边界）为单位计数——一个 TTS chunk
+    // 可能由多个真句合并而成（SentenceChunker 会把 <minTtsChars 的短句 hold
+    // 进下一块），守卫判定与计数都在真句粒度上做（GUARD-03），用来判断
+    // "这条回复的全部句子是不是都被时间守卫丢了"：只有 totalSentencesSeen > 0
+    // 且 droppedByTimeGuard.length >= totalSentencesSeen 时才触发兜底（放行
     // 原文只记日志，不能让她哑巴）。
     const droppedByTimeGuard: string[] = [];
     let totalSentencesSeen = 0;
@@ -272,18 +275,33 @@ export async function runPipeline(
       // ── 回复出口时间守卫：句子发出前的最小切口 ──────────────────────
       // 注意：主动搭话（silenceNudge）也要过守卫——生产案例②本身就是一次
       // 凌晨 01:42 的沉默搭话说错了时段，不能把这条路径排除在外。
+      //
+      // GUARD-03（2026-07-04 实测误杀）：这里收到的 `s` 是 TTS chunk，不是
+      // 真句——SentenceChunker 会把 <minTtsChars 的短句 hold 进下一块，坏短句
+      // 与无辜邻句合并后整块陪葬。所以判定按真句边界逐句做，drop 只丢违规
+      // 子句，存活子句继续走 TTS。顺带修掉旧整块判定的跨句污染误杀：A 句的
+      // "现在"会激活对 B 句时段词的审判（NOW_INDICATOR 本应是句内条件）。
       const guardMode = replyTimeGuardMode();
       if (guardMode !== "off") {
-        totalSentencesSeen += 1;
-        const guardResult = checkReplyTimeGuard(s, {
+        const perSentence = checkReplyTimeGuardForFullText(s, {
           now: new Date(),
           timeZone: resolveGuardTimeZone(ctx),
         });
-        if (!guardResult.ok) {
-          logReplyTimeGuardHit(connId, generationId, guardMode, s, guardResult.violations);
+        totalSentencesSeen += perSentence.length;
+        const violating = perSentence.filter((p) => !p.result.ok);
+        if (violating.length > 0) {
+          for (const v of violating) {
+            logReplyTimeGuardHit(connId, generationId, guardMode, v.sentence, v.result.violations);
+          }
           if (guardMode === "drop") {
-            droppedByTimeGuard.push(s);
-            return;
+            for (const v of violating) droppedByTimeGuard.push(v.sentence);
+            const keptText = perSentence
+              .filter((p) => p.result.ok)
+              .map((p) => p.sentence)
+              .join("")
+              .trim();
+            if (!keptText) return; // 整块全违规，照旧丢弃
+            s = keptText; // 只丢违规子句，无辜邻句保留
           }
         }
       }
