@@ -225,6 +225,23 @@ export class SentenceChunker {
     return candidate;
   }
 
+  /**
+   * Join held text with the next chunk, restoring a destroyed sentence boundary.
+   *
+   * 被 hold 的片段一定终止于某个边界（hard_end 保留终止标点、soft_break 保留
+   * 软标点），唯一的例外是「\n 终止的硬边界句」——slice 后的 .trim() 会把句尾
+   * \n 抹掉。直接无缝拼接会让两个真句变成一个伪句，下游按硬标点切真句的逻辑
+   * （如 reply_time_guard 的 GUARD-03 句级判定）永远无法恢复这个边界，坏短句
+   * 会拖着无辜邻句一起被丢。这里在 hold 尾部无任何标点时用 \n 归还边界；
+   * \n 对 TTS 是普通空白，不影响合成。
+   */
+  private joinWithHeld(text: string): string {
+    if (!this.hold) return text;
+    const tail = this.hold.slice(-1);
+    const boundary = SENTENCE_END.test(tail) || SOFT_BREAK_RE.test(tail) ? "" : "\n";
+    return this.hold + boundary + text;
+  }
+
   /** Merge held text with outgoing chunks; hold fragments shorter than minTtsChars. */
   private applyMinTtsLength(chunks: SentenceChunk[]): SentenceChunk[] {
     const minChars = this._eager ? this.eagerMinTtsChars : this.minTtsChars;
@@ -233,7 +250,7 @@ export class SentenceChunker {
     const out: SentenceChunk[] = [];
     for (const c of chunks) {
       if (!c?.text) continue;
-      const piece = this.hold + c.text;
+      const piece = this.joinWithHeld(c.text);
       if (piece.length >= minChars) {
         out.push({
           text: piece,
@@ -250,7 +267,7 @@ export class SentenceChunker {
   flushDetailed(): SentenceChunk | null {
     const rest = this.buffer.trim();
     this.buffer = "";
-    const merged = (this.hold + rest).trim();
+    const merged = this.joinWithHeld(rest).trim();
     this.hold = "";
     if (!merged) return null;
     return {

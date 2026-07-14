@@ -159,4 +159,38 @@ describe("SentenceChunker", () => {
     assert.equal(firstPush[1]?.text.includes("那条老是反复回来烦你的工作线"), true);
     assert.equal(chunker.flush(), "");
   });
+
+  // GUARD-03 边界保全：\n 终止的短句被 hold 后，合并时必须归还句边界。
+  // slice 后的 .trim() 会抹掉句尾 \n，若无缝拼接，两个真句会变成一个伪句，
+  // 下游句级逻辑（reply_time_guard）永远无法恢复这个边界。
+  it("restores a \\n sentence boundary when a held short sentence merges into the next chunk", () => {
+    const chunker = new SentenceChunker({ minTtsChars: 16 });
+    chunker.setEager(false);
+
+    assert.deepEqual(chunker.push("现在好困呀\n"), []); // 5 字 < 16 → hold（\n 被 trim 掉）
+    const out = chunker.push("凌晨的街道很安静总让人想多走两步。");
+
+    assert.equal(out.length, 1);
+    assert.equal(out[0], "现在好困呀\n凌晨的街道很安静总让人想多走两步。");
+  });
+
+  it("does not inject a separator when the held sentence kept its own terminator", () => {
+    const chunker = new SentenceChunker({ minTtsChars: 16 });
+    chunker.setEager(false);
+
+    assert.deepEqual(chunker.push("现在好困呀。"), []); // 6 字 < 16 → hold（。保留）
+    const out = chunker.push("凌晨的街道很安静总让人想多走两步。");
+
+    assert.equal(out.length, 1);
+    assert.equal(out[0], "现在好困呀。凌晨的街道很安静总让人想多走两步。");
+  });
+
+  it("restores the \\n boundary on flush as well", () => {
+    const chunker = new SentenceChunker({ minTtsChars: 16 });
+    chunker.setEager(false);
+
+    assert.deepEqual(chunker.push("现在好困呀\n"), []); // hold
+    assert.deepEqual(chunker.push("凌晨很安静"), []); // 无终止符 → 留在 buffer
+    assert.equal(chunker.flush(), "现在好困呀\n凌晨很安静");
+  });
 });

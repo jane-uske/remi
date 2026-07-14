@@ -14,6 +14,7 @@ import {
 import { SentenceChunker, type SentenceChunkBoundaryType } from "../../utils/sentence_chunker";
 import { EmotionTagParser } from "../../utils/emotion_tag_parser";
 import {
+  checkReplyTimeGuard,
   checkReplyTimeGuardForFullText,
   stripSentenceLoose,
   type ReplyTimeGuardViolation,
@@ -283,20 +284,34 @@ export async function runPipeline(
       // "现在"会激活对 B 句时段词的审判（NOW_INDICATOR 本应是句内条件）。
       const guardMode = replyTimeGuardMode();
       if (guardMode !== "off") {
-        const perSentence = checkReplyTimeGuardForFullText(s, {
+        const guardCtx = {
           now: new Date(),
           timeZone: resolveGuardTimeZone(ctx),
-        });
+        };
+        const perSentence = checkReplyTimeGuardForFullText(s, guardCtx);
         totalSentencesSeen += perSentence.length;
-        const violating = perSentence.filter((p) => !p.result.ok);
+        let violating = perSentence.filter((p) => !p.result.ok);
+        if (violating.length > 0 && perSentence.length > 1) {
+          // 整块视角复核：真句切分会截断跨句豁免窗口（引号对、"明天/昨天"
+          // 线索在邻句），子句视角单独判罚会造出旧整块判定没有的新误杀。
+          // 只有"子句视角与整块视角都认定违规"的才 drop（宁可漏杀不误杀）。
+          const whole = checkReplyTimeGuard(s, guardCtx);
+          const wholeKeys = new Set(
+            whole.violations.map((v) => `${v.kind}:${v.token}`),
+          );
+          violating = violating.filter((p) =>
+            p.result.violations.some((v) => wholeKeys.has(`${v.kind}:${v.token}`)),
+          );
+        }
         if (violating.length > 0) {
           for (const v of violating) {
             logReplyTimeGuardHit(connId, generationId, guardMode, v.sentence, v.result.violations);
           }
           if (guardMode === "drop") {
+            const dropSet = new Set(violating);
             for (const v of violating) droppedByTimeGuard.push(v.sentence);
             const keptText = perSentence
-              .filter((p) => p.result.ok)
+              .filter((p) => !dropSet.has(p)) // 注意不能按 result.ok 过滤：被整块视角豁免的句子 ok=false 但必须保留
               .map((p) => p.sentence)
               .join("")
               .trim();

@@ -308,6 +308,79 @@ describe("pipeline time guard chat_end finalContent", () => {
     );
   });
 
+  // ── GUARD-03 补丁二：\n 终止的短句（chunker 边界保全）+ 整块视角复核 ──
+
+  it("GUARD-03/\\n: a newline-terminated short bad sentence no longer drags its innocent neighbor down", async () => {
+    // "反正周X还远着呢\n"：句尾 \n 曾被 chunker trim 掉，hold 合并后两真句成一伪句
+    const badShortNl = `反正周${weekdayCharWithOffset(3)}还远着呢\n`;
+    const innocent = "早点睡觉做个好梦明天会更好。";
+    const opener = "今晚就聊到这里吧我们说了很多。";
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: [opener, badShortNl, innocent],
+    });
+
+    assert.equal(r.chatEnd.finalContent, `${opener}${innocent}`);
+    assert.equal(r.assistantSaved.content, `${opener}${innocent}`);
+    assert(
+      r.synthCalls.some((t: string) => t.includes("早点睡觉")),
+      `innocent neighbor must still reach TTS, got: ${JSON.stringify(r.synthCalls)}`,
+    );
+    assert.equal(
+      r.synthCalls.some((t: string) => t.includes("还远着呢")),
+      false,
+    );
+  });
+
+  it("GUARD-03/\\n: cross-sentence NOW pollution stays fixed when the held sentence ends with a newline", async () => {
+    const { legalPeriodWordsForHour } = require("../../../utils/reply_time_guard");
+    const hourNow = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Shanghai",
+        hour: "numeric",
+        hourCycle: "h23",
+      }).format(new Date()),
+    );
+    const legal = legalPeriodWordsForHour(hourNow);
+    const illegalWord = ["凌晨", "上午", "下午", "晚上"].find((w) => !legal.has(w));
+    assert(illegalWord);
+
+    const opener = "今晚就聊到这里吧我们说了很多。";
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: [opener, "现在好困呀\n", `${illegalWord}的街道很安静。`],
+    });
+
+    assert.equal("finalContent" in r.chatEnd, false, "nothing should be dropped");
+    assert.equal(
+      r.assistantSaved.content,
+      `${opener}现在好困呀\n${illegalWord}的街道很安静。`,
+    );
+    assert.equal(
+      r.warnLogs.some((l: any) => l.message.includes("ReplyTimeGuard")),
+      false,
+    );
+  });
+
+  it("GUARD-03/whole-view: a quote pair spanning sub-sentences still exempts the quoted assertion", async () => {
+    // 引号豁免窗口横跨真句边界：子句视角看不到闭合引号，整块视角能看到。
+    // 只有两个视角都认定违规才 drop，转述他人的话不能被切碎误杀。
+    const opener = "她昨天笑着对我说过一句话。";
+    const quoteHead = `她说「今天是周${weekdayCharWithOffset(3)}。`; // 9 字 → hold
+    const quoteTail = "放心吧」听着就很暖。";
+    const r = await runGuardCase({
+      guardMode: "drop",
+      replyChunks: [opener, quoteHead, quoteTail],
+    });
+
+    assert.equal("finalContent" in r.chatEnd, false, "quoted speech must not be dropped");
+    assert.equal(r.assistantSaved.content, `${opener}${quoteHead}${quoteTail}`);
+    assert(
+      r.synthCalls.some((t: string) => t.includes("今天是周")),
+      "quoted sentence must still reach TTS",
+    );
+  });
+
   it("detect mode: logs the violation but neither drops nor carries finalContent", async () => {
     const badSentence = `周${weekdayCharWithOffset(3)}早起确实折磨人。`;
     const r = await runGuardCase({
